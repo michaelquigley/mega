@@ -1,0 +1,1 @@
+["Run python3 -c \"import time; time.sleep(25); print(1)\" in the foreground (no approval should be needed in a read-only sandbox), then reply S5-ACTIVE. Nothing else."]

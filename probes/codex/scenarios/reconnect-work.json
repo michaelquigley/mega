@@ -1,0 +1,1 @@
+["Using a shell command, create a file named rc1.txt in the working directory containing RC-1 (this needs approval), then run python3 -c \"import time; time.sleep(15)\" , then reply RC-1. Nothing else."]

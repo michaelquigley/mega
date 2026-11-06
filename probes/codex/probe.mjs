@@ -9,6 +9,15 @@
 //        [--interrupt-after-ms N [--interrupt-turn I]] [--interrupt-on-approval] \
 //        [--stale-after-interrupt] [--kill-owner-after-ms N] [--kill-server-after-ms N] \
 //        [--approval-policy untrusted|on-request|never] [--sandbox read-only|workspace-write]
+//        [--relay SOCK [--hold]]  owner mode: server requests wait for a relay client's answer
+//        [--steer-answer TEXT]    when an agentMessage with questions[] (async question) appears,
+//                                 send TEXT into the active turn with turn/steer
+//        [--start-json JSON] [--turn-json JSON]  extra params merged into thread/start|resume and turn/start
+//        [--config k=v]           passed to `codex app-server -c k=v` (repeatable via comma)
+//        [--linger-ms N]          wait N ms after the last turn before closing stdin
+//        [--close-on-approval]     suspension test: close stdin while an approval is pending, record exit
+//        [--stale-after-harness-resolve]  in relay mode, send a raw late JSON-RPC accept 2 s after the
+//                                 server itself resolved a pending request (records the server's reaction)
 //   node probe.mjs list --cwd DIR
 //   node probe.mjs read --thread THREAD_ID
 //
@@ -22,6 +31,7 @@ import { spawn } from 'node:child_process';
 import { createWriteStream, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { createRelay } from '../common/relay.mjs';
 
 const argv = process.argv.slice(2);
 const cmd = argv.shift();
@@ -38,7 +48,9 @@ const log = createWriteStream(opt.log ?? `logs/run-${Date.now()}.jsonl`, { flags
 const rec = (kind, data) => { if (!logEnded) log.write(JSON.stringify({ t: ts(), kind, ...data }) + '\n'); };
 
 // ---- transport -----------------------------------------------------------
-const child = spawn('codex', ['app-server'], { cwd: opt.cwd ? resolve(opt.cwd) : process.cwd(), stdio: ['pipe', 'pipe', 'pipe'] });
+const serverArgs = ['app-server']; for (const kv of String(opt.config ?? '').split(',').filter(Boolean)) serverArgs.push('-c', kv);
+const relay = opt.relay ? createRelay({ socketPath: opt.relay, log: (k, d) => rec(k, d) }) : null;
+const child = spawn('codex', serverArgs, { cwd: opt.cwd ? resolve(opt.cwd) : process.cwd(), stdio: ['pipe', 'pipe', 'pipe'] });
 rec('spawn', { pid: child.pid, cwd: opt.cwd ? resolve(opt.cwd) : process.cwd() });
 child.stderr.on('data', d => rec('server_stderr', { data: String(d).slice(0, 2000) }));
 let nextId = 1; const pending = new Map();
@@ -60,11 +72,23 @@ const exitP = new Promise(r => child.on('exit', (code, sig) => { rec('server_exi
 
 const lastAgentText = new Map();
 const summary = { thread: null, turns: [], serverRequests: [], statusChanges: [], exit: null };
-let currentThreadId = null; let currentTurnId = null;
+let currentThreadId = null; let currentTurnId = null; let steered = false;
 
 createInterface({ input: child.stdout }).on('line', line => {
   let m; try { m = JSON.parse(line); } catch { rec('recv_unparsed', { line: line.slice(0, 500) }); return; }
   rec('recv', { frame: m });
+  if (relay) relay.event('msg', m);
+  if (relay && m.method === 'serverRequest/resolved' && m.params?.requestId !== undefined) { if (relay.resolve(String(m.params.requestId), 'resolved_by_harness')) rec('relay_resolved_by_harness', { requestId: m.params.requestId }); }
+  if (relay && m.method === 'thread/status/changed') relay.setState({ status: m.params?.status });
+  if (opt['steer-answer'] && m.method === 'item/completed' && m.params?.item?.type === 'agentMessage' && Array.isArray(m.params.item.questions) && m.params.item.questions.length && !steered) {
+    steered = true; const turnId = m.params.turnId ?? currentTurnId;
+    rec('async_question_seen', { turnId, itemId: m.params.item.id, delivery: m.params.item.delivery, questions: m.params.item.questions });
+    say(`async question seen in turn ${turnId}: ${JSON.stringify(m.params.item.questions).slice(0, 200)}; steering answer`);
+    setTimeout(async () => {
+      const r = await request('turn/steer', { threadId: currentThreadId, expectedTurnId: turnId, input: [{ type: 'text', text: opt['steer-answer'], text_elements: [] }] }).catch(e => ({ error: String(e), rpc: e.rpc }));
+      rec('steer_response', { turnId, response: r }); say(`turn/steer -> ${JSON.stringify(r)}`);
+    }, Number(opt['steer-delay-ms'] ?? 2000));
+  }
   if (m.id !== undefined && m.method === undefined) { // response
     const p = pending.get(m.id); if (!p) return; pending.delete(m.id);
     if (m.error) p.rej(Object.assign(new Error(`${p.method}: ${m.error.message}`), { rpc: m.error })); else p.res(m.result);
@@ -99,6 +123,19 @@ async function handleServerRequest(m) {
   summary.serverRequests.push(entry);
   rec('server_request', entry);
   say(`SERVER REQUEST ${m.method} id=${m.id} command=${JSON.stringify(p.command ?? null)} reason=${JSON.stringify(p.reason ?? null)}`);
+  if (relay && (m.method === 'item/tool/requestUserInput' || m.method.endsWith('/requestApproval'))) {
+    const kind = m.method === 'item/tool/requestUserInput' ? 'question' : 'permission';
+    say(`relay: waiting for a client to answer ${kind} ${m.id}`);
+    const r = await relay.request(String(m.id), kind, { method: m.method, params: p });
+    rec('relay_request_outcome', { requestId: m.id, ...r });
+    if (!r.answered) {
+      say(`request ${m.id} ${r.outcome} before any client answered; no response sent`);
+      if (opt['stale-after-harness-resolve']) { setTimeout(() => { rec('stale_raw_response_sent', { requestId: m.id, decision: 'accept' }); say(`sending RAW STALE accept for resolved request ${m.id}`); respond(m.id, { decision: 'accept' }); }, 2000); }
+      return;
+    }
+    if (kind === 'question') respond(m.id, { answers: r.result.answers ?? {} }); else respond(m.id, { decision: r.result.decision ?? 'decline' });
+    return;
+  }
   if (m.method === 'item/tool/requestUserInput') {
     const answers = {};
     for (const q of p.questions ?? []) {
@@ -112,6 +149,15 @@ async function handleServerRequest(m) {
   }
   if (m.method === 'item/commandExecution/requestApproval' || m.method === 'item/fileChange/requestApproval' || m.method === 'item/permissions/requestApproval') {
     const key = `${p.command ?? ''} ${p.reason ?? ''}`;
+    if (opt['close-on-approval']) {
+      say('approval pending: closing stdin WITHOUT answering (suspension test)'); rec('close_on_approval', { requestId: m.id });
+      const t0 = Date.now(); child.stdin.end();
+      const r = await Promise.race([exitP, new Promise(res => setTimeout(() => res('still_running_after_20s'), 20000))]);
+      rec('close_on_approval_exit', { requestId: m.id, result: r, afterMs: Date.now() - t0 }); say(`after stdin close with approval pending: ${JSON.stringify(r)} (${Date.now() - t0} ms)`);
+      summary.exit = r === 'still_running_after_20s' ? null : r; summary.closeOnApproval = { requestId: m.id, result: r };
+      if (r === 'still_running_after_20s') { say('server still alive 20 s after stdin close; SIGTERM own child'); child.kill('SIGTERM'); summary.exit = await exitP; summary.exitNote = 'needed SIGTERM'; }
+      rec('summary', summary); logEnded = true; log.end(); console.log(JSON.stringify(summary, null, 2)); process.exit(0);
+    }
     if (opt['interrupt-on-approval'] && currentTurnId) {
       say('interrupting while approval pending');
       const r = await request('turn/interrupt', { threadId: currentThreadId, turnId: currentTurnId }).catch(e => ({ error: String(e) }));
@@ -171,6 +217,7 @@ if (cmd === 'read') {
 }
 if (cmd !== 'run') { console.error('unknown command'); process.exit(2); }
 
+let holdResolve = null; let closing = false;
 const cwd = resolve(opt.cwd ?? '.');
 const turns = JSON.parse(readFileSync(opt.turns, 'utf8')).map(t => typeof t === 'string' ? { prompt: t } : t);
 rec('probe_start', { cwd, opt });
@@ -181,6 +228,7 @@ try {
   const startParams = { cwd };
   if (opt['approval-policy']) startParams.approvalPolicy = opt['approval-policy'];
   if (opt.sandbox) startParams.sandbox = opt.sandbox;
+  if (opt['start-json']) Object.assign(startParams, JSON.parse(opt['start-json']));
   const r = opt.resume ? await request('thread/resume', { threadId: opt.resume, ...startParams }) : await request('thread/start', startParams);
   currentThreadId = r.thread.id;
   summary.thread = { id: r.thread.id, sessionId: r.thread.sessionId, path: r.thread.path, cwd: r.cwd, model: r.model, modelProvider: r.modelProvider, approvalPolicy: r.approvalPolicy, approvalsReviewer: r.approvalsReviewer, sandbox: r.sandbox, instructionSources: r.instructionSources, reasoningEffort: r.reasoningEffort, status: r.thread.status, priorTurns: (r.thread.turns ?? []).length, forkedFromId: r.thread.forkedFromId, cliVersion: r.thread.cliVersion };
@@ -189,13 +237,22 @@ try {
   if (opt['kill-server-after-ms']) setTimeout(() => { say('SIGTERM app-server mid-run'); rec('server_sigterm', {}); child.kill('SIGTERM'); }, Number(opt['kill-server-after-ms']));
   if (opt['kill-owner-after-ms']) setTimeout(() => { rec('owner_sigkill', { pid: process.pid, serverPid: child.pid }); say(`SIGKILL self pid=${process.pid}; app-server pid=${child.pid}`); logEnded = true; log.end(() => process.kill(process.pid, 'SIGKILL')); }, Number(opt['kill-owner-after-ms']));
 
-  for (let i = 0; i < turns.length; i++) {
+  if (relay) {
+    relay.onPrompt(text => { turns.push({ prompt: text, origin: 'relay-client' }); if (holdResolve) { const r = holdResolve; holdResolve = null; r(); } });
+    relay.onControl(async kind => {
+      if (kind === 'interrupt' && currentTurnId) { const ir = await request('turn/interrupt', { threadId: currentThreadId, turnId: currentTurnId }).catch(e => ({ error: String(e) })); rec('interrupt_response', { via: 'relay', response: ir }); }
+      if (kind === 'close') { rec('relay_close', {}); closing = true; if (holdResolve) { const r = holdResolve; holdResolve = null; r(); } }
+    });
+  }
+  for (let i = 0; i < turns.length || (relay && opt.hold && !closing); i++) {
+    if (i >= turns.length) { say('turns exhausted; holding for relay clients'); if (relay) relay.setState({ phase: 'idle', awaiting: 'client' }); await new Promise(r => { holdResolve = r; }); if (closing || i >= turns.length) { i--; if (closing) break; continue; } }
     const t = turns[i];
+    if (relay) relay.setState({ phase: 'working', turn: i + 1 });
     const tr = { i: i + 1, prompt: t.prompt, sentAt: ts() };
     summary.turns.push(tr);
     say(`send turn ${i + 1}: ${t.prompt.slice(0, 80)}`);
     const completed = waitFor(m => m.method === 'turn/completed' && m.params.threadId === currentThreadId && m.params.turn?.id === currentTurnId);
-    const resp = await request('turn/start', { threadId: currentThreadId, input: [{ type: 'text', text: t.prompt, text_elements: [] }] });
+    const resp = await request('turn/start', { threadId: currentThreadId, input: [{ type: 'text', text: t.prompt, text_elements: [] }], ...(opt['turn-json'] ? JSON.parse(opt['turn-json']) : {}) });
     currentTurnId = resp.turn.id; tr.turnId = currentTurnId;
     rec('turn_accepted', { turnId: currentTurnId, i: i + 1 });
     if (opt['interrupt-after-ms'] && i + 1 === Number(opt['interrupt-turn'] ?? 1)) {
@@ -209,8 +266,10 @@ try {
     tr.status = done.params.turn.status; tr.error = done.params.turn.error; tr.completedAt = ts();
     tr.agentText = (done.params.turn.items ?? []).filter(x => x.type === 'agentMessage').map(x => x.text).join('\n---\n');
     if (!tr.agentText) tr.agentText = lastAgentText.get(currentTurnId) ?? '';
+    if (relay) relay.setState({ phase: 'idle', lastTurn: tr.status });
   }
   if (opt['stale-after-interrupt'] && opt['interrupt-after-ms']) { /* stale for interrupted turn approvals handled in handler */ }
+  if (opt['linger-ms']) { say(`lingering ${opt['linger-ms']} ms before shutdown`); await new Promise(r => setTimeout(r, Number(opt['linger-ms']))); }
   say('all turns done; shutting down');
   await shutdown();
 } catch (e) {
@@ -219,6 +278,7 @@ try {
   summary.error = String(e);
   try { await shutdown(); } catch {}
 } finally { clearTimeout(hard); }
+if (relay) relay.close();
 rec('summary', summary); logEnded = true; log.end();
 console.log(JSON.stringify(summary, null, 2));
 process.exit(0);

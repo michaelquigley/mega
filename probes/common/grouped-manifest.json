@@ -1,0 +1,8 @@
+{
+  "project": "roundhouse-grouped-test",
+  "suspended_at": "2026-11-06T02:57:07Z",
+  "conversations": [
+    { "harness": "claude", "version": "2.1.318", "native_id": "996cede8-ae3d-4982-9e01-c1e13edfdf80", "cwd": "/home/michael/Repos/q/research/roundhouse-fixtures/claude-rt1", "transcript": "/home/michael/.claude/projects/-home-michael-Repos-q-research-roundhouse-fixtures-claude-rt1/996cede8-ae3d-4982-9e01-c1e13edfdf80.jsonl" },
+    { "harness": "codex", "version": "0.166.0", "native_id": "01a1aec9-cc23-7fb2-b1ce-ebec48b66230", "cwd": "/home/michael/Repos/q/research/roundhouse-fixtures/codex-rt1", "rollout": "/home/michael/.codex/sessions/2026/11/05/rollout-2026-11-05T21-57-03-01a1aec9-cc23-7fb2-b1ce-ebec48b66230.jsonl" }
+  ]
+}

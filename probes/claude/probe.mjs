@@ -11,6 +11,9 @@
 //        [--interrupt-on-permission] [--stale-after-abort] \
 //        [--interrupt-after-ms N [--interrupt-turn I]] [--kill-owner-after-ms N] \
 //        [--setting-sources user,project,local] [--exec PATH]
+//        [--relay SOCK [--hold]]   owner mode: requests wait for a relay client's answer;
+//                                 clients may send prompts; with --hold the owner keeps the
+//                                 session open after the turns file until a client sends close
 //   node probe.mjs list --cwd DIR
 //   node probe.mjs info --session SESSION_ID [--cwd DIR]
 //   node probe.mjs messages --session SESSION_ID [--cwd DIR]
@@ -26,6 +29,7 @@ import { resolve } from 'node:path';
 import {
   query, listSessions, getSessionInfo, getSessionMessages,
 } from '@anthropic-ai/claude-agent-sdk';
+import { createRelay } from '../common/relay.mjs';
 
 const argv = process.argv.slice(2);
 const cmd = argv.shift();
@@ -65,6 +69,7 @@ if (cmd !== 'run') { console.error('unknown command'); process.exit(2); }
 const cwd = resolve(opt.cwd ?? '.');
 const turns = JSON.parse(readFileSync(opt.turns, 'utf8')).map(t => typeof t === 'string' ? { prompt: t } : t);
 const log = createWriteStream(opt.log ?? `logs/run-${Date.now()}.jsonl`, { flags: 'a' });
+const relay = opt.relay ? createRelay({ socketPath: opt.relay, log: (k, d) => rec(k, d) }) : null;
 const approveRe = opt.approve ? new RegExp(opt.approve) : null;
 const answerRe = opt.answer ? new RegExp(opt.answer) : null;
 const approveDelay = Number(opt['approve-delay-ms'] ?? 0);
@@ -100,6 +105,17 @@ const canUseTool = async (toolName, input, o) => {
   say(`can_use_tool ${toolName} requestId=${o.requestId} toolUseID=${o.toolUseID} reason=${JSON.stringify(o.decisionReason ?? null)}`);
   rec('permission_request', base);
   const aborted = new Promise(r => o.signal.addEventListener('abort', () => r('aborted'), { once: true }));
+  if (relay) {
+    const kind = toolName === 'AskUserQuestion' ? 'question' : 'permission';
+    aborted.then(() => { if (relay.resolve(o.requestId, 'aborted')) rec('relay_request_aborted', { requestId: o.requestId }); });
+    say(`relay: waiting for a client to answer ${kind} ${o.requestId}`);
+    const r = await relay.request(o.requestId, kind, { toolName, input, toolUseID: o.toolUseID, title: o.title, decisionReason: o.decisionReason });
+    rec('relay_request_outcome', { requestId: o.requestId, ...r });
+    if (!r.answered) return { behavior: 'deny', message: `probe: request ${r.outcome} before any client answered`, toolUseID: o.toolUseID };
+    if (kind === 'question') return { behavior: 'allow', updatedInput: { ...input, answers: r.result.answers ?? {} }, toolUseID: o.toolUseID };
+    if (r.result.decision === 'allow') return { behavior: 'allow', updatedInput: input, toolUseID: o.toolUseID };
+    return { behavior: 'deny', message: r.result.message ?? 'denied by relay client', toolUseID: o.toolUseID };
+  }
 
   if (toolName === 'AskUserQuestion') {
     const answers = {};
@@ -160,12 +176,17 @@ if (opt.model) options.model = opt.model;
 rec('probe_start', { cwd, options: { ...options, canUseTool: undefined, stderr: undefined, abortController: undefined } });
 
 let turnIdx = 0;
+let holding = false;
 function sendNext() {
-  if (turnIdx >= turns.length) { say('all turns done; closing input'); close(); return; }
+  if (turnIdx >= turns.length) {
+    if (relay && opt.hold) { if (!holding) { holding = true; say('all turns done; holding for relay clients (send close to end)'); relay.setState({ phase: 'idle', awaiting: 'client' }); } return; }
+    say('all turns done; closing input'); close(); return;
+  }
   const t = turns[turnIdx++];
   summary.turns.push({ i: turnIdx, prompt: t.prompt, sent_at: ts() });
   rec('send_turn', { i: turnIdx, prompt: t.prompt });
   say(`send turn ${turnIdx}: ${t.prompt.slice(0, 80)}`);
+  if (relay) relay.setState({ phase: 'working', turn: turnIdx });
   push({ type: 'user', message: { role: 'user', content: t.prompt }, parent_tool_use_id: null });
   const iTurn = Number(opt['interrupt-turn'] ?? 1);
   if (opt['interrupt-after-ms'] && turnIdx === iTurn) {
@@ -186,6 +207,13 @@ function sendNext() {
   }
 }
 
+if (relay) {
+  relay.onPrompt(text => { turns.push({ prompt: text, origin: 'relay-client' }); if (holding) { holding = false; sendNext(); } });
+  relay.onControl(async kind => {
+    if (kind === 'interrupt') { rec('relay_interrupt', {}); const ir = await q.interrupt().catch(e => ({ error: String(e) })); rec('interrupt_response', { via: 'relay', response: ir }); }
+    if (kind === 'close') { say('relay client asked to close; closing input'); rec('relay_close', {}); close(); }
+  });
+}
 q = query({ prompt: input(), options });
 sendNext();
 const hardTimeout = setTimeout(() => { say('hard timeout; aborting'); rec('hard_timeout', {}); abort.abort(); }, Number(opt['timeout-ms'] ?? 600000));
@@ -193,6 +221,7 @@ const hardTimeout = setTimeout(() => { say('hard timeout; aborting'); rec('hard_
 try {
   for await (const m of q) {
     rec('msg', { msg: m });
+    if (relay) relay.event('msg', m);
     if (m.type === 'system' && m.subtype === 'init') {
       summary.session_id = m.session_id;
       summary.init = { cwd: m.cwd, model: m.model, permissionMode: m.permissionMode, claude_code_version: m.claude_code_version, apiKeySource: m.apiKeySource, tools: m.tools, mcp_servers: m.mcp_servers, slash_commands: m.slash_commands, skills: m.skills, plugins: m.plugins?.map(p => p.name), output_style: m.output_style, agents: m.agents };
@@ -210,6 +239,7 @@ try {
     } else if (m.type === 'result') {
       summary.results.push({ subtype: m.subtype, is_error: m.is_error, num_turns: m.num_turns, duration_ms: m.duration_ms, session_id: m.session_id, result: m.subtype === 'success' ? m.result : undefined, errors: m.errors });
       say(`result ${m.subtype} is_error=${m.is_error} num_turns=${m.num_turns} session=${m.session_id}`);
+      if (relay) relay.setState({ phase: 'idle', lastResult: m.subtype });
       const t = turns[turnIdx - 1];
       if (t?.after === 'interrupt') { /* handled elsewhere */ }
       sendNext();
@@ -223,6 +253,7 @@ try {
 } finally {
   clearTimeout(hardTimeout);
 }
+if (relay) relay.close();
 rec('summary', summary);
 logEnded = true;
 log.end();

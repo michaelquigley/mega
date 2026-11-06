@@ -9,6 +9,11 @@
 //        [--answer REGEX] [--answer-delay-ms N] [--interrupt-on-dialog] \
 //        [--stale-after-cancel] [--never-answer] [--interrupt-after-ms N] \
 //        [--kill-owner-after-ms N] [--timeout-ms N] [--turn-timeout-ms N]
+//        [--relay SOCK [--hold]]  owner mode: dialogs wait for a relay client's answer
+//                                ({value}|{confirmed}|{cancelled:true}); clients may send
+//                                prompts/interrupt/close; --hold keeps the owner alive after
+//                                the turns file until a client sends close
+//        [--no-prompt]            with --hold: open the session and wait without sending turns
 //   node probe.mjs messages --cwd DIR --session PATH_OR_ID [--approve-project]
 //
 // Turns file: JSON array of prompt strings or {"prompt": "..."} objects.
@@ -18,6 +23,7 @@
 import { spawn } from 'node:child_process';
 import { createWriteStream, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createRelay } from '../common/relay.mjs';
 
 const argv = process.argv.slice(2);
 const cmd = argv.shift();
@@ -35,6 +41,7 @@ let logOpen = true;
 const rec = (kind, data) => { if (logOpen) log.write(JSON.stringify({ t: ts(), kind, ...data }) + '\n'); };
 const say = s => process.stderr.write(`[probe ${ts()}] ${s}\n`);
 
+const relay = opt.relay ? createRelay({ socketPath: opt.relay, log: (k, d) => rec(k, d) }) : null;
 const args = ['--mode', 'rpc'];
 if (opt['approve-project']) args.push('--approve');
 if (opt['session-id']) args.push('--session-id', opt['session-id']);
@@ -60,6 +67,7 @@ child.stdout.on('data', chunk => {
     if (!line.length) continue;
     let frame; try { frame = JSON.parse(line.toString('utf8')); } catch (e) { rec('unparseable', { line: line.toString().slice(0, 300) }); continue; }
     rec('frame', { frame: shrink(frame) });
+    if (relay) relay.event('msg', shrink(frame));
     if (frame.type === 'response' && frame.id && pending.has(frame.id)) { pending.get(frame.id)(frame); pending.delete(frame.id); }
     for (const h of handlers) h(frame);
     for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i].test(frame)) { waiters[i].resolve(frame); waiters.splice(i, 1); }
@@ -100,6 +108,22 @@ handlers.push(async f => {
   const d = { id: f.id, method: f.method, title: f.title, options: f.options, at: ts() };
   summary.dialogs.push(d);
   if (!dialog) return;
+  if (relay) {
+    d.policy = 'relay';
+    say(`relay: waiting for a client to answer dialog ${f.id}${f.timeout ? ` (timeout ${f.timeout} ms)` : ''}`);
+    if (f.timeout) setTimeout(() => { if (relay.resolve(f.id, 'timeout_by_harness')) { rec('relay_dialog_timed_out', { dialogId: f.id }); say(`dialog ${f.id} timed out on the agent side`); } }, f.timeout + 200);
+    const r = await relay.request(f.id, 'dialog', { method: f.method, title: f.title, message: f.message, options: f.options, timeout: f.timeout });
+    rec('relay_request_outcome', { dialogId: f.id, ...r });
+    if (!r.answered) { d.outcome = r.outcome; return; }
+    const res = r.result ?? {};
+    let resp;
+    if (res.cancelled) resp = { type: 'extension_ui_response', id: f.id, cancelled: true };
+    else if (f.method === 'confirm') resp = { type: 'extension_ui_response', id: f.id, confirmed: !!res.confirmed };
+    else resp = { type: 'extension_ui_response', id: f.id, value: res.value };
+    d.answer = resp; d.answeredAt = ts();
+    await send(resp); say(`relay answer forwarded: ${JSON.stringify(res)}`);
+    return;
+  }
   if (opt['never-answer']) { d.policy = 'never-answer'; return; }
   if (opt['interrupt-on-dialog']) {
     say('abort while dialog pending');
@@ -144,13 +168,30 @@ if (cmd === 'messages') {
 }
 if (cmd !== 'run') { console.error('unknown command'); process.exit(2); }
 
-const turns = JSON.parse(readFileSync(opt.turns, 'utf8')).map(t => typeof t === 'string' ? { prompt: t } : t);
+const turns = opt.turns ? JSON.parse(readFileSync(opt.turns, 'utf8')).map(t => typeof t === 'string' ? { prompt: t } : t) : [];
+let closeRequested = false; let wakeHold = null; let inTurn = false;
+if (relay) {
+  relay.onPrompt(text => {
+    if (text.startsWith('RAW:')) { const frame = JSON.parse(text.slice(4)); rec('relay_raw_frame', { frame }); say(`relay raw frame -> pi: ${JSON.stringify(frame).slice(0, 160)}`); send(frame); return; }
+    turns.push({ prompt: text, origin: 'relay-client' }); if (wakeHold) { const w = wakeHold; wakeHold = null; w(); }
+  });
+  relay.onControl(async kind => {
+    if (kind === 'interrupt') { rec('relay_abort', {}); const r = await request({ type: 'abort' }, 60000).catch(e => ({ error: String(e) })); rec('abort_response', { via: 'relay', response: r }); say(`relay abort -> ${JSON.stringify(r).slice(0, 120)}`); }
+    if (kind === 'close') {
+      closeRequested = true; rec('relay_close', { inTurn }); say(`relay client asked to close (inTurn=${inTurn})`);
+      if (inTurn) { say('closing stdin while a turn is in flight'); rec('stdin_closed_during_turn', {}); child.stdin.end(); }
+      if (wakeHold) { const w = wakeHold; wakeHold = null; w(); }
+    }
+  });
+}
 try {
   const s0 = await state('start');
   summary.sessionId = s0.sessionId; summary.sessionFile = s0.sessionFile; summary.model = s0.model && `${s0.model.provider}/${s0.model.id}`;
   say(`session ${s0.sessionId} file=${s0.sessionFile} model=${summary.model} messages=${s0.messageCount}`);
-  for (let i = 0; i < turns.length; i++) {
+  for (let i = 0; i < turns.length || (relay && opt.hold && !closeRequested); i++) {
+    if (i >= turns.length) { relay.setState({ phase: 'idle', awaiting: 'client' }); say('holding for relay clients (prompt or close)'); await new Promise(r => { wakeHold = r; }); if (closeRequested || i >= turns.length) { i--; if (closeRequested) break; continue; } }
     const t = turns[i]; const rec_t = { i: i + 1, prompt: t.prompt, sentAt: ts() };
+    if (relay) relay.setState({ phase: 'working', turn: i + 1 });
     summary.turns.push(rec_t);
     say(`send turn ${i + 1}: ${t.prompt.slice(0, 80)}`);
     const settled = waitFor(f => f.type === 'agent_settled', Number(opt['turn-timeout-ms'] ?? 300000));
@@ -164,20 +205,25 @@ try {
     rec_t.accepted = { success: resp.success, disposition: resp.data?.disposition, error: resp.error, at: ts() };
     say(`prompt response success=${resp.success} disposition=${resp.data?.disposition ?? ''} ${resp.error ?? ''}`);
     if (!resp.success || resp.data?.disposition === 'handled') { settled.catch(() => {}); continue; }
-    const ev = await settled;
+    inTurn = true;
+    const ev = await Promise.race([settled, exitP.then(e => ({ type: 'child_exit', ...e }))]);
+    inTurn = false;
+    if (ev.type === 'child_exit') { rec_t.childExitDuringTurn = ev; say(`pi exited during the turn (code=${ev.code}); no agent_settled`); break; }
     rec_t.settled = { aborted: ev.aborted, at: ts() };
     const last = await request({ type: 'get_last_assistant_text' }).catch(() => null);
     rec_t.lastAssistantText = last?.data?.text ?? last?.data ?? null;
     say(`settled aborted=${ev.aborted}; last assistant text: ${String(rec_t.lastAssistantText ?? '').replace(/\n/g, ' / ').slice(0, 200)}`);
+    if (relay) relay.setState({ phase: 'idle', lastSettled: { aborted: ev.aborted } });
   }
   summary.end = await state('end');
 } catch (e) {
   rec('probe_error', { error: String(e) }); say(`probe error: ${e}`);
 }
 say('closing stdin for orderly shutdown');
-child.stdin.end();
+if (!child.stdin.writableEnded) child.stdin.end();
 const ex = await Promise.race([exitP, new Promise(r => setTimeout(() => r('no-exit-after-20s'), 20000))]);
 if (ex === 'no-exit-after-20s') { rec('no_exit', {}); say('pi did not exit within 20s of stdin close; SIGTERM'); child.kill('SIGTERM'); await exitP; }
 clearTimeout(hardTimeout);
+if (relay) relay.close();
 rec('summary', summary); logOpen = false; log.end();
 console.log(JSON.stringify(summary, null, 2));

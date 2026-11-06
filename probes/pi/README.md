@@ -38,3 +38,15 @@ Flags:
 - `--timeout-ms`, `--turn-timeout-ms`: probe deadlines.
 
 The probe treats the `prompt` command response (`data.disposition`) as "accepted" and the `agent_settled` event as "settled", per the installed `docs/rpc.md`. Frames are split on LF bytes only. `message_update` and `text_delta` frames are logged trimmed.
+
+## Relay (owner) mode, follow-up probes
+
+`--relay SOCK [--hold] [--no-prompt]` turns the probe into the local owner for the reconnect tests (see `../common/README.md`). Every RPC frame is forwarded to connected relay clients, each `extension_ui_request` dialog becomes a relay request that waits for a client answer, and clients may send prompts, `interrupt` (mapped to `abort`) and `close`. Answer shapes: `{"value":"Allow"}` for `select`/`input`/`editor`, `{"confirmed":true}` for `confirm`, `{"cancelled":true}` to dismiss any dialog (the extension receives `undefined`/`false`). A prompt starting with `RAW:` is sent to pi verbatim as a JSON frame (used once to test a late `extension_ui_response`). Keep the socket path short (`/run/user/1000/roundhouse-probe/*.sock`); a path under the long scratchpad directory fails with `listen EINVAL`.
+
+```sh
+node probe.mjs run --cwd ../../../roundhouse-fixtures/pi-rt1 --session-id $(uuidgen) --approve-project \
+  --model openai-codex/gpt-6-astra --relay /run/user/1000/roundhouse-probe/pi.sock --hold --no-prompt --log logs/x.jsonl
+node ../common/client.mjs --socket /run/user/1000/roundhouse-probe/pi.sock --prompt "..." --answer-json '{"value":"Allow"}' --watch-ms 20000
+```
+
+Fixture extension addition: a bash command containing the word `timed` (for example `sleep 1 # timed`) gets an approval `select` with `timeout: 8000`; other `sleep` commands wait indefinitely. `fu-suspend.sh` runs the suspension cases detached from the calling shell. Follow-up scenarios are `scenarios/fu-*.json`; session ids are appended to `logs/followup-session-ids.txt`. Results: `NOTES-followup.md`.

@@ -1,0 +1,1 @@
+["Using the Bash tool, run exactly `python3 -c 'import time; time.sleep(25); print(\"slept\")'` in the foreground (do not background it) and then reply SUSPEND-ACTIVE-1. Nothing else."]

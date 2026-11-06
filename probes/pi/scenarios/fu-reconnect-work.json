@@ -1,0 +1,1 @@
+["Using the bash tool, run exactly `python3 -c 'import time; time.sleep(20); print(\"slept\")'` in the foreground and then reply RECONNECT-WORK-1. Nothing else."]

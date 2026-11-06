@@ -37,4 +37,14 @@ codex app-server generate-json-schema --out <dir>
 codex app-server generate-ts --out <dir>
 ```
 
-See `NOTES.md` for results.
+## Follow-up flags (reconnect and suspension)
+
+- `--relay SOCK [--hold]`: owner mode. Every server frame is published to relay clients; approval and `requestUserInput` server requests wait for a relay client's answer (`{"decision":"accept"|"decline"}` or `{"answers":{...}}`); a `serverRequest/resolved` from the server marks the request resolved for clients; relay prompts become `turn/start`; `--hold` keeps the owner alive after the turns file until a client sends `close`. Use a short socket path such as `/run/user/1000/rh-codex.sock` (long scratchpad paths fail with `EINVAL`). Client: `node ../common/client.mjs`.
+- `--stale-after-harness-resolve`: in relay mode, send a raw late JSON-RPC accept 2 s after the server itself resolved a pending request, to record the server's reaction.
+- `--close-on-approval`: close stdin while an approval is pending and record whether the app-server exits.
+- `--steer-answer TEXT [--steer-delay-ms N]`: when an `agentMessage` item carries `questions[]` (default-mode async question), send TEXT into the active turn with `turn/steer`.
+- `--start-json JSON`, `--turn-json JSON`: extra params merged into `thread/start`/`thread/resume` and `turn/start`.
+- `--config k=v[,k=v]`: passed to `codex app-server -c`.
+- `scenarios/none.json` (`[]`) resumes a thread without starting a turn.
+
+See `NOTES.md` for the first investigation and `NOTES-followup.md` for the reconnect, suspension and steering results.

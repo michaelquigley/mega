@@ -138,7 +138,7 @@ cli     assistant 4b87d817           ... ETA-3d4e, TERMINAL-AFTER-SPLIT-hh88
 - R1 `--interrupt-on-permission`: `interrupt()` was called while `canUseTool` for `Bash(sleep 5)` was pending. The request's `signal` aborted within 8 ms; the stream then carried a tool result `The user doesn't want to proceed with this tool use…` and `result error_during_execution, is_error: true, num_turns: 3`. The next prompt was accepted and answered normally.
 - R2 `--stale-after-abort`: returning `{behavior:'allow'}` 1.5 s after the abort produced no error, no tool execution, and no stream message. The SDK drops the late answer silently; whether the CLI would reject a raw late `control_response` was not observed because the SDK never sent one `[inference]`. Do not rely on a native rejection to catch stale approvals.
 - R3 `--interrupt-after-ms 15000` during a foreground `python3 -c 'import time; time.sleep(45)'`: `interrupt()` returned `{"still_queued":[]}` in 9 ms, the tool result was the same rejection text, the Python process was gone afterwards, and `result` was `error_during_execution` with `errors: ["[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"]`. The next prompt was accepted.
-- R4 `--kill-owner-after-ms 10000`: the SDK host was SIGKILLed while a backgrounded `sleep 30` ran. The CLI did not exit: it stayed alive about 40 s, received the task notification, ran a further model turn (`OWNER-KILL-1`) that nobody consumed, persisted it, and then exited. A later SDK resume recited `ROUNDHOUSE-MARKER-7f3a / OWNER-KILL-1 / RECOVERED-ff66`. Terminating the owner therefore neither stops the harness promptly nor loses history, but it does allow unobserved model turns.
+- R4 `--kill-owner-after-ms 10000` (process-owner termination, not machine power loss): the SDK host was SIGKILLed while a backgrounded `sleep 30` ran. The CLI did not exit: it stayed alive about 40 s, received the task notification, ran a further model turn (`OWNER-KILL-1`) that nobody consumed, persisted it, and then exited. A later SDK resume recited `ROUNDHOUSE-MARKER-7f3a / OWNER-KILL-1 / RECOVERED-ff66`. Terminating the owner therefore neither stops the harness promptly nor loses history, but it does allow unobserved model turns.
 - Long hold: a `Bash(sleep 2)` permission request held for 150 s (`--approve-delay-ms 150000`) was still accepted; the tool ran and the turn completed (`LONG-HOLD-mm22`). No timeout or park message appeared on the stream in that window `[observed]`.
 - Fixture note: the installed Bash tool blocks bare `sleep N` (`Blocked: standalone sleep 40. To wait for a condition, use Monitor…`); the model then reran it with `run_in_background: true`, and closing the SDK input while that task ran did not end the process until the task completed and a follow-up turn had run (E1 in the logs).
 
@@ -146,12 +146,12 @@ cli     assistant 4b87d817           ... ETA-3d4e, TERMINAL-AFTER-SPLIT-hh88
 
 1. A faithful conversation surface without terminal parsing: yes `[observed]`. The stream carries user, assistant, tool use, tool result, question, permission and result events with ids; the on-disk transcript holds the same chain for history.
 2. Signals: working = messages flowing after a prompt (no dedicated state event was emitted); explicit input required = `canUseTool` with `AskUserQuestion`; permission required = any other `canUseTool`; turn ended = `result`; failed = `result.is_error` with `subtype`; unknown = a process alive with no `result` and no pending request. A prose question is an ordinary assistant text with `stop_reason: end_turn`; the protocol does not distinguish it `[observed]`.
-3. Cross-mode continuity in both directions: yes for the same id when the other side is not running `[observed]`. No history replacement, no fork, `entrypoint` records who wrote each turn.
+3. Cross-mode continuity in both directions: yes for the same id when the previous writer process has exited `[observed]`; an idle but open terminal is still a writer (C9). No history replacement, no fork, `entrypoint` records who wrote each turn.
 4. Changes across the transition: trust state and project permission rules, auto-memory, permission mode; tools, instructions and MCP servers were equivalent; queued input and background tasks do not transfer (a background task finished inside the orphaned process in R4).
 5. Live attachment: the native terminal can attach to a background session (`claude --bg` + `claude attach`), and the SDK is refused while it runs; the SDK cannot attach to a running terminal or background process through a supported interface. Supervising a `--bg` session structurally would require the undocumented daemon sockets, so `[blocked]` as a supported path. Version: 2.1.318.
 6. Independently started terminal sessions: discovery `pass` (`listSessions`, `claude agents --json`), stored-history access `pass`, cold resumption `pass`, live control `fail` (no supported channel, and a hot resume forks the chain).
 7. Multiple clients: one SDK host per CLI process was tested; the protocol declares multi-client semantics for hosted sessions `[docs]`, untested locally.
-8. Recoverable from native history: everything persisted up to the last `result`, including turns completed by an orphaned CLI. Lost or uncertain: in-flight approvals (cancelled on interrupt), background task state, and which branch a reader will follow after a concurrent write.
+8. Recoverable from native history (owner-process termination only; whole-machine power loss was not tested and no durability claim is made for it): everything persisted up to the last `result`, including turns completed by an orphaned CLI. Lost or uncertain: in-flight approvals (cancelled on interrupt), background task state, and which branch a reader will follow after a concurrent write.
 9. Terminal-controlled sessions observable by a local service: yes for history, by tailing the transcript file and `claude agents --json` for liveness; no supported live event channel.
 10. Minimum promise for Claude: start, resume by exact id, question and approval handling, interrupt, and recovery from the transcript; visible differences: trust and permission rules until the directory has been opened interactively, no live attachment to terminal sessions, and the concurrent-writer hazard.
 
@@ -254,7 +254,7 @@ Provider note: the operator's default pi model is `ollama/qwen3.8-27b` and no Ol
 | P7 | Two RPC processes on one session id | fail (hazard) | no lock, two branches in one file |
 | R1 | Interrupt active tool turn | pass | child killed, next turn accepted |
 | R2 | `abort` while a dialog is pending | partial | abort unanswered until the dialog is answered; the late answer releases it |
-| R3 | Dialog never answered | fail-open hang | run blocks indefinitely (no `timeout` set); stdin close still exits cleanly |
+| R3 | Dialog never answered | blocked run | run blocks indefinitely on the unanswered dialog (no `timeout` set); the gated command does not run; stdin close still exits cleanly |
 | R4 | Owner SIGKILL mid-turn | pass | pi exits at once, command killed, `user` + `toolCall` persisted without result; resume works |
 
 #### P5 and P6: terminal round trip
@@ -272,7 +272,7 @@ The session file shows one chain through the TUI turns. Two extra session files 
 
 1. Faithful surface: yes for conversation and tool events; approvals exist only if an extension provides them.
 2. Signals: working = events after `disposition: started`; explicit input = `extension_ui_request`; permission required = indistinguishable from any other dialog; turn ended = `agent_settled`; failed = `stopReason: error`; prose question = text then `agent_settled`.
-3. Cross-mode continuity: yes in both directions when the other side is not running.
+3. Cross-mode continuity: yes in both directions once the previous writer process has exited; an open idle TUI still holds the file (P7).
 4. Changes across the transition: project trust (TUI prompt vs `--approve` flag), extension availability depends on it; model restored from the session file.
 5. Live attachment: none; one client per process.
 6. Independently started sessions: discovery by directory scan, stored history yes, cold resume yes, live control no.
@@ -297,10 +297,90 @@ The session file shows one chain through the TUI turns. Two extra session files 
 | Live multi-client attach | background daemon + pty attach only (undocumented sockets) | shared app-server, broadcast approvals, first answer wins | none |
 | Discovery of foreign sessions | `listSessions`, `claude agents --json` | `thread/list`, `thread/read` | directory scan |
 
+## Follow-up (2026-11-06): reconnect, suspension, Codex questions
+
+Brief: `docs/future/harness-follow-up-probes.md`. Versions unchanged: Claude Code 2.1.318 with Agent SDK 0.3.318, codex-cli 0.166.0, pi 1.1.0. Same fixtures. New probe pieces: `probes/common/relay.mjs` and `client.mjs` (owner-side in-memory relay over a unix socket and a browser-equivalent client), `--relay SOCK [--hold]` owner mode in all three probes, `probes/claude/run-reconnect.sh`, `probes/claude/run-suspend.sh`, `probes/common/run-grouped.sh`, and the fork notes `probes/codex/NOTES-followup.md` and `probes/pi/NOTES-followup.md`. Everything the relay does (event replay from `since`, pending-request snapshot, first-answer-wins, `answer_rejected`) is shim behavior held in the owner's memory; it is not a harness guarantee and does not survive an owner crash. Observations below are `[observed]` unless marked.
+
+### 1. Client disconnect and reconnect
+
+| Scenario | Claude | Codex | pi |
+| --- | --- | --- | --- |
+| Client drops mid-command; owner keeps draining; fresh client replays from `since 0` without resubmitting | pass | pass | pass |
+| Request pending while no client is attached; reconnecting client sees it in the snapshot, answers once, effect verified | pass (question) | pass (approval) | pass (dialog) |
+| Request resolved while the client is away; reconnect shows nothing pending; late answer rejected | pass (interrupted) | pass (interrupted) | pass (answered by another client; and by an 8 s dialog timeout) |
+| Harness reaction to a raw late response | not sent (SDK drops it) | ignored silently, no error frame | ignored silently, no frame |
+
+Claude reproduction: `probes/claude/run-reconnect.sh` (session `44f17987-adbe-408c-8851-9148e18aae2e`). Excerpts:
+
+```
+client A  request c1c46db6-… permission -> answering {"decision":"allow"} -> disconnecting (simulated client loss)
+owner     tool_result … slept ; assistant text: RECONNECT-WORK-1 ; result success   (no client connected)
+client B  snapshot: state={"phase":"idle",…} pending=none seq=16 ; replay includes result "RECONNECT-WORK-1"
+client C  prompt (AskUserQuestion) ; request 809ff908-… question ; disconnected stillPending=809ff908-…
+client D  snapshot pending=[{id:809ff908-…, kind:question}] -> answers Blue -> assistant text: Blue RECONNECT-Q-2
+client E  request 9333a7ee-… permission ; disconnected
+client F  interrupt -> owner: canUseTool signal aborted -> request_resolved {outcome:"aborted", by:"harness"}
+client G  snapshot pending=[] ; late allow -> answer_rejected {reason:"not_pending"}
+client H  prompt -> RECONNECT-AFTER-4 ; close -> owner exit 0
+```
+
+What each harness contributes versus the shim:
+
+- Outputs: ordinary stream messages on all three; replay is entirely the shim's ring buffer. Claude's `pending_permission_requests` on initialize `[docs: sdk.d.ts]` was not exercised; pi and Codex never resend a request.
+- Requests: the pending set must be reconstructed by the owner. Claude signals resolution through the `canUseTool` abort signal; Codex emits `serverRequest/resolved {threadId, requestId}` on answer, turn end or interrupt; pi emits nothing for an answered, cancelled or timed-out dialog except the downstream `tool_execution_end`, so the owner must mark resolution itself (including from its own timer for `timeout`).
+- Responses: first answer wins. Stale answers are dropped silently by the Codex server and by pi; the Claude SDK drops them before they reach the CLI. The only visible rejection is the shim's `answer_rejected`.
+- Deadlines: no harness imposed a deadline on an unattended request in these windows (Claude 150 s earlier, Codex 6 s here, pi until answered), except pi's explicit dialog `timeout`, which resolves to `undefined` (the fixture hook then blocks the command).
+
+Implication: outputs, requests and responses do need different reconnect treatment. A client that reconnects needs the owner's pending set and the resolution events, not just the event stream.
+
+### 2. Clean suspension and reopening
+
+| Case | Claude | Codex | pi |
+| --- | --- | --- | --- |
+| Idle: stop, verify exit, reopen without work, marked follow-up | pass (reopen = stored history only) | pass (`thread/resume` restores history and starts MCP, no turn) | pass (`--session` + `get_state`/`get_messages`, no model call) |
+| Stop with a request pending, no approval | partial: stdin close did not end the process; the CLI aborted the request itself after 294 s and exited | pass: stdin close exits in 26 ms, rollout `turn_aborted` | pass: `{"cancelled":true}` denies the operation and the run settles; or stdin close exits in 20 ms leaving a dangling `toolCall` |
+| Active command: stop (interrupt) then close | pass: command killed, `error_during_execution`, exit | partial: turn `interrupted` and server exit, but `codex-linux-sandbox` plus the Python child survived (52 s later) | pass: `abort` kills the child at once |
+| Active command: wait until idle then close | pass (23 s) | pass | pass (22 s) |
+| Grouped: two idle sessions from a manifest, stop, reopen, follow-up | pass (Claude + Codex) | | |
+
+Claude details (`probes/claude/run-suspend.sh`, sessions in `probes/claude/logs/recovery-session-ids.txt`):
+
+- Idle (`c72c5fa0-…`): probe exit 0; no CLI process and no `~/.claude/sessions` registry entry remained. Reopening with an empty turns file started a CLI that ran `SessionStart` hooks and exited before `init` without any model work, so the SDK offers no "load and wait" state: reading stored history is `getSessionMessages` with no process, and activating the conversation is the next prompt. The marked follow-up recited `ROUNDHOUSE-MARKER-7f3a / SUSPEND-IDLE-1 / SUSPEND-RESUME-2` on a single chain.
+- Pending permission (`971e5f11-…`): the relay client sent `close` (SDK input ended) while `Bash(sleep 5)` awaited approval. The process stayed alive; 294 s later the request's signal aborted, the transcript recorded `tool_result: Tool permission request failed: AbortError: Tool permission stream closed before…`, no `result` message was emitted, and the CLI exited 0. The headless documentation says the prompt is cancelled "as soon as the input ends" `[docs]`; the installed version took about five minutes `[observed]`. Safe sequence for Roundhouse: interrupt (or deny) first, then close input.
+- Active command (`d4d8ed86-…`, `709238b0-…`): interrupt ended the turn with `error_during_execution` and the owner exited within seconds; wait-until-idle took 23 s and ended with `success`. The first run's child-process check matched nothing because of shell quoting; the corrected rerun (`ONLY=active`, sessions `20e939fc-…` and `c75beb82-…`) showed the Python child present while the command ran (1) and gone after the interrupt (0) and after the natural completion (0), with no CLI process left in either case.
+
+Codex (`probes/codex/NOTES-followup.md`): closing stdin is a safe cancel for a pending approval; `turn/interrupt` ends the turn but can leave the sandboxed tool process running, so a suspend must verify `codex-linux-sandbox` children itself or wait for `turn/completed`. `thread/resume` separates reopen (history, MCP readiness) from activate (a turn).
+
+pi (`probes/pi/NOTES-followup.md`): shutdown is stdin EOF and completed within a second in every case, including with a dialog pending and an `abort` outstanding; a pending dialog blocks `abort` but not shutdown. Cancelling through the protocol (`cancelled: true`) denies the fixture operation and lets the run settle. Dialog `timeout` works in RPC mode but fires silently.
+
+Grouped (`probes/common/run-grouped.sh`, manifest `probes/common/grouped-manifest.json`): Claude `996cede8-…` and Codex `01a1aec9-…` each completed one marked turn; both processes were gone within 1 s of the probes exiting (`claude agents --json` showed no live entry); the Claude history was read from the transcript without a process and the Codex thread was resumed with `priorTurns: 1` and zero `turn/started`; the follow-ups recited `GROUP-CLAUDE-1, GROUP-CLAUDE-2` and `GROUP-CODEX-1, GROUP-CODEX-2` on single chains; no process remained afterwards. This establishes the lifecycle facts only; nothing here is transactional.
+
+Limits: process verification used `pgrep` by session or thread id and `claude agents --json`; sandboxed children (Codex) and background tasks (Claude `run_in_background` tools) are not enumerated by any supported interface and must be checked by process listing.
+
+### 3. Codex questions and steering (codex-cli 0.166.0)
+
+- Default-mode async question: the model emits an `agentMessage` item with `delivery: "async"` and `questions: [{title, options}]`, then sleeps in `sleep` items while the turn stays active. `turn/steer {threadId, expectedTurnId, input: [text "Blue"]}` returned the same `turnId`; the answer became a `userMessage` item inside the active turn, the sleep item ended early, and the reply was `Blue STEER-GAMMA-5e6f`. pass.
+- Collaboration mode for `item/tool/requestUserInput`: blocked. The v2 schema's `ModeKind` is `"plan" | "default"`, but no client request or `thread/start`, `thread/resume` or `turn/start` parameter sets it; `collaborationMode` appears read-only on `ThreadResumeResponse`, `ThreadSettings` and `thread/settings/updated`. Feature flags reported `collaboration_modes removed` and `default_mode_request_user_input … under development, false`. `requestUserInput` therefore cannot be enabled through the installed protocol, and no mode recommendation follows for planning or implementation agents.
+
+Implication: Roundhouse can treat a Codex `agentMessage` with `questions[]` as an explicit question and route the reply through `turn/steer` while the turn is active, falling back to `turn/start` after it ends.
+
+### What the follow-up permits us to promise
+
+- Reconnect: a browser-equivalent client can drop and rejoin without losing output or the pending request, provided the machine-local owner stays alive and keeps the event buffer and pending set. This is an owner-side promise; the harness supplies the resolution signals (Claude abort signal, Codex `serverRequest/resolved`, pi nothing beyond the tool result).
+- Suspension at idle: all three harnesses stop cleanly and reopen the exact identity with history and no model work (Claude only as stored history until the next prompt).
+- Suspension with a request pending: resolve or interrupt first on Claude (otherwise about five minutes until the CLI gives up); closing input is itself safe on Codex; on pi cancel the dialog or close input and accept a dangling tool call.
+- Suspension during active work: wait for the turn to end when the result matters; interrupting is clean on Claude and pi but leaves a Codex sandbox child that must be checked separately.
+
+Remaining blockers: no Codex collaboration mode exposes blocking questions in 0.166.0; the Claude five-minute pending-request exit is slow for an orderly suspend; owner-crash recovery of pending requests is untested on all three (the relay is in-memory).
+
+## Operator decision (2026-11-06): early ownership discipline
+
+Recorded separately from the technical findings. Michael has decided that operator care is sufficient for session ownership in the earliest Roundhouse versions: no leases, native-process exclusion, terminal wrappers, or cross-process locking for now. The operating procedure is explicit handoff: close the previous writer before opening another, where an idle terminal is still a writer. The concurrent-writer hazards above (Claude C9, pi P7) remain real and documented; stronger enforcement stays a possible later direction, not an immediate requirement. Tests must not resume a session still held by a different process; the Codex shared app-server multi-client case is a distinct, intentional configuration.
+
 ## Recommendations
 
 - Roundhouse's machine-local service must own session liveness itself: check for live processes before any resume (Claude: `claude agents --json`; pi: no signal, so Roundhouse's own registry) because Claude interactive sessions and pi do not refuse a second writer.
-- Treat "switch to terminal" as a release: stop the managed process, let the terminal resume by exact id, and re-adopt afterwards. Only Codex (shared app-server) and Claude background sessions support true live attach, and only Codex exposes it structurally.
+- Treat "switch to terminal" as a release: stop the managed process, let the terminal resume by exact id, and re-adopt only after that terminal process has exited. Idle is not closed. Only Codex (shared app-server) and Claude background sessions support true live attach, and only Codex exposes it structurally.
 - Explicit signals to surface: Claude `canUseTool` (question vs other tool), Codex `activeFlags` + server requests, pi `extension_ui_request`. Everything else is "unread activity".
 - Expect unobserved work after an owner crash on Claude; reconcile from the transcript on restart rather than assuming the last seen message is the last message.
 - Keep fixtures free of bare `sleep`; Claude blocks it as a standalone command.
@@ -316,7 +396,7 @@ The session file shows one chain through the TUI turns. Two extra session files 
 
 ## Handoff
 
-What works: exact-id round trips between structured and native terminal modes on all three harnesses, with history intact and no fork when the other side is idle; structured approvals and interrupts on Claude and Codex; recovery from native history after owner or harness termination on all three.
+What works: exact-id round trips between structured and native terminal modes on all three harnesses, with history intact and no fork when the previous writer process has exited (an idle terminal is still a writer); structured approvals and interrupts on Claude and Codex; recovery from native history after owner or harness termination on all three.
 
 What does not: a second writer on a live Claude interactive session or a live pi session forks the transcript silently; Codex blocking user-input requests are unavailable in default mode; pi has no permission model of its own and a dialog can hang a run forever; Claude's SDK cannot attach to a running terminal or background session.
 
