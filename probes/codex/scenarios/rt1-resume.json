@@ -1,0 +1,5 @@
+[
+  "Blue. Now list every marker token you have seen in this conversation so far, in order, one per line, then append RESUME-SDK-c3d4 on its own line. Nothing else.",
+  "Reply with the project instruction marker token followed by EPSILON-9f0a. Nothing else.",
+  "Append the single line ZETA-1b2c to approval-probe.txt in the working directory using a shell command, then reply ZETA-1b2c. Nothing else."
+]

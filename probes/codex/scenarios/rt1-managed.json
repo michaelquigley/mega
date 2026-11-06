@@ -1,0 +1,6 @@
+[
+  "Reply with the project instruction marker token from your project instructions (AGENTS.md), followed by the word ALPHA-1a2b. Nothing else.",
+  "Run exactly `cat fixture.txt` in the working directory and reply with the token it contains followed by BETA-3c4d. Nothing else.",
+  "Create a file named approval-probe.txt in the working directory containing the single line GAMMA-5e6f, using a shell command. Then reply with GAMMA-5e6f. Nothing else.",
+  "Use the request_user_input tool to ask me a single question: which color do you prefer? Offer exactly two options, Red and Blue. After I answer, reply with my chosen color followed by DELTA-7a8b. Nothing else."
+]

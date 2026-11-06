@@ -1,0 +1,1 @@
+["List every marker token you have seen in this conversation so far, in order, one per line, then append RPC-RETURN-c3d4 on its own line. Nothing else.", "Reply with the project instruction marker token followed by EPSILON-9f0a. Nothing else.", "Using the bash tool, run exactly `sleep 2` and then reply ZETA-1b2c. Nothing else."]

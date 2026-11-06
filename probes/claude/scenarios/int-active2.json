@@ -1,0 +1,1 @@
+["Using the Bash tool, run exactly `python3 -c 'import time; time.sleep(45); print(\"slept\")'` in the foreground (do not background it) and then reply INT-ACTIVE-2. Nothing else.", "Reply with exactly AFTER-INTERRUPT-dd44 and nothing else."]

@@ -1,0 +1,4 @@
+[
+  "List every marker token you have seen in this conversation so far, in order, one per line, then append ADOPTED-7e8f on its own line. Nothing else.",
+  "Using the Bash tool, run exactly `sleep 2` and then reply ETA-3d4e. Nothing else."
+]

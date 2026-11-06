@@ -1,0 +1,1 @@
+["Using the bash tool, run exactly `python3 -c 'import time; time.sleep(30); print(\"slept\")'` and then reply OWNER-KILL-1. Nothing else."]

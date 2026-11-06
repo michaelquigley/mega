@@ -1,0 +1,6 @@
+[
+  "Reply with the project instruction marker token from your project instructions, followed by the word ALPHA-1a2b. Nothing else.",
+  "Using the bash tool, run exactly `cat fixture.txt` in the working directory and reply with the token it contains followed by BETA-3c4d. Nothing else.",
+  "Use the ask_user tool to ask me a single question: which color do you prefer? Options: Red, Blue. Then reply with my chosen color followed by GAMMA-5e6f. Nothing else.",
+  "Using the bash tool, run exactly `sleep 3` and then reply DELTA-7a8b. Nothing else."
+]
