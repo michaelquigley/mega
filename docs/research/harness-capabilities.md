@@ -379,27 +379,34 @@ Recorded separately from the technical findings. Michael has decided that operat
 
 ## Recommendations
 
-- Roundhouse's machine-local service must own session liveness itself: check for live processes before any resume (Claude: `claude agents --json`; pi: no signal, so Roundhouse's own registry) because Claude interactive sessions and pi do not refuse a second writer.
+- Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. Roundhouse should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.
 - Treat "switch to terminal" as a release: stop the managed process, let the terminal resume by exact id, and re-adopt only after that terminal process has exited. Idle is not closed. Only Codex (shared app-server) and Claude background sessions support true live attach, and only Codex exposes it structurally.
-- Explicit signals to surface: Claude `canUseTool` (question vs other tool), Codex `activeFlags` + server requests, pi `extension_ui_request`. Everything else is "unread activity".
+- Explicit signals to surface: Claude `canUseTool` (question vs other tool); Codex `activeFlags`, server requests, and async `agentMessage` items carrying `questions[]`; pi `extension_ui_request` (generic dialogs, not necessarily permissions). The follow-up demonstrated answering Codex's async question with `turn/steer` while its turn remained active. Ordinary prose questions remain unread activity unless separately classified.
+- Reconnect requires owner-side output replay and a current pending-request set, including resolution handling. The follow-up demonstrated these with an in-memory relay while the owner stayed alive; it did not establish owner-crash or power-loss durability.
+- Idle suspension and exact-session reopening without new model work passed on all three. Claude can expose stored history without a running harness until the next prompt. For pending requests, use the harness-specific cancellation sequence described in the follow-up.
+- Do not equate an interrupted turn or server exit with all tool execution having stopped: the Codex follow-up observed a surviving sandboxed child. Waiting for natural completion and interrupting have different implications; report remaining or uncertain execution rather than asserting complete suspension.
 - Expect unobserved work after an owner crash on Claude; reconcile from the transcript on restart rather than assuming the last seen message is the last message.
 - Keep fixtures free of bare `sleep`; Claude blocks it as a standalone command.
 
-## Open questions and smallest next experiments
+## Remaining uncertainties and deferred investigations
 
-1. Claude multi-client: `pending_permission_requests` on initialize and the initialize re-send exist in the SDK types. Experiment: run two SDK hosts against one background (`--bg`) session only if a supported transport appears; otherwise treat as unavailable.
-2. Claude branch selection after a split: confirm which leaf `--resume` follows by writing a `last-prompt` entry from the terminal and resuming again. Experiment: repeat C9 with the terminal exited cleanly first.
-3. Codex `turn/steer` into a sleeping async-question turn, and whether a non-default collaboration mode enables blocking `requestUserInput`. Experiment: start a thread with the collaboration mode option from the schema and repeat X3.
-4. Codex shared daemon: whether `codex agents` / the daemon exposes the same multi-client semantics to the normal TUI without `--remote`. Experiment: read its config, do not restart it.
-5. pi dialog timeouts: whether a `timeout` on `ctx.ui.select` auto-resolves in RPC mode and what the run does afterwards.
-6. Browser-equivalent disconnect and central-client restart were not run on any harness; the local owner held every connection throughout. Experiment: a loopback shim between probe and harness that buffers events and replays pending requests on reconnect.
+The follow-up resolved the earlier browser-disconnect, pi dialog-timeout, and Codex steering questions. These are no longer pending experiments. It also found no supported way to enable blocking `requestUserInput` through the installed Codex protocol; revisit that limitation when the protocol changes, rather than assuming an untested mode option exists.
+
+Remaining uncertainties:
+
+1. Owner-crash recovery of pending requests and whole-machine power-loss durability. The reconnect relay was in-memory; client reconnect while the owner survives does not answer either question.
+2. Complete cleanup of interrupted execution, especially the surviving Codex sandbox child. The observations establish the hazard, not a general process-containment solution.
+3. Claude supported multi-client attachment and branch selection after concurrent writes. Neither is needed for the initial cold-handoff path with operator care. Do not depend on undocumented daemon sockets or repeat concurrent-writer experiments as ordinary operation.
+4. Codex shared-daemon behavior for a normal TUI without `--remote`. The tested shared app-server plus remote TUI path works; behavior of the operator's existing daemon was not established.
+
+These are boundaries and possible later investigations, not a request for another broad probe round.
 
 ## Handoff
 
-What works: exact-id round trips between structured and native terminal modes on all three harnesses, with history intact and no fork when the previous writer process has exited (an idle terminal is still a writer); structured approvals and interrupts on Claude and Codex; recovery from native history after owner or harness termination on all three.
+What works: exact-id round trips between structured and native terminal modes on all three harnesses, with history intact and no fork when the previous writer process has exited (an idle terminal is still a writer); owner-backed client reconnect with missed-output replay and a current pending-request snapshot; idle suspension and reopening without new model work; Codex async-question answers through `turn/steer`. Native-history recovery after the specific owner/harness termination tests also worked, with the differing outcomes documented above.
 
-What does not: a second writer on a live Claude interactive session or a live pi session forks the transcript silently; Codex blocking user-input requests are unavailable in default mode; pi has no permission model of its own and a dialog can hang a run forever; Claude's SDK cannot attach to a running terminal or background session.
+What requires care: Claude and pi can silently branch a transcript when independently opened by concurrent writers. Early versions rely on operator handoff discipline. Claude needs interruption or denial before promptly shutting down a pending permission request. Pi has no built-in permission model; its extension dialogs can block abort, but protocol cancellation, explicit dialog timeouts, and stdin shutdown were exercised. Codex interruption can leave a sandboxed child alive even after the server exits.
 
-What remains uncertain: Claude multi-client and branch selection after a split, Codex non-default collaboration modes and the shared daemon, pi dialog timeouts, and all browser-disconnect scenarios.
+What remains unavailable or unproven: supported Claude SDK attachment to a running native session; Codex blocking user-input mode through the installed protocol; durable pending-request recovery after an owner crash; whole-machine power-loss recovery; general cleanup of all child/background execution. See Remaining uncertainties for the narrower deferred investigations.
 
 Terminal steps completed by Michael: Claude resume and native-origin session, Claude attach to a background session, the Claude split test, Codex TUI resume and remote TUI, pi TUI resume with the approval dialog. Fixtures remain under `/home/michael/Repos/q/research/roundhouse-fixtures/`; test sessions remain in each harness's session store and can be purged (`claude purge <path>` exists for Claude). Everything is uncommitted.
