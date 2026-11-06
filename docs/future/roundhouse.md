@@ -1,68 +1,33 @@
 # Roundhouse
 
-## Status and purpose
+Design draft, revised 2026-11-06. A future-state description, not a report of built behavior or a work order. Where something is still provisional it says so; everything else is decided. The harness evidence this leans on is in `docs/research/harness-capabilities.md`, and anyone planning against this should check installed versions rather than assume those observations hold forever.
 
-Design draft for discussion. This is a future-state description, not a report of built behavior or an implementation work order. Explicit decisions, provisional directions, and open questions are distinguished below. The harness evidence lives in `docs/research/harness-capabilities.md`; implementation planning must check installed versions rather than assume those observations hold forever.
+## What it is
 
-Roundhouse is a project-oriented workspace for working directly with a gang of heterogeneous coding agents across development machines. It provides one place to converse, see where attention is needed, and return to work without reconstructing a collection of terminal windows. It is not an autonomous coordinating agent, a replacement coding harness, or an IDE.
+Roundhouse is a project-oriented workspace for working directly with a gang of coding agents spread across development environments. One place to converse, see where attention is needed, and return to work without rebuilding a pile of terminal windows. It is not a coordinating agent, not a replacement harness, and not an IDE.
 
-Michael regularly makes circuits between projects, each often containing several collaborators. The friction is not merely switching windows: it is recovering what each agent needs, which conversation to enter next, and which agents are waiting on decisions or artifacts from elsewhere in the project. After an outage, this becomes a larger reconstruction task: finding the native sessions, recognizing them among GUIDs, and rebuilding the working arrangement.
+The problem it solves is attention. Michael makes circuits between projects, each with a few collaborators, and the cost is not switching windows... it is recovering what each agent needs, which conversation to enter next, and who is waiting on whom. After a reboot that cost becomes a reconstruction job: finding the native sessions among GUIDs and rebuilding the arrangement. Roundhouse keeps the arrangement separate from the processes doing the work, so a reboot interrupts execution without erasing the project map, and a project can be deliberately put down and picked up later with its conversations and place intact.
 
-Roundhouse addresses both problems by preserving the arrangement independently of the processes doing the work. A reboot should interrupt execution, not erase the project map. Deliberate suspension should let Michael put a project down with its conversations and place retained.
+Michael speaks to the agents directly. There is no intermediary model deciding what to send or where. Claude Code, Codex, and pi stay native harnesses with their own loops, permissions, and session stores; Roundhouse accommodates what they can do rather than replacing it. Project truth stays in repositories. Roundhouse holds arrangement and reading state, never a competing copy of specs or agent memory.
 
-## Explicit decisions
+## The shape
 
-- Roundhouse is a single-operator workspace for Michael, accessible from multiple browsers on the network.
-- It is a first-class web application hosted on `apps.hq`, reachable at `roundhouse.hq.quigley.com`.
-- Browser authentication uses an application-managed local username/password database. External identity integration and multi-user sharing are not initial requirements.
-- Each development environment runs a machine-local service coordinating its local harnesses. The central application communicates with those services.
-- Claude Code, Codex, and pi remain native harnesses. Roundhouse accommodates their capabilities rather than replacing their agent loops.
-- Michael speaks directly to the agents. An intermediary model is not required to send messages or make operational decisions.
-- Projects are registered from existing checkouts on connected hosts. Roundhouse does not initially clone repositories or provision environments.
-- A project's agents generally run together on its development host. Project registration supplies the default host and checkout for new conversations.
-- Pane remains independent. Roundhouse may become the central place for project-related work without absorbing pane; repo artifacts remain the existing handoff for pane-originated design.
-- Normal launches should happen through Roundhouse, but adoption of existing native sessions and return to native terminal use are important capabilities.
-- Early versions rely on operator care for exclusive session ownership during handoff. Stronger exclusion machinery is deferred; the known concurrent-writer hazards remain visible.
-- The interface remains project-focused, with a readily available cross-project attention view. Both a compact list and a next-waiting-conversation shortcut are wanted.
-- Local inference is the preferred starting approach for short state summaries that help explain what agents need and who is waiting on whom. It assists reading, not execution.
-- The conversation is the primary working surface. Existing IDEs, editors, and other tools remain the place to inspect project files and diffs.
-- Deliberate project suspension stops harnesses while retaining involved native session identities. Resume restores access to those conversations, not a fresh agent primed with a summary.
-- Desktop is the first-version target. Mobile and parameterized bootstrap presets are deferred.
+An **environment** is where a project's work physically happens: a place that runs one environment service and holds checkouts, harness installs, native session stores, and harness logins. Today that means the `fortyfive` and `twentytwo` workstations. Later it could mean a container per project on either of them, which is why the identity belongs to the environment and not the machine, and why the service runs inside the environment rather than reaching into it from outside. A workstation hosting five project containers would have five enrolled environments. The one real cost containers carry is that so much of what a harness needs lives outside the checkout (logins, trust state, configuration, the session stores themselves) and would have to be provisioned or mounted. That work is deferred, but the shape leaves room for it.
 
-## Working model
+A **project** is the stable home for work: a display name, an environment, and a checkout. Registering one is small (pick a connected environment, pick an existing checkout, name it). Its conversations stay with it when their processes exit, when the environment goes offline, and when the project is suspended. Removing a project never deletes its checkout or native histories. One registration per checkout per environment is the ordinary case; moving a project between environments is a deliberate operation, not a field edit.
 
-### Project
+A **conversation** is a durable identity wrapped around a native harness session. The session id, environment, and checkout are plumbing, not its name. A conversation is not a permanent role: one agent might carry a small change end to end, and a bigger effort might start fresh design, planning, and implementation conversations. Roles are optional labels, and projects may gather conversations into an optional named work group (provisional: the grouping interactions are still to be worked out). Grouping never implies a pipeline engine, and Roundhouse never merges model contexts because it groups their conversations.
 
-A project is the stable home for work in the interface. It has a display name and a registered development host and checkout. Its conversations remain associated with it when their processes exit, its host goes offline, or the project is deliberately suspended.
+A **runtime** is the harness process or server thread currently executing. It can stop without the conversation going anywhere, and reopening a conversation need not start a process, let alone a model turn. Each conversation runs in one of two modes. In the long-lived mode, which is the default, the process stays alive between turns, which keeps MCP servers connected and background work flowing, and means the conversation has a managed writer even when idle. In the per-turn mode, opt-in per conversation with a per-harness default and a global switch, the process exits at the end of each turn and the next prompt resumes the exact session. Per-turn makes terminal handoff and suspension nearly free, at the cost of per-turn startup and of anything that keeps state inside the harness process. Mercurius and terminus both do that today (session state in memory, review rounds running inside the MCP server), so conversations that drive them stay long-lived until those brokers are made restartable in their own repos. That is follow-on work the practice can ease into one conversation at a time, not a prerequisite.
 
-Registering a project is a small operation: choose a connected host, select or enter an existing checkout path, and name the project. Path validation happens on that host. Removing a project from the workspace must not imply deleting its checkout or native session histories; the exact removal/archive interaction remains open.
+## Working in it
 
-The initial ordinary case is one project registration pointing at one checkout on one host. Multiple registrations for worktrees or other environments may be useful, but cross-host project routing and automatic checkout synchronization are not implied requirements.
-
-### Conversation
-
-A conversation is a durable workspace identity associated with a native harness session. Its native session ID, host, and checkout are plumbing, not its only human-readable identity. Unnamed conversations still retain their project placement and recognizable recent context.
-
-A conversation is not a permanently assigned role. Small changes may use one agent for design, planning, and implementation, and an existing conversation may cover several small changes. Larger efforts often start fresh design, planning, and implementation conversations. Fresh-context review and implementation practices remain possible; Roundhouse must not merge model contexts simply because it groups their conversations.
-
-Provisional interface direction: roles such as Design, Planning, and Implementation are optional editable labels. Projects may contain conversations directly or gather related conversations into an optional named work group. Grouping should not be mandatory before starting work or imply a pipeline engine. The precise group creation and movement interactions are still to be refined.
-
-### Runtime
-
-The runtime is the currently executing harness process or server-managed thread. It can stop without the conversation disappearing. Reopening a conversation need not start a model turn or even immediately start a process.
-
-This distinction is demonstrated by the probes: Claude can present stored history while no runtime exists; Codex and pi can reopen into an idle runtime without new model work. Roundhouse should expose the useful common experience without pretending these mechanisms are identical.
-
-## The desktop workspace
-
-The main surface has persistent project/conversation navigation and one generous selected conversation. A project’s collaborators should remain easy to recognize and switch between while Michael makes circuits across the wider workspace.
-
-Provisional layout:
+The main surface is a stable project and conversation navigator beside one generous selected conversation. Navigation stays put rather than re-sorting collaborators by their latest output, so a project's structure becomes spatially familiar. The selected conversation quietly shows its harness, model and effort where available, runtime mode, and environment and checkout. Launching means choosing a harness and writing the opening prompt; environment and checkout come from the project, and native settings are inherited rather than silently stripped. Desktop first; mobile is a later fallback.
 
 ```text
 +---------------------------+------------------------------------------+
 | Needs you                 | Project / work group / conversation      |
-|                           | Harness · model · effort · host/checkout |
+|                           | Harness · model · effort · mode · env    |
 | Projects                  +------------------------------------------+
 |  archive                  |                                          |
 |    Storage durability     | Conversation                             |
@@ -75,33 +40,11 @@ Provisional layout:
 +---------------------------+------------------------------------------+
 ```
 
-Exact panel dimensions, typography, and placement are not settled. Start with one selected conversation; side-by-side viewing is a possible later addition, not an initial commitment. Keep navigation stable rather than continually sorting collaborators by their latest output. Project structure should become familiar spatially.
+Attention has two routes: a compact cross-project list, and a keyboard shortcut to the next waiting conversation. Both open the conversation inside its project. Replying does not move focus, because a reply may start a discussion rather than finish a queue item. Opening a conversation acknowledges what was read and nothing more; a pending approval or question stays pending until answered. Unread output and an explicit request are kept visibly distinct.
 
-The selected conversation identifies its harness, current model/effort where available, and physical host/checkout. Those details should be quiet but accessible, especially when adopting sessions or returning after an outage.
+Three native states carry the first version: running, turn ended with unread output, and request pending (a question, an approval, or a dialog). In this practice almost every turn end means the agent is waiting on Michael, since the planning and implementation roles stop after each finding, so "turn ended, unread" is the ordinary waiting state and needs no inference to be useful. The adapters do some classifying: a Codex agent asking a question in default mode keeps its turn active and sleeps, so an `agentMessage` carrying `questions[]` must read as a request, not as work in progress. Error and unreachable are shown as what they are.
 
-Launching a conversation should ordinarily mean choosing the harness and supplying the opening prompt. Host and checkout come from the project. Exposing model and effort with supported changes is a provisional first-version direction; each adapter must disclose what can change live versus only on next launch. Inherit native settings where appropriate rather than silently substitute a stripped-down environment. Bootstrap templates and saved launch presets can follow later.
-
-## Attention across projects
-
-Michael alternates between making a circuit through waiting agents and focusing on a project's structure. Roundhouse serves both modes without making either mandatory.
-
-The attention navigator offers a compact cross-project list and a keyboard action to move directly to the next waiting conversation. Both routes open the conversation within its project context. Replying should not automatically move focus away: a response may begin a longer discussion, not finish a queue item.
-
-Provisional behavior:
-
-- Opening a conversation acknowledges what was read, not a pending permission or question.
-- Preserve reading position and distinguish content new to Michael from merely recent activity.
-- Keep unread output distinct from an explicit request requiring intervention.
-- Present inferred attention suggestions separately from native requests, even if both are accessible from the same navigator.
-- Last operator interaction may be useful secondary context, but it is not the primary explanation of which agent is waiting on whom.
-
-Attention ordering, shortcut behavior at the end of the list, and manual dismissal/snoozing are open interaction details. A sensible initial ordering should not be mistaken for a priority judgment about the work.
-
-### Native facts and inferred meaning
-
-Native protocol state supplies facts: runtime active or idle, explicit question, approval request, completed turn, error, or disconnected/unknown state. It does not reliably explain the project's next move. An ordinary prose response may be a question, a handoff, or a report that the agent has stopped.
-
-Local inference supplies a short reading of the work, for example:
+On top of the native facts sits the **re-entry briefing**, a short reading written for Michael arriving back at a project after circuits elsewhere: what was decided recently, what is being asked of him, where each conversation stands and how they relate.
 
 ```text
 Planning
@@ -112,181 +55,71 @@ Implementation
   Planning has since posted a revision.
 ```
 
-These summaries should relate the relevant conversations within a project, not merely summarize each transcript independently. They are derived views, not new project truth or authoritative dependency declarations.
+The briefing is generated by local inference in the environment at the end of a turn, from a bounded recent window plus the previous briefing, and cached beside the conversation as derived state. It links to the messages it leans on, keeps its uncertainty in its wording, is labeled stale the moment newer activity arrives, and is labeled unavailable rather than shown old. Native requests and runtime facts always outrank it. It cannot send, approve, resume, or edit anything, and its failure blocks nothing. It is a later stage; the first stage records turn boundaries and event history in the form it will consume. The test of whether it works is whether it saves Michael from rereading several conversations, not whether it produces a formal workflow graph.
 
-Provisional inference design:
+## How it is built
 
-- Summarize bounded recent exchanges and relevant tool/request events after meaningful activity rather than on every token.
-- Link claims to supporting messages or artifacts where possible. Uncertainty should survive into the wording.
-- Mark a summary stale when newer relevant activity arrives; label unavailable summaries rather than presenting old interpretations as current.
-- Allow a path back to full conversation context. Do not compress away a decision just to fit a status line.
-- Native pending requests and runtime facts take precedence over a summary.
-- Inference failure does not block reading, replying, approvals, launching, or suspension.
-- Summaries do not send messages, approve tools, resume work, or change repository artifacts.
-
-The model endpoint, context budget, trigger/coalescing policy, and treatment of contradictory summaries remain open. Initial evaluation should ask whether summaries save Michael from rereading multiple conversations, not whether they create a complete formal workflow graph. An agent status-reporting convention is not required initially.
-
-## Architecture and ownership
+Two kinds of service, of which only the second exists in the first build. The **central application** on `apps.hq`, reachable at `roundhouse.hq.quigley.com`, handles browser login, enrolls environments, relays commands and state between browsers and environments, assembles cross-project views such as the attention list, and keeps a last-seen snapshot of each environment. The **environment service** runs in each environment and owns managed execution: launching harnesses, draining their event streams, tracking the current pending-request set, delivering replies, and running each harness's particular shutdown and resume sequences. It keeps going whether or not a browser or the central application is up. It is not a pipeline engine: it does not choose agents, advance stages, or decide that a work order is ready.
 
 ```mermaid
 flowchart TD
-    B[Desktop browsers] -->|HTTPS| C[Roundhouse central application on apps.hq]
-    C --- L[Local inference endpoint: placement open]
-    C <-->|Authenticated service connection| H1[Machine-local service: development host A]
-    C <-->|Authenticated service connection| H2[Machine-local service: development host B]
-    H1 --- A1[Claude Code / Codex / pi]
-    H2 --- A2[Native harnesses]
-    A1 --- R1[Local checkouts and native session histories]
-    A2 --- R2[Local checkouts and native session histories]
+    B[Desktop browsers] -->|HTTPS| C[Central application on apps.hq: login, enrollment, relay, last-seen cache]
+    C <-->|Outbound authenticated connection| E1[Environment service: fortyfive]
+    C <-->|Outbound authenticated connection| E2[Environment service: twentytwo]
+    E1 --- A1[Claude shim / Codex / pi adapters]
+    E2 --- A2[Claude shim / Codex / pi adapters]
+    E1 --- R1[Registry, event history, checkouts, native histories, local inference]
+    E2 --- R2[Registry, event history, checkouts, native histories, local inference]
 ```
 
-### Central application
+**Truth lives in the environment.** The environment service is the single authority for everything about its projects: the registration, the conversation roster with native ids and modes and labels, the event history and pending set, reading position, cached briefings, and whether each project is suspended. The central application owns only the login database, the enrollment records, and the snapshot, and the snapshot is a cache, never an authority. While an environment is connected its state is relayed live; while it is offline the snapshot is shown labeled as last seen. Browsers never write workspace state directly... every change is a command to the owning environment, and the environment's confirmed state is what every browser renders, which is also how two browsers stay consistent. Reading position lives with the conversation for the same reason, even though it is about Michael rather than the project. Unsent drafts stay in the browser.
 
-The central application presents the workspace, handles browser login, associates projects and conversations with hosts/checkouts/native identities, tracks attention and reading state, and coordinates access to inferred summaries. Browsers communicate with this application rather than directly with harness endpoints.
+This buys a lot for very little. There is no reconciliation between peers: after a crash the environment reconciles its own registry against native histories and surviving processes, and nothing else needs to agree. Nothing but the owning environment can launch a process for a project, so duplicate launches have one place to be prevented. The central application can be restarted freely and refills from the next connection. The cost is that a down environment takes its arrangement with it until it returns, which matters little since its checkout and histories are gone with it anyway. The registry sits on durable storage the environment owns, as a plain file in a known place that can be read without the service running; for a container that means a mounted volume, or the arrangement dies with the container.
 
-Provisional direction: workspace structure, reading state, and attention state follow Michael between browsers, while unsent reply drafts remain browser-local to avoid overwriting another window's draft. The consistency rules for simultaneous browser use still need specification.
+**Adapters** use supported structured interfaces and keep native semantics. Codex speaks JSON-RPC over stdio and pi speaks JSONL over stdio, so the Go service drives both directly from the installed version's schema and docs. Claude is driven through a small TypeScript shim that the service spawns per runtime: it resumes by exact id through the Claude Agent SDK, turns SDK events into flat JSONL on stdout, and takes prompts and answers on stdin. The shim carries no policy, so SDK version bumps stay inside it. Adapters account for native configuration loading, trust, tools, permissions, and interruptions rather than assuming programmatic mode equals a terminal launch; a concrete case is that Claude ignores a project's permission rules until the checkout has been opened interactively once, and registration should notice and say so rather than flip the trust flag. No silent weakening of permissions as an integration convenience.
 
-### Machine-local service
+**Stack and connection.** Go for the central application and the environment service, with `github.com/michaelquigley/df/dl` for logging and `df/dd` for marshaling. TypeScript only in the Claude shim. Environments dial out to `apps.hq` over persistent authenticated connections with commands flowing back, which keeps the destination simple, exposes no development machine to browsers, and means a container needs no published ports. Environment credentials are separate from the browser password, enrolled and revocable per environment, because this system exposes agents with filesystem and command capabilities and being on the network is not authentication. Password storage and browser sessions use established practice. Whether the environment link is a plain outbound WebSocket through the existing nginx or a private zrok share, along with TLS termination, enrollment mechanics, retry rules, and version negotiation, is for the work order.
 
-The machine service owns managed execution: launching native harnesses, draining event streams, tracking current requests, delivering replies, and conducting harness-specific shutdown and resume sequences. It continues independently of browser and central-application availability.
+## When things stop
 
-The reconnect probes demonstrated why this service is more than a process launcher. It needs a current pending-request set as well as conversation events. Replaying an old request event does not establish that the request is still actionable. Native late responses may be silently ignored, so Roundhouse should give the interface an explicit result when its own current state shows a request is no longer pending.
+Closing a browser stops nothing. Restarting the central application stops nothing and refills its cache on reconnect. When the interface comes back it recovers missed activity and the current pending-request set from the environment, without replaying prompts or approvals. The probes showed this with an in-memory owner that stayed alive; the production version needs a real retention and replay contract in the environment service, including what happens when the missed interval is gone.
 
-The local service should retain enough durable session registration and launch information to account for its managed conversations after restart. How that information is reconciled with the central workspace is an open contract; duplicating associations must not result in two authorities independently spawning the same session.
+An unreachable environment is not proof its agents stopped. Its projects stay in the workspace showing last-seen state, and on reconnect the environment reconciles surviving processes and native history before offering to continue. The probes rule out any universal completion boundary: Claude can keep working and persisting after its owner dies, Codex can leave a sandboxed child running after an interrupt, pi can save a tool call without its result. So visibility is restored automatically and uncertain execution is resumed deliberately. An in-flight command or an old permission decision is never replayed just because the connection came back.
 
-The machine service is not a pipeline engine. It does not choose agents, move stages, decide that a work order is ready, or replace mercurius and terminus.
+**Suspension** is intentional, and distinct from a crash or an outage. A suspended project keeps its roster, native identities, placement, and reading context, and does not wake up because its environment rebooted. The ordinary case is a stopping point: idle long-lived conversations shut down cleanly, per-turn ones are already stopped, and on resume the same conversations come back with history and no model work (for Claude, history first and a runtime only with the next prompt). With a request pending or work active, the interface shows what is in the way and Michael chooses to wait or interrupt; nothing is approved to make shutdown finish, and on Claude a pending request is interrupted or denied before input is closed, since closing first leaves the process alive for minutes. If anything is still running or cannot be verified (the surviving Codex sandbox child is the known case), the project is reported as partly suspended rather than stopped. Project-level suspension is decided; conversation and group level are provisional extensions.
 
-### Harness adapters
+**Terminal handoff** depends on mode, and the interface shows the mode so the rule is obvious. A long-lived conversation has a managed writer at idle, so handoff is explicit: release the runtime, open the exact session in the terminal, close the terminal, resume under Roundhouse. Idle is not closed. A per-turn conversation has no writer between turns, so the only rule is not to open a terminal mid-turn. Operator care is the accepted early mechanism; the concurrent-writer hazards in Claude and pi are real and documented, and leases or locks are deferred. Adoption of a session started in a terminal is the same path in reverse: discover it in the environment, associate it with a project conversation, and resume by exact id once the terminal has exited. Codex's shared app-server additionally allows a native TUI to attach live to a managed thread, with approvals broadcast and first answer winning; that stays available as a richer Codex-only capability, never presented as an exclusive lock. A conversation handed to a terminal keeps its place in the workspace, shown as externally operated. Nothing ever replaces native continuity with a summary-fed fresh session unless Michael explicitly asks for that.
 
-Use supported structured interfaces and preserve native semantics. Normalize only what the interface actually needs; retain harness-specific capabilities and limitations. Do not scrape terminal display output as the ordinary conversation transport.
+## First slice
 
-Adapters must account for native configuration loading, trust, tools, permissions, model selection, and interruptions rather than assuming programmatic mode equals a normal terminal launch. No silent weakening of permission settings is acceptable as an integration convenience.
+The goal of the first build is to get airborne as cheaply as possible so the feel and the workflow can be vetted in daily use, with refinement passes after. So the first slice is the environment service alone on `fortyfive`, serving its UI on localhost; Michael logs into the workstation and opens it there. No central application, no login, no enrollment: until the central application arrives as a later stage, the service is the whole stack, and nothing in the conversation surface has to change when it does. Projects and conversations registered from existing checkouts, with the registry as a plain file. Claude and Codex, since together they cover the typical workflow, at cold-handoff level: launch, resume by exact id, questions and approvals, interrupt, release for terminal handoff, adoption. Long-lived mode only. Three-state attention from native facts, the compact list and the next-waiting shortcut, reading position per conversation. The roster survives a service restart, with conversations reopening on their next prompt and native history re-read where it moved on. Event history and turn boundaries recorded for the briefing to consume later.
 
-### Connection and authentication
+Not in it: pi, the briefing, suspension as an explicit operation, per-turn mode, Codex live attach, work groups, the central application and a second environment, containers, live model and effort changes beyond what adapters disclose cheaply. The work order for this slice is `docs/future/roundhouse-work-order.md`.
 
-The browser login uses the established local account model. Machine authentication is separate from the operator's browser password, with independent registration and revocation. This system exposes coding agents with local filesystem and command capabilities, so being on the network is not sufficient authentication.
+## Seam census
 
-Provisional direction: machine services initiate persistent authenticated outbound connections to apps.hq, with commands flowing back over them. This simplifies the known destination and avoids exposing development hosts directly to browsers. Connection direction, wire protocol, TLS termination, machine credential enrollment, retry rules, and version/capability negotiation are not yet settled.
-
-Password storage and browser sessions should use established secure practices, not bespoke cryptography. Exact login bootstrap, password reset, session lifetime, CSRF/origin protection, and host enrollment mechanisms belong in the next security/design pass. Multi-user authorization is not needed, but single-operator does not remove the need to protect command delivery.
-
-## Persistence and recovery
-
-Roundhouse has three distinct persistence concerns:
-
-1. Workspace arrangement: what projects and conversations exist and where Michael left them.
-2. Native conversation history: the harness's durable session identity and transcript.
-3. Operational evidence: what execution and requests were last observed and what is currently confirmed.
-
-Native histories remain owned by native harnesses. Roundhouse may need indexed or cached conversation data for display, summaries, and offline visibility; storage format, retention, replay, and synchronization are open. It should not silently become a second authoritative native transcript store. Project intent and memory remain in repository files.
-
-### Browser and central interruption
-
-Closing a browser must not stop agents. Restarting the central application should not terminate host-managed execution. When the interface returns, it recovers missed activity and the current pending-request set without replaying prompts or approvals.
-
-The probes established this with an in-memory local owner that remained alive. A production promise requires a deliberate retention/replay contract, including what happens if the missed event interval is no longer available. Do not infer durable recovery from the probe's ring buffer.
-
-### Host or machine-service interruption
-
-An unavailable host is not proof that its agents stopped. Show last-known evidence as such and preserve the project in the workspace. On reconnect, reconcile surviving processes and native history before proposing continuation.
-
-Claude may continue and persist work after its owner dies. Codex may leave a child command running after an interruption and server exit. Pi may preserve a tool call without its result. These observations rule out treating the last received message, process exit, or interruption acknowledgment as a universal completion boundary.
-
-Restore visibility automatically; resume uncertain execution deliberately. Do not replay an in-flight command or an old permission decision merely because communication returned. A command may have produced effects even if its completion was never observed.
-
-Whole-machine power-loss durability, owner-crash recovery of requests, persistence acknowledgments, and protection against accidental duplicate launches remain open. The desired user experience is explicit; the probes have not yet established every guarantee needed to deliver it.
-
-## Suspension and resumption
-
-Suspension is intentional, distinct from a crash or an unreachable machine. A suspended project retains its conversation roster, native identities, placement, and reading context. It does not reactivate merely because its host restarts.
-
-The ordinary case is a stopping point: idle managed conversations shut down cleanly. On resume, those same conversations become available with history intact and without new model work. For Claude this can mean displaying history first and starting a runtime only with the next prompt.
-
-For active work or pending requests, show what prevents straightforward suspension and let Michael choose to wait or interrupt. Adapter-specific cancellation handles native requests; do not approve an operation just to make shutdown finish. Pending approval UI must not survive as an actionable approval if the runtime no longer recognizes it.
-
-Partial suspension is possible. If a harness, tool process, or externally controlled conversation remains active or cannot be verified, do not declare the whole project fully stopped. The product must define what evidence is sufficient for each reported state without promising to discover every unrelated process on a machine.
-
-Project-level suspension is agreed. Conversation-level and optional work-group suspension are provisional extensions of the same operation; their exact initial scope remains open.
-
-## Adoption and terminal use
-
-Adoption starts by discovering or selecting a native session on the registered development host and associating it with a project conversation. Discovery, reading stored history, cold resumption, and live control are distinct capabilities. Do not call all four “attach.”
-
-For the initial Claude and pi paths, cold handoff is explicit: stop the managed writer, open the exact native session in the terminal, close that writer, then resume under Roundhouse. Idle is not closed. Operator care is the accepted early mechanism; no mandatory lease system, native-process exclusion, or terminal wrapper has been decided.
-
-Codex demonstrated native remote TUI access to the same managed app-server thread, including approval handling. Preserve this as a possible richer adapter capability. Its transport is experimental upstream, approvals are broadcast, and first response wins. Any browser “terminal control” indicator must not imply an exclusive lock the native server does not enforce.
-
-Terminal use need not erase workspace membership. A conversation can remain visible as externally operated, with observation limited to what the harness safely exposes. Full release from management and ordinary terminal handoff are conceptually different; exact actions and observability promises remain open.
-
-Do not replace native continuity with a summary-fed new session without an explicit separate operation. No such replacement is required for the initial handoff paths demonstrated by the probes.
-
-## Scenarios
-
-### A circuit across projects
-
-Michael opens Roundhouse and sees several projects with new responses, one explicit approval, and a planning question. He selects the question from the attention list; the project structure and collaborator summaries remain visible. After replying, he stays long enough to clarify the agent's response, then uses the next-waiting shortcut. Reading a message does not approve or dismiss its unresolved request.
-
-### Recovering a project's next move
-
-Planning has proposed a change while implementation is waiting for a revised work order. The local-inference summary points out that relationship and links to the relevant exchanges. Michael opens planning, makes the decision, and returns to implementation when ready. Roundhouse does not forward the decision or start the next stage on his behalf.
-
-### Putting work down
-
-At an idle stopping point, Michael suspends a project. Its managed harnesses stop; its conversations remain arranged and named. Days later he resumes it and sees the same histories and context. Nothing begins editing files until he explicitly sends work.
-
-### Returning after an outage
-
-The central workspace returns with the same project roster. One host is offline; another reports native history newer than Roundhouse's last observation. The interface distinguishes those states and offers inspection/resumption rather than presenting every conversation as stopped and ready to retry. Deliberately suspended projects remain suspended.
-
-### Returning to the terminal
-
-Michael hands a Claude conversation out to the native terminal after closing the managed writer. Its Roundhouse identity remains in place. After exiting the terminal, he resumes it through Roundhouse and sees the intervening turns. For a supported Codex shared-server session, native terminal access may instead use live attachment without replacing the managed backend.
-
-## Seam census: decisions and open calls
-
-This records the boundaries discussed so far; unresolved calls are not silently delegated to implementation.
-
-| Boundary | Status and call | Why / revisit condition |
+| Boundary | Call | Why / revisit when |
 | --- | --- | --- |
-| Operator / coordinating model | Decided: direct operator-to-agent conversations | Inference helps read state; automatic delegation is outside initial scope. |
-| Central workspace / local execution | Decided: separate responsibilities | Browser and central availability must not govern execution. Detailed state reconciliation remains open. |
-| Roundhouse / native harness | Decided: preserve native harnesses and identities | Supported adapters, not replacement agent loops. Revisit capabilities as harness versions change. |
-| Native facts / inferred summaries | Decided direction: distinguish clearly; inference cannot execute | Summaries may be wrong or stale without compromising requests or control. |
-| Project artifacts / workspace metadata | Decided direction: repositories retain project truth | Grouping, reading state, and summaries must not create competing specs or agent memory. |
-| Session identity / runtime | Decided direction: separate | Suspension, cold handoff, and outage recovery require persistence beyond process lifetime. |
-| Ownership convention / enforcement | Decided: operator care initially | Known Claude/pi concurrent-writer hazards retained; stronger enforcement is deferred. |
-| Model / transport | Open implementation boundary | Native protocol details need adapter confinement; exact domain/event model awaits design. |
-| Model / rendering | Open implementation boundary | Do not prescribe shared view/domain types before the interface and consumers are grounded. |
-| Failure handling by layer | Provisional: local execution failure remains local; central shows uncertainty | Exact error taxonomy, replay, and retry behavior need a contract; disconnection must not imply safe retry. |
-
-## Open questions for the next design pass
-
-- Durable state ownership and reconciliation between central workspace, machine registry, event cache, and native histories, especially after owner or whole-machine failure.
-- Command delivery acknowledgment and uncertain outcomes: how to avoid duplicate prompts, launches, and approvals during reconnect without claiming more than the native protocols support.
-- Authenticated host enrollment, transport, connection direction, capability/version negotiation, and credential revocation.
-- Suspension completion criteria for active or background tools, especially Codex's surviving-child observation; how partial/uncertain shutdown is presented.
-- Adoption selection, external-terminal indicators, removal/archive semantics, and the extent of initially supported live Codex attachment.
-- Attention ordering, read-state synchronization across browsers, stale-request handling, and inferred suggestion dismissal.
-- Optional group interactions and suspension scope below the project level.
-- Local-inference placement, evidence references, context budget, retention, and stale-summary policy.
-
-These are targeted design questions, not an invitation to restart the broad harness investigation. Further experiments should answer a concrete unresolved contract.
+| Operator / coordinating model | Direct conversations, no intermediary | Inference helps Michael read; delegation is out of scope. |
+| Central / environment | Separate; environment is the authority | One authority per project removes reconciliation between peers. Revisit if cross-environment projects become real. |
+| Environment / machine | Separate identities | Cheap now, expensive later; containers depend on it. |
+| Service / sandbox | Service runs inside the environment | Adapters stay identical across bare metal and containers. |
+| Roundhouse / native harness | Preserve harnesses and identities | Supported adapters, not replacement loops. Revisit as versions change. |
+| Service / Claude shim | Separate; shim in TypeScript, no policy | The version-matched SDK is TypeScript. Revisit if a Go SDK or a stable stream-json control protocol appears. |
+| Runtime / turn | Per-conversation mode, long-lived default | Per-turn is cheaper to hand off and suspend but breaks in-process broker state. Revisit the default once mercurius and terminus are restartable. |
+| Native facts / briefing | Distinct; briefing cannot execute | It may be wrong or stale without touching control. |
+| Repository / workspace metadata | Repositories keep project truth | Grouping, reading state, briefings never become competing specs or memory. |
+| Session identity / runtime | Separate | Suspension, handoff, and recovery need persistence beyond a process. |
+| Ownership convention / enforcement | Operator care | Hazards documented; enforcement deferred. |
+| Model / transport, model / render | Open | Protocol stays inside adapters; shared view types wait for grounded consumers. |
+| Failure by layer | Provisional: environment failures stay local; central shows uncertainty | Needs an error taxonomy and a replay contract; disconnection never implies safe retry. |
 
 ## Deferred (and why)
 
-- Mobile-first layout and phone workflows: desktop is the actual working environment; mobile is a possible later fallback.
-- Parameterized bootstrap prompts and saved launch presets: useful recurring practice, but manual opening prompts suffice initially.
-- Embedded IDE, diff viewer, and file editing surfaces: existing tools already serve inspection and editing.
-- Pane integration or replacement: pane remains independent; repo artifacts already provide the handoff.
-- Autonomous delegation, agent-to-agent messaging, and automatic stage advancement: the purpose is direct coordination with Michael's judgment intact.
-- Strong cross-process ownership enforcement: operator care is explicitly accepted for early versions.
-- Repository cloning, environment provisioning, and checkout synchronization: projects begin from existing development environments.
-- Multi-user projects, sharing, and role administration: this is a single-operator workspace.
-- Universal live terminal attachment: not supported across the tested harnesses; cold native resumption is an honest baseline.
-- Permanent side-by-side conversation layouts: a single generous conversation with fast navigation is the provisional starting point.
+The re-entry briefing, because it needs the native-facts view and recorded history under it first. Container environments and the provisioning of logins, trust, configuration, and session stores inside them, because the shape leaves room and the work is separate. Snapshot promotion for a lost environment, because durable registries make it unnecessary. Mercurius and terminus restartability, because it lives in those repos and only gates per-turn mode. Leases and locks, because operator care is accepted for now. Live attach beyond Codex, because the other harnesses do not support it and cold resumption is an honest baseline. Mobile, launch presets, embedded diff and file views, pane integration, agent-to-agent messaging and automatic stage advancement, repository cloning, multi-user sharing, and side-by-side conversation layouts, for the reasons the earlier draft gave: the desktop is the working environment, existing tools already cover inspection and editing, and the whole point is direct coordination with Michael's judgment intact.
 
-## Handoff posture
+## Open questions
 
-Refine the open contracts with Michael before treating this as implementation-ready. A planning agent should translate the settled design against the repository and tested harness versions, not turn provisional suggestions into requirements by default. The existing probes are evidence and potential regression checks, not a preselected production architecture.
+Command acknowledgment and uncertain outcomes across browser, central, and environment during reconnect, without claiming more than the native protocols support. Enrollment, transport choice, version negotiation, and credential revocation. Owner-crash recovery of pending requests inside an environment, and the event retention and replay contract. Suspension completion criteria for active and background tools, and how partial shutdown is presented. Adoption selection, external-terminal indicators, and removal/archive semantics. Attention ordering, stale requests, and briefing dismissal. Group interactions and sub-project suspension. Briefing endpoint, context budget, coalescing, and evidence references.
 
-Formatting note: this draft was written through filesystem tools without command execution. Run `unfurl -i docs/future/roundhouse.md` before the next document handoff.
+These are narrow contracts to settle, not an invitation to reopen the harness investigation. A planning agent can draft the first-slice work order against the repository and the tested harness versions from here, treating the provisional directions as provisional and answering open questions narrowly or deferring them explicitly. The probes are evidence and regression checks, not a preselected architecture.
