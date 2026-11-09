@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +14,9 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"git.hq.quigley.com/research/roundhouse/internal/harness"
+	"git.hq.quigley.com/research/roundhouse/internal/harness/harnesstest"
+	"git.hq.quigley.com/research/roundhouse/internal/model"
 	"git.hq.quigley.com/research/roundhouse/internal/registry"
 	"git.hq.quigley.com/research/roundhouse/internal/service"
 )
@@ -19,6 +24,7 @@ import (
 type fixture struct {
 	url      string
 	svc      *service.Service
+	fake     *harnesstest.Harness
 	regPath  string
 	checkout string
 }
@@ -35,7 +41,16 @@ func startWith(t *testing.T, heartbeat time.Duration) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := service.New(reg, func(checkout string) bool { return strings.HasSuffix(checkout, "untrusted") })
+	logs := filepath.Join(filepath.Dir(regPath), "conversations")
+	fake := harnesstest.New(model.HarnessClaude)
+	svc, err := service.New(reg, service.Options{
+		IsUntrusted:  func(checkout string) bool { return strings.HasSuffix(checkout, "untrusted") },
+		EventLogPath: func(id string) string { return filepath.Join(logs, id, "events.jsonl") },
+		Harnesses:    []harness.Harness{fake},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	srv := New(svc)
 	srv.heartbeat = heartbeat
 	ts := httptest.NewServer(srv.Handler())
@@ -43,7 +58,7 @@ func startWith(t *testing.T, heartbeat time.Duration) *fixture {
 		svc.Close()
 		ts.Close()
 	})
-	return &fixture{url: ts.URL, svc: svc, regPath: regPath, checkout: t.TempDir()}
+	return &fixture{url: ts.URL, svc: svc, fake: fake, regPath: regPath, checkout: t.TempDir()}
 }
 
 func (f *fixture) do(t *testing.T, method, path, body string) (int, map[string]any) {
@@ -59,7 +74,7 @@ func (f *fixture) do(t *testing.T, method, path, body string) (int, map[string]a
 	defer resp.Body.Close()
 	out := map[string]any{}
 	// test-only inspection of emitted bytes.
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil && resp.StatusCode != http.StatusNoContent {
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("%s %s: decoding: %v", method, path, err)
 	}
 	return resp.StatusCode, out

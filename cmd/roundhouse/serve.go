@@ -14,13 +14,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"git.hq.quigley.com/research/roundhouse/internal/config"
+	"git.hq.quigley.com/research/roundhouse/internal/harness"
 	"git.hq.quigley.com/research/roundhouse/internal/harness/claude"
 	"git.hq.quigley.com/research/roundhouse/internal/registry"
 	"git.hq.quigley.com/research/roundhouse/internal/server"
 	"git.hq.quigley.com/research/roundhouse/internal/service"
 )
 
-const shutdownTimeout = 10 * time.Second
+const (
+	// releaseTimeout bounds how long shutdown waits for runtimes to be seen to
+	// exit; any still running stay recorded running and come back unsupervised.
+	releaseTimeout  = 30 * time.Second
+	shutdownTimeout = 10 * time.Second
+)
 
 func init() {
 	rootCmd.AddCommand(&cobra.Command{
@@ -59,7 +65,17 @@ func runServe(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("loading registry: %w", err)
 	}
 
-	svc := service.New(reg, untrustedChecker())
+	svc, err := service.New(reg, service.Options{
+		IsUntrusted:  untrustedChecker(),
+		EventLogPath: cfg.EventLogPath,
+		Harnesses: []harness.Harness{
+			claude.New(claude.Config{Node: cfg.Claude.Node, Shim: cfg.Claude.Shim, Executable: cfg.Claude.Executable}),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("starting service: %w", err)
+	}
+	dl.Debugf("claude: node='%s' shim='%s' executable='%s'", cfg.Claude.Node, cfg.Claude.Shim, cfg.Claude.Executable)
 	httpServer := &http.Server{
 		Handler:           server.New(svc).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -73,6 +89,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 		defer close(shutdownDone)
 		<-ctx.Done()
 		dl.Infof("shutting down")
+		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), releaseTimeout)
+		svc.Shutdown(releaseCtx)
+		cancelRelease()
 		svc.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()

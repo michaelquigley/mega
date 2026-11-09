@@ -1,4 +1,4 @@
-import type { Project, Workspace } from './types'
+import type { Conversation, ConversationEvent, Project, Workspace } from './types'
 
 export class ApiError extends Error {
   readonly code: string
@@ -15,10 +15,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  if (response.status === 204) {
+  const text = await response.text()
+  if (response.ok && text === '') {
     return undefined as T
   }
-  const text = await response.text()
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
@@ -42,3 +42,31 @@ export const renameProject = (id: string, name: string) =>
 
 export const removeProject = (id: string) =>
   request<void>('DELETE', `/api/projects/${encodeURIComponent(id)}`)
+
+const conversationPath = (id: string) => `/api/conversations/${encodeURIComponent(id)}`
+
+export const startConversation = (projectId: string, harness: string, name: string, prompt: string) =>
+  request<Conversation>('POST', `/api/projects/${encodeURIComponent(projectId)}/conversations`, { harness, name, prompt })
+
+export const updateConversation = (id: string, name: string, label: string) =>
+  request<Conversation>('PATCH', conversationPath(id), { name, label })
+
+export const getEvents = (id: string, since: number) =>
+  request<{ events: ConversationEvent[] }>('GET', `${conversationPath(id)}/events?since=${since}`)
+
+export const sendPrompt = (id: string, text: string) => request<void>('POST', `${conversationPath(id)}/prompt`, { text })
+
+export interface Answer {
+  decision?: 'allow' | 'deny'
+  message?: string
+  answers?: Record<string, string>
+}
+
+export const answerRequest = (id: string, requestId: string, answer: Answer) =>
+  request<void>('POST', `${conversationPath(id)}/answer`, { request_id: requestId, ...answer })
+
+export const interruptConversation = (id: string) => request<void>('POST', `${conversationPath(id)}/interrupt`)
+
+export const releaseConversation = (id: string) => request<void>('POST', `${conversationPath(id)}/release`)
+
+export const resumeConversation = (id: string) => request<void>('POST', `${conversationPath(id)}/resume`)

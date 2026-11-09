@@ -5,19 +5,30 @@ import (
 	"path/filepath"
 	"testing"
 
+	"git.hq.quigley.com/research/roundhouse/internal/harness"
 	"git.hq.quigley.com/research/roundhouse/internal/model"
 	"git.hq.quigley.com/research/roundhouse/internal/registry"
 )
 
 func allTrusted(string) bool { return false }
 
-func newService(t *testing.T, registryPath string, checker UntrustedChecker) *Service {
+func newService(t *testing.T, registryPath string, checker UntrustedChecker, harnesses ...harness.Harness) *Service {
 	t.Helper()
 	reg, err := registry.Load(registryPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(reg, checker)
+	logs := filepath.Join(filepath.Dir(registryPath), "conversations")
+	svc, err := New(reg, Options{
+		IsUntrusted:  checker,
+		EventLogPath: func(id string) string { return filepath.Join(logs, id, "events.jsonl") },
+		Harnesses:    harnesses,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	return svc
 }
 
 func tempService(t *testing.T) *Service {
@@ -120,7 +131,13 @@ func TestRemoveLeavesCheckoutAndOtherProjectsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := New(reg, allTrusted)
+	svc, err := New(reg, Options{
+		EventLogPath: func(id string) string { return filepath.Join(filepath.Dir(path), "conversations", id, "events.jsonl") },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
 	keepDir, dropDir := t.TempDir(), t.TempDir()
 	marker := filepath.Join(dropDir, "keep-me")
 	if err := os.WriteFile(marker, []byte("x"), 0o600); err != nil {

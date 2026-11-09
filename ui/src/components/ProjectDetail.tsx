@@ -1,8 +1,17 @@
 import { useState, type FormEvent } from 'react'
+import { select } from '../selection'
 import { removeProject, renameProject } from '../api'
-import type { Project } from '../types'
+import type { Conversation, Project } from '../types'
+import { RuntimeMark } from './RuntimeMark'
 
-export function ProjectDetail({ project }: { project: Project }) {
+interface ProjectDetailProps {
+  project: Project
+  conversations: Conversation[]
+  stale: boolean
+  onLaunch: () => void
+}
+
+export function ProjectDetail({ project, conversations, stale, onLaunch }: ProjectDetailProps) {
   const [name, setName] = useState(project.name)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -35,6 +44,33 @@ export function ProjectDetail({ project }: { project: Project }) {
         </p>
       )}
       {error && <p className="error">{error}</p>}
+      <section>
+        <div className="section-head">
+          <h2>Conversations</h2>
+          <button type="button" onClick={onLaunch}>
+            New conversation
+          </button>
+        </div>
+        {conversations.length === 0 ? (
+          <p className="muted">No conversations yet.</p>
+        ) : (
+          <ul className="conversation-list">
+            {conversations.map((conversation) => (
+              <li key={conversation.id}>
+                <button
+                  type="button"
+                  className="tree-item"
+                  onClick={() => select({ kind: 'conversation', id: conversation.id })}
+                >
+                  <RuntimeMark conversation={conversation} stale={stale} />
+                  <span className="tree-label">{conversation.name}</span>
+                  <span className="muted">{conversation.harness}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       <form className="inline-form" onSubmit={onRename}>
         <label htmlFor="project-name">Name</label>
         <input id="project-name" value={name} onChange={(event) => setName(event.target.value)} />

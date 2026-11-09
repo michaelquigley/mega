@@ -48,6 +48,14 @@ func (s *Server) api() http.Handler {
 	mux.HandleFunc("POST /api/projects", s.createProject)
 	mux.HandleFunc("PATCH /api/projects/{id}", s.updateProject)
 	mux.HandleFunc("DELETE /api/projects/{id}", s.deleteProject)
+	mux.HandleFunc("POST /api/projects/{id}/conversations", s.startConversation)
+	mux.HandleFunc("PATCH /api/conversations/{id}", s.updateConversation)
+	mux.HandleFunc("GET /api/conversations/{id}/events", s.getEvents)
+	mux.HandleFunc("POST /api/conversations/{id}/prompt", s.prompt)
+	mux.HandleFunc("POST /api/conversations/{id}/answer", s.answer)
+	mux.HandleFunc("POST /api/conversations/{id}/interrupt", s.interrupt)
+	mux.HandleFunc("POST /api/conversations/{id}/release", s.release)
+	mux.HandleFunc("POST /api/conversations/{id}/resume", s.resume)
 	mux.HandleFunc("GET /api/stream", s.stream)
 	return mux
 }
@@ -80,7 +88,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSON(w, r, http.StatusBadRequest, &errorBody{Code: code, Message: err.Error()})
 	case service.CodeNotFound:
 		writeJSON(w, r, http.StatusNotFound, &errorBody{Code: code, Message: err.Error()})
-	case service.CodeConflict:
+	case service.CodeConflict, service.CodeNotPending:
 		writeJSON(w, r, http.StatusConflict, &errorBody{Code: code, Message: err.Error()})
 	case service.CodeUnavailable:
 		writeJSON(w, r, http.StatusServiceUnavailable, &errorBody{Code: code, Message: err.Error()})

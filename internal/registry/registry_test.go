@@ -34,7 +34,7 @@ func TestRoundTrip(t *testing.T) {
 	project := model.Project{ID: "p1", Name: "fixture", Checkout: "/tmp/fixture"}
 	conversation := model.Conversation{
 		ID: "c1", ProjectID: "p1", Name: "planning", Label: "plan", Harness: model.HarnessClaude,
-		NativeID: "native-1", Mode: model.ModeLongLived, ReadSeq: 3, LastSeq: 9, OutputSeq: 7,
+		NativeID: "native-1", Mode: model.ModeLongLived, Runtime: model.RuntimeRunning, ReadSeq: 3, OutputSeq: 7,
 	}
 	err = reg.Update(func(d *Document) error {
 		d.Projects = append(d.Projects, project)
@@ -55,6 +55,28 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if len(doc.Conversations) != 1 || doc.Conversations[0] != conversation {
 		t.Errorf("conversations = %+v", doc.Conversations)
+	}
+}
+
+func TestLastSeqIsNotPersisted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "registry.yaml")
+	reg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = reg.Update(func(d *Document) error {
+		d.Conversations = append(d.Conversations, model.Conversation{ID: "c1", LastSeq: 9})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "last_seq") {
+		t.Errorf("last_seq reached the registry:\n%s", body)
 	}
 }
 

@@ -26,7 +26,7 @@ func newProjectView(project model.Project) *projectView {
 
 type workspaceView struct {
 	Projects      []*projectView
-	Conversations []model.Conversation
+	Conversations []*conversationView
 }
 
 type createProjectRequest struct {
@@ -42,13 +42,13 @@ func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
 	workspace := s.svc.Workspace()
 	view := &workspaceView{
 		Projects:      make([]*projectView, 0, len(workspace.Projects)),
-		Conversations: workspace.Conversations,
-	}
-	if view.Conversations == nil {
-		view.Conversations = []model.Conversation{}
+		Conversations: make([]*conversationView, 0, len(workspace.Conversations)),
 	}
 	for _, project := range workspace.Projects {
 		view.Projects = append(view.Projects, newProjectView(project))
+	}
+	for _, conv := range workspace.Conversations {
+		view.Conversations = append(view.Conversations, newConversationView(conv))
 	}
 	writeJSON(w, r, http.StatusOK, view)
 }

@@ -10,6 +10,8 @@ const (
 	// CodeUnavailable refuses a change the service cannot make durable until
 	// it restarts.
 	CodeUnavailable = "unavailable"
+	// CodeNotPending rejects an answer to a request that is no longer pending.
+	CodeNotPending = "not_pending"
 )
 
 // Error is a failure the caller can act on, as opposed to an internal fault.

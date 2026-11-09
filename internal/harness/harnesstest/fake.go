@@ -1,0 +1,281 @@
+// Package harnesstest is a scriptable stand-in for a native harness, for tests
+// of the service and server. it speaks only the harness interface.
+package harnesstest
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"strconv"
+	"sync"
+
+	"git.hq.quigley.com/research/roundhouse/internal/harness"
+	"git.hq.quigley.com/research/roundhouse/internal/model"
+)
+
+// Harness launches fake runtimes and serves scripted history.
+type Harness struct {
+	name string
+
+	mu        sync.Mutex
+	runtimes  []*Runtime
+	history   map[string][]*model.Event
+	launchErr error
+	onLaunch  func()
+	launched  int
+	reads     []string // native ids History was asked for, in order
+}
+
+// New returns a fake harness registered under name.
+func New(name string) *Harness {
+	return &Harness{name: name, history: make(map[string][]*model.Event)}
+}
+
+func (h *Harness) Name() string { return h.name }
+
+// FailLaunch makes the next launches fail with err; nil restores success.
+func (h *Harness) FailLaunch(err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.launchErr = err
+}
+
+// OnLaunch runs fn at the start of every launch, while the caller is inside
+// Launch. fn must not call back into the service.
+func (h *Harness) OnLaunch(fn func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onLaunch = fn
+}
+
+// SetHistory scripts what History returns for a native session.
+func (h *Harness) SetHistory(nativeID string, evs []*model.Event) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.history[nativeID] = evs
+}
+
+// Reads lists the native ids whose history was read.
+func (h *Harness) Reads() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.reads)
+}
+
+// Runtimes lists every runtime launched, oldest first.
+func (h *Harness) Runtimes() []*Runtime {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.runtimes)
+}
+
+// Last is the newest runtime, or nil.
+func (h *Harness) Last() *Runtime {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.runtimes) == 0 {
+		return nil
+	}
+	return h.runtimes[len(h.runtimes)-1]
+}
+
+func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.onLaunch != nil {
+		h.onLaunch()
+	}
+	if h.launchErr != nil {
+		return nil, h.launchErr
+	}
+	h.launched++
+	r := &Runtime{Spec: spec, sink: sink, nativeID: spec.NativeID, requests: make(map[string]string)}
+	if r.nativeID == "" {
+		r.nativeID = fmt.Sprintf("native-%d", h.launched)
+	}
+	h.runtimes = append(h.runtimes, r)
+	return r, nil
+}
+
+func (h *Harness) History(_ context.Context, _ string, nativeID string) ([]*model.Event, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.reads = append(h.reads, nativeID)
+	var out []*model.Event
+	for _, ev := range h.history[nativeID] {
+		copied := *ev
+		out = append(out, &copied)
+	}
+	return out, nil
+}
+
+// Prompt is one prompt a fake runtime received.
+type Prompt struct {
+	UUID string
+	Text string
+}
+
+// Delivery is one answer a fake runtime received, by its native request id.
+type Delivery struct {
+	Native string
+	Answer harness.Answer
+}
+
+// Runtime is a fake runtime. its native request ids restart at 0 in every
+// runtime, as codex's request numbers do, so tests can show the service never
+// confuses requests across incarnations.
+type Runtime struct {
+	Spec harness.Spec
+	sink harness.Sink
+
+	mu          sync.Mutex
+	nativeID    string
+	prompts     []Prompt
+	deliveries  []Delivery
+	interrupts  int
+	closed      bool
+	exited      bool
+	holdOnClose bool
+	requests    map[string]string // service id -> native number
+	nextNative  int
+}
+
+func (r *Runtime) NativeID() string { return r.nativeID }
+
+func (r *Runtime) Prompt(uuid, text string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.exited {
+		return fmt.Errorf("runtime exited")
+	}
+	r.prompts = append(r.prompts, Prompt{UUID: uuid, Text: text})
+	return nil
+}
+
+func (r *Runtime) Answer(requestID string, answer harness.Answer) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	native, ok := r.requests[requestID]
+	if !ok {
+		return harness.ErrNotPending
+	}
+	delete(r.requests, requestID)
+	r.deliveries = append(r.deliveries, Delivery{Native: native, Answer: answer})
+	return nil
+}
+
+// Interrupt aborts every pending request, as claude's abort signal does.
+func (r *Runtime) Interrupt() error {
+	r.mu.Lock()
+	r.interrupts++
+	var aborted []string
+	for id := range r.requests {
+		aborted = append(aborted, id)
+	}
+	clear(r.requests)
+	r.mu.Unlock()
+	slices.Sort(aborted)
+	for _, id := range aborted {
+		r.sink.Resolved(id, model.OutcomeAborted)
+	}
+	return nil
+}
+
+// Close ends input and, unless HoldOnClose was set, exits cleanly.
+func (r *Runtime) Close() error {
+	r.mu.Lock()
+	r.closed = true
+	hold := r.holdOnClose
+	r.mu.Unlock()
+	if !hold {
+		r.Exit(nil)
+	}
+	return nil
+}
+
+// HoldOnClose keeps the runtime alive after Close, like a backgrounded tool.
+func (r *Runtime) HoldOnClose() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.holdOnClose = true
+}
+
+// Emit delivers an event as the harness would.
+func (r *Runtime) Emit(ev *model.Event) {
+	if ev.Origin == "" {
+		ev.Origin = model.OriginManaged
+	}
+	r.sink.Event(ev)
+}
+
+// Delta delivers streaming text.
+func (r *Runtime) Delta(text string) { r.sink.Delta(text) }
+
+// Ask raises a request and returns the service's id for it.
+func (r *Runtime) Ask(kind string, payload any) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	native := strconv.Itoa(r.nextNative)
+	r.nextNative++
+	id := r.sink.Request(kind, payload)
+	r.requests[id] = native
+	return id
+}
+
+// Settle resolves a request on the harness side, as an abort would.
+func (r *Runtime) Settle(id, outcome string) {
+	r.mu.Lock()
+	_, ok := r.requests[id]
+	delete(r.requests, id)
+	r.mu.Unlock()
+	if ok {
+		r.sink.Resolved(id, outcome)
+	}
+}
+
+// Exit ends the runtime, once.
+func (r *Runtime) Exit(err error) {
+	r.mu.Lock()
+	if r.exited {
+		r.mu.Unlock()
+		return
+	}
+	r.exited = true
+	r.mu.Unlock()
+	r.sink.Exited(err)
+}
+
+// Prompts lists the prompts received.
+func (r *Runtime) Prompts() []Prompt {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.prompts)
+}
+
+// Deliveries lists the answers received.
+func (r *Runtime) Deliveries() []Delivery {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.deliveries)
+}
+
+// Interrupts counts interrupts received.
+func (r *Runtime) Interrupts() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.interrupts
+}
+
+// Closed reports whether input was closed.
+func (r *Runtime) Closed() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.closed
+}
+
+// Exited reports whether the runtime has exited.
+func (r *Runtime) Exited() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.exited
+}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"git.hq.quigley.com/research/roundhouse/internal/harness"
 	"git.hq.quigley.com/research/roundhouse/internal/model"
 	"git.hq.quigley.com/research/roundhouse/internal/registry"
 )
@@ -18,28 +19,55 @@ import (
 // UntrustedChecker reports whether a checkout should carry the trust notice.
 type UntrustedChecker func(checkout string) bool
 
+// Options are the service's collaborators.
+type Options struct {
+	IsUntrusted  UntrustedChecker
+	EventLogPath func(conversationID string) string
+	Harnesses    []harness.Harness
+}
+
 // Workspace is the arrangement as the service last confirmed it.
 type Workspace struct {
 	Projects      []model.Project
-	Conversations []model.Conversation
+	Conversations []ConversationView
 }
 
-// Service owns the registry and fans confirmed changes out to subscribers.
+// Service owns the registry, the event logs, the runtimes and their pending
+// requests, and fans confirmed changes out to subscribers.
 type Service struct {
 	mu          sync.Mutex
 	reg         *registry.Registry
 	isUntrusted UntrustedChecker
+	logPath     func(conversationID string) string
+	harnesses   map[string]harness.Harness
+	live        map[string]*live
 	subs        map[*Subscription]struct{}
 	closed      bool
 }
 
-// New returns a service over reg.
-func New(reg *registry.Registry, isUntrusted UntrustedChecker) *Service {
-	return &Service{
+// New returns a service over reg. it recovers from the previous run before
+// returning: requests that were pending are resolved lost, and conversations
+// whose runtime was not seen to exit become unsupervised.
+func New(reg *registry.Registry, opts Options) (*Service, error) {
+	s := &Service{
 		reg:         reg,
-		isUntrusted: isUntrusted,
+		isUntrusted: opts.IsUntrusted,
+		logPath:     opts.EventLogPath,
+		harnesses:   make(map[string]harness.Harness),
+		live:        make(map[string]*live),
 		subs:        make(map[*Subscription]struct{}),
 	}
+	if s.isUntrusted == nil {
+		s.isUntrusted = func(string) bool { return false }
+	}
+	for _, h := range opts.Harnesses {
+		s.harnesses[h.Name()] = h
+	}
+	if err := s.recover(); err != nil {
+		s.closeLogs()
+		return nil, err
+	}
+	return s, nil
 }
 
 // Workspace returns the current arrangement. trust notices are recomputed on
@@ -47,11 +75,15 @@ func New(reg *registry.Registry, isUntrusted UntrustedChecker) *Service {
 func (s *Service) Workspace() Workspace {
 	s.mu.Lock()
 	doc := s.reg.Snapshot()
+	conversations := make([]ConversationView, 0, len(doc.Conversations))
+	for _, conv := range doc.Conversations {
+		conversations = append(conversations, s.viewLocked(conv))
+	}
 	s.mu.Unlock()
 	for i := range doc.Projects {
 		s.applyTrust(&doc.Projects[i])
 	}
-	return Workspace{Projects: doc.Projects, Conversations: doc.Conversations}
+	return Workspace{Projects: doc.Projects, Conversations: conversations}
 }
 
 // RegisterProject adds an existing checkout to the workspace. an empty name
@@ -111,10 +143,21 @@ func (s *Service) RenameProject(id, name string) (model.Project, error) {
 }
 
 // RemoveProject takes a project and its conversations out of the workspace. it
-// never touches the checkout, native histories, or stored event logs.
+// never touches the checkout, native histories, or stored event logs, and it
+// refuses while any of its conversations has a runtime.
 func (s *Service) RemoveProject(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var removed []string
+	for _, conv := range s.reg.Snapshot().Conversations {
+		if conv.ProjectID != id {
+			continue
+		}
+		if l := s.live[conv.ID]; l != nil && (l.runtime != nil || l.busy) {
+			return newError(CodeConflict, fmt.Sprintf("conversation '%s' has a runtime; release it before removing the project", conv.Name))
+		}
+		removed = append(removed, conv.ID)
+	}
 	err := s.update(func(doc *registry.Document) error {
 		i := slices.IndexFunc(doc.Projects, func(p model.Project) bool { return p.ID == id })
 		if i < 0 {
@@ -126,7 +169,16 @@ func (s *Service) RemoveProject(id string) error {
 		})
 		return nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	for _, convID := range removed {
+		if l := s.live[convID]; l != nil {
+			l.log.Close()
+			delete(s.live, convID)
+		}
+	}
+	return nil
 }
 
 // Subscribe starts delivery of updates. after the service closes, the returned
@@ -141,16 +193,6 @@ func (s *Service) Subscribe() *Subscription {
 	}
 	s.subs[sub] = struct{}{}
 	return sub
-}
-
-// Close ends every subscription.
-func (s *Service) Close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.closed = true
-	for sub := range s.subs {
-		s.drop(sub)
-	}
 }
 
 // update writes through the registry and announces the confirmed change.

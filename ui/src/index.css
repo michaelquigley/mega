@@ -70,7 +70,9 @@ ul {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   border: 1px solid var(--line);
   border-radius: 4px;
   color: inherit;
@@ -88,8 +90,28 @@ button:disabled {
   opacity: 0.5;
 }
 
-input {
+input,
+select,
+textarea {
   background: var(--bg);
+}
+
+textarea {
+  resize: vertical;
+  width: 100%;
+}
+
+pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 12px/1.45 ui-monospace, monospace;
+  margin: 6px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 :focus-visible {
@@ -245,4 +267,260 @@ dialog label {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.tree-children .tree-item {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  padding-left: 20px;
+}
+
+.tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 6px;
+}
+
+.mark {
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+  height: 8px;
+  width: 8px;
+}
+
+.mark-running {
+  border-color: var(--accent);
+}
+
+.mark-active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.mark-request {
+  background: var(--notice-line);
+  border-color: var(--notice-line);
+  border-radius: 2px;
+}
+
+.mark-unsupervised {
+  background: var(--error);
+  border-color: var(--error);
+}
+
+.mark-transition {
+  border-style: dashed;
+}
+
+.conversation-list .tree-item {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.conversation {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 860px;
+}
+
+.conversation-head {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.title-row {
+  align-items: baseline;
+  display: flex;
+  gap: 10px;
+}
+
+.state {
+  color: var(--muted);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.state-running {
+  color: var(--accent);
+}
+
+.state-unsupervised {
+  color: var(--error);
+}
+
+.facts {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.edit summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.edit form {
+  margin-top: 6px;
+}
+
+.events {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.message.user {
+  background: var(--selected);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.message.streaming {
+  color: var(--muted);
+}
+
+.who {
+  color: var(--muted);
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tool,
+.native {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tool summary,
+.native summary {
+  cursor: pointer;
+  font-family: ui-monospace, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-error {
+  color: var(--error);
+}
+
+.system {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.system.alert {
+  color: var(--error);
+}
+
+hr.turn {
+  border: none;
+  border-top: 1px dashed var(--line);
+  margin: 4px 0;
+  width: 100%;
+}
+
+.request-card {
+  background: var(--notice-bg);
+  border: 1px solid var(--notice-line);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+}
+
+.request-card h2 {
+  color: inherit;
+}
+
+.request-card p {
+  margin: 0;
+}
+
+.request-card fieldset {
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.request-card legend {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.option {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+}
+
+.controls {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.toggle {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 12px;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.handoff {
+  font-size: 12px;
+  margin: 0;
+}
+
+.handoff code {
+  overflow-wrap: anywhere;
+}
+
+.reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reply .actions {
+  align-items: center;
+}
+
+.mark-stale,
+.state.stale {
+  opacity: 0.55;
 }

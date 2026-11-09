@@ -102,3 +102,24 @@ func TestListenMustBeLoopback(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeDefaultsMergeWithFile(t *testing.T) {
+	root := isolate(t)
+	t.Setenv("HOME", root)
+	path := filepath.Join(t.TempDir(), "roundhouse.yaml")
+	if err := os.WriteFile(path, []byte("claude:\n  shim: ~/shim/claude\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Claude{
+		Node:       "node",
+		Shim:       filepath.Join(root, "shim", "claude"),
+		Executable: filepath.Join(root, ".local", "share", "claude", "versions", "2.1.318"),
+	}
+	if cfg.Claude != want {
+		t.Errorf("claude = %+v, want %+v", cfg.Claude, want)
+	}
+}

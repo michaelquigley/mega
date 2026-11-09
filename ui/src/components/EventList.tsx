@@ -1,0 +1,138 @@
+import type { ConversationEvent, PendingRequest } from '../types'
+
+interface EventListProps {
+  events: ConversationEvent[]
+  pending: PendingRequest[]
+  turnActive: boolean
+  stale: boolean
+  showNative: boolean
+}
+
+const outcomeLabels: Record<string, string> = {
+  answered: 'answered',
+  aborted: 'aborted',
+  lost: 'lost when the service restarted',
+}
+
+// EventList renders recorded history. requests appear here only as history;
+// whether one is answerable comes from the service's pending set, never from
+// the log.
+export function EventList({ events, pending, turnActive, stale, showNative }: EventListProps) {
+  const results = new Map<string, ConversationEvent>()
+  const outcomes = new Map<string, string>()
+  for (const event of events) {
+    if (event.kind === 'tool_result' && event.tool_use_id) {
+      results.set(event.tool_use_id, event)
+    }
+    if (event.kind === 'request_resolved' && event.req?.outcome) {
+      outcomes.set(event.req.id, event.req.outcome)
+    }
+  }
+  const toolUses = new Set(events.filter((e) => e.kind === 'tool_use' && e.tool_use_id).map((e) => e.tool_use_id))
+  const pendingIds = new Set(pending.map((request) => request.id))
+  // only a tool in the turn the service reports in flight can still be running;
+  // an older one without a result simply has none recorded.
+  let turnStart = -1
+  events.forEach((event, index) => {
+    if (event.kind === 'turn_end' || event.kind === 'runtime') {
+      turnStart = index
+    }
+  })
+
+  return (
+    <div className="events">
+      {events.map((event, index) => {
+        switch (event.kind) {
+          case 'user':
+            return (
+              <div key={event.seq} className="message user">
+                <span className="who">{event.origin === 'native' ? 'You, in the terminal' : 'You'}</span>
+                {event.text}
+              </div>
+            )
+          case 'assistant':
+            return (
+              <div key={event.seq} className="message assistant">
+                {event.origin === 'native' && <span className="who">From the terminal</span>}
+                {event.text}
+              </div>
+            )
+          case 'tool_use': {
+            const result = event.tool_use_id ? results.get(event.tool_use_id) : undefined
+            return (
+              <details key={event.seq} className="tool">
+                <summary>
+                  {event.text}
+                  {result?.status === 'error' && <span className="tool-error"> failed</span>}
+                  {!result && (
+                    <span className="muted">
+                      {turnActive && index > turnStart ? (stale ? ' running when last seen' : ' running') : ' no result recorded'}
+                    </span>
+                  )}
+                </summary>
+                {result?.text && <pre>{result.text}</pre>}
+              </details>
+            )
+          }
+          case 'tool_result':
+            if (event.tool_use_id && toolUses.has(event.tool_use_id)) {
+              return null
+            }
+            return (
+              <details key={event.seq} className="tool">
+                <summary>Tool result</summary>
+                {event.text && <pre>{event.text}</pre>}
+              </details>
+            )
+          case 'request': {
+            const id = event.req?.id ?? ''
+            const outcome = outcomes.get(id)
+            const payload = event.req?.payload
+            const what = event.req?.kind === 'question' ? 'Question' : `Approval for ${payload?.tool ?? 'a tool'}`
+            let status = 'not pending'
+            if (pendingIds.has(id)) {
+              status = 'waiting for you below'
+            } else if (outcome) {
+              status = outcomeLabels[outcome] ?? outcome
+            }
+            return (
+              <p key={event.seq} className="system">
+                {what}: {status}
+              </p>
+            )
+          }
+          case 'runtime':
+            return (
+              <p key={event.seq} className={event.status === 'error' || event.status === 'unsupervised' ? 'system alert' : 'system'}>
+                Runtime {event.status}
+                {event.facts?.model && ` · ${event.facts.model}`}
+                {event.facts?.version && ` · v${event.facts.version}`}
+                {event.text && `: ${event.text}`}
+              </p>
+            )
+          case 'turn_end':
+            if (event.status === 'success') {
+              return <hr key={event.seq} className="turn" />
+            }
+            return (
+              <p key={event.seq} className="system alert">
+                Turn ended: {event.status}
+              </p>
+            )
+          case 'native':
+            if (!showNative) {
+              return null
+            }
+            return (
+              <details key={event.seq} className="native">
+                <summary>{event.text ?? 'native'}</summary>
+                <pre>{JSON.stringify(event.raw, null, 2)}</pre>
+              </details>
+            )
+          default:
+            return null
+        }
+      })}
+    </div>
+  )
+}

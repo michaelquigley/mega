@@ -18,19 +18,39 @@ const (
 	lockFile        = "lock"
 	conversationDir = "conversations"
 	defaultListen   = "127.0.0.1:8470"
+
+	// the claude code build the shim's sdk (0.3.318) was matched against.
+	defaultClaudeExecutable = "~/.local/share/claude/versions/2.1.318"
 )
+
+// defaultClaudeShim is the shim directory, stamped at build time by the
+// Makefile (-ldflags -X) because the shim and its node_modules live in the
+// checkout, not in the binary.
+var defaultClaudeShim string
 
 // Config is the environment service's configuration.
 type Config struct {
 	Listen string
 	Data   string
+	Claude Claude
+}
+
+// Claude locates what the claude adapter runs: node, the shim directory, and
+// the claude code executable the sdk drives.
+type Claude struct {
+	Node       string
+	Shim       string
+	Executable string
 }
 
 // Load resolves config from compiled defaults, then the config file, then the
 // data flag. an empty configPath means the XDG default, which may be absent;
 // an explicit configPath must exist.
 func Load(configPath, dataOverride string) (*Config, error) {
-	cfg := &Config{Listen: defaultListen}
+	cfg := &Config{
+		Listen: defaultListen,
+		Claude: Claude{Node: "node", Shim: defaultClaudeShim, Executable: defaultClaudeExecutable},
+	}
 	if configPath != "" {
 		if err := dd.MergeYAMLFile(cfg, configPath); err != nil {
 			return nil, err
@@ -54,11 +74,13 @@ func Load(configPath, dataOverride string) (*Config, error) {
 		}
 		cfg.Data = defaultData
 	}
-	expanded, err := expandPath(cfg.Data)
-	if err != nil {
-		return nil, err
+	for _, path := range []*string{&cfg.Data, &cfg.Claude.Shim, &cfg.Claude.Executable} {
+		expanded, err := expandPath(*path)
+		if err != nil {
+			return nil, err
+		}
+		*path = expanded
 	}
-	cfg.Data = expanded
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}

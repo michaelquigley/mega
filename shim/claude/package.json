@@ -1,0 +1,13 @@
+{
+  "name": "roundhouse-claude-shim",
+  "private": true,
+  "type": "module",
+  "version": "0.0.1",
+  "description": "policy-free stdio bridge between the roundhouse service and the claude agent sdk",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.318"
+  }
+}

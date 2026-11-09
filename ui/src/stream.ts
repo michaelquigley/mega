@@ -9,8 +9,13 @@ export type StreamState = 'connecting' | 'connected' | 'disconnected'
 
 // useStream keeps one WebSocket to the service. onOpen fires on every connection,
 // because whatever happened while disconnected can only be recovered by re-reading
-// confirmed state; the service never replays on its own.
-export function useStream(onOpen: () => void, onFrame: (frame: StreamFrame) => void): StreamState {
+// confirmed state; the service never replays on its own. onClose fires when a
+// connection drops, from which point what the page shows is only last known.
+export function useStream(
+  onOpen: () => void,
+  onFrame: (frame: StreamFrame) => void,
+  onClose: () => void,
+): StreamState {
   const [state, setState] = useState<StreamState>('connecting')
 
   useEffect(() => {
@@ -44,6 +49,7 @@ export function useStream(onOpen: () => void, onFrame: (frame: StreamFrame) => v
         if (stopped) {
           return
         }
+        onClose()
         setState('disconnected')
         reconnectTimer = window.setTimeout(connect, backoff)
         backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
@@ -57,7 +63,7 @@ export function useStream(onOpen: () => void, onFrame: (frame: StreamFrame) => v
       window.clearTimeout(watchdog)
       socket?.close()
     }
-  }, [onOpen, onFrame])
+  }, [onOpen, onFrame, onClose])
 
   return state
 }
