@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"slices"
 	"testing"
+	"time"
 
+	"git.hq.quigley.com/research/roundhouse/internal/harness"
 	"git.hq.quigley.com/research/roundhouse/internal/harness/harnesstest"
 	"git.hq.quigley.com/research/roundhouse/internal/model"
 )
@@ -162,5 +164,36 @@ func TestConversationCommandStatuses(t *testing.T) {
 	}
 	if status, _ := f.do(t, http.MethodPost, base+"/release", ""); status != http.StatusAccepted {
 		t.Errorf("release: %d", status)
+	}
+}
+
+func TestDiscoverAndAdopt(t *testing.T) {
+	f := start(t)
+	status, project := f.do(t, http.MethodPost, "/api/projects", createBody("p", f.checkout))
+	if status != http.StatusCreated {
+		t.Fatalf("create project: %d %v", status, project)
+	}
+	f.fake.SetSessions([]harness.Session{{NativeID: "terminal-1", Preview: "From the terminal", UpdatedAt: time.Unix(1794000000, 0).UTC()}})
+	f.fake.SetHistory("terminal-1", []*model.Event{{Kind: model.EventUser, Text: "From the terminal", NativeID: "t-1"}})
+	base := fmt.Sprintf("/api/projects/%s", project["id"])
+
+	status, body := f.do(t, http.MethodGet, base+"/discover?harness=claude", "")
+	sessions, _ := body["sessions"].([]any)
+	if status != http.StatusOK || len(sessions) != 1 || sessions[0].(map[string]any)["native_id"] != "terminal-1" || sessions[0].(map[string]any)["preview"] != "From the terminal" {
+		t.Fatalf("discover: %d %v", status, body)
+	}
+	if status, body := f.do(t, http.MethodGet, base+"/discover?harness=pi", ""); status != http.StatusBadRequest {
+		t.Errorf("unknown harness: %d %v", status, body)
+	}
+
+	status, conv := f.do(t, http.MethodPost, base+"/adopt", jsonBody(map[string]string{"harness": "claude", "native_id": "terminal-1"}))
+	if status != http.StatusCreated || conv["native_id"] != "terminal-1" || conv["state"] != "none" || conv["name"] != "From the terminal" {
+		t.Fatalf("adopt: %d %v", status, conv)
+	}
+	if status, body := f.do(t, http.MethodPost, base+"/adopt", jsonBody(map[string]string{"harness": "claude", "native_id": "terminal-1"})); status != http.StatusBadRequest {
+		t.Errorf("second adoption: %d %v", status, body)
+	}
+	if evs := f.events(t, conv["id"].(string), 0); len(evs) != 3 || evs[1]["origin"] != "native" {
+		t.Errorf("events = %v", evs)
 	}
 }

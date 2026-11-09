@@ -46,14 +46,14 @@ export function EventList({ events, pending, turnActive, stale, showNative }: Ev
           case 'user':
             return (
               <div key={event.seq} className="message user">
-                <span className="who">{event.origin === 'native' ? 'You, in the terminal' : 'You'}</span>
+                <span className="who">{event.origin === 'native' ? 'You, outside Roundhouse' : 'You'}</span>
                 {event.text}
               </div>
             )
           case 'assistant':
             return (
               <div key={event.seq} className="message assistant">
-                {event.origin === 'native' && <span className="who">From the terminal</span>}
+                {event.origin === 'native' && <span className="who">From outside Roundhouse</span>}
                 {event.text}
               </div>
             )
@@ -103,8 +103,11 @@ export function EventList({ events, pending, turnActive, stale, showNative }: Ev
           }
           case 'runtime':
             return (
-              <p key={event.seq} className={event.status === 'error' || event.status === 'unsupervised' ? 'system alert' : 'system'}>
-                Runtime {event.status}
+              <p
+                key={event.seq}
+                className={event.status === 'error' || event.status === 'unsupervised' || event.status === 'not_started' ? 'system alert' : 'system'}
+              >
+                Runtime {event.status === 'not_started' ? 'did not start' : event.status}
                 {event.facts?.model && ` · ${event.facts.model}`}
                 {event.facts?.version && ` · v${event.facts.version}`}
                 {event.text && `: ${event.text}`}

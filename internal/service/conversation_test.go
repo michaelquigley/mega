@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"git.hq.quigley.com/research/roundhouse/internal/harness"
 	"git.hq.quigley.com/research/roundhouse/internal/harness/harnesstest"
 	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"git.hq.quigley.com/research/roundhouse/internal/registry"
 )
 
 // rig is a service over a fake claude harness with one registered project.
@@ -341,7 +344,7 @@ func TestExitDuringTurnIsAnErrorAndAbortsPending(t *testing.T) {
 
 func TestLaunchFailureIsRecordedAndLeavesNoRuntime(t *testing.T) {
 	r := newRig(t)
-	r.fake.FailLaunch(errors.New("no node"))
+	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
 	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "named", "one")
 	if err == nil {
 		t.Fatal("expected the launch to fail")
@@ -349,7 +352,7 @@ func TestLaunchFailureIsRecordedAndLeavesNoRuntime(t *testing.T) {
 	if conv.Runtime != model.RuntimeNone || conv.State != model.RuntimeNone {
 		t.Errorf("conversation = %+v", conv)
 	}
-	if got := kinds(r.events(conv.ID)); !slices.Equal(got, []string{"runtime:starting", "runtime:error"}) {
+	if got := kinds(r.events(conv.ID)); !slices.Equal(got, []string{"runtime:starting", "runtime:not_started"}) {
 		t.Errorf("events = %v", got)
 	}
 	r.fake.FailLaunch(nil)
@@ -721,7 +724,7 @@ func TestUnrecordedLaunchFailureKeepsStartingAndClearsBusy(t *testing.T) {
 		}
 		l.log.Close()
 	})
-	r.fake.FailLaunch(errors.New("no node"))
+	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
 	launches := len(r.fake.Runtimes())
 
 	if err := r.svc.Prompt(conv.ID, "two"); err == nil {
@@ -748,5 +751,308 @@ func TestUnrecordedLaunchFailureKeepsStartingAndClearsBusy(t *testing.T) {
 	r.restart()
 	if view := r.view(conv.ID); view.Runtime != model.RuntimeUnsupervised {
 		t.Errorf("after restart the conversation records %q", view.Runtime)
+	}
+}
+
+func TestDiscoverHidesAdoptedSessionsAndAdoptImportsWithoutRuntime(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("managed") // binds native-1
+	r.fake.SetSessions([]harness.Session{
+		{NativeID: conv.NativeID, Preview: "managed"},
+		{NativeID: "terminal-1", Preview: "Started in a terminal\nwith detail"},
+	})
+	r.fake.SetHistory("terminal-1", []*model.Event{
+		{Kind: model.EventUser, Text: "Started in a terminal", NativeID: "t-1"},
+		{Kind: model.EventAssistant, Text: "reply", NativeID: "t-2"},
+	})
+	sessions, err := r.svc.Discover(r.project.ID, model.HarnessClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || sessions[0].NativeID != "terminal-1" {
+		t.Fatalf("sessions = %+v", sessions)
+	}
+
+	launches := len(r.fake.Runtimes())
+	adopted, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adopted.NativeID != "terminal-1" || adopted.Name != "Started in a terminal" || adopted.Runtime != model.RuntimeNone || adopted.State != model.RuntimeNone {
+		t.Errorf("adopted = %+v", adopted)
+	}
+	if len(r.fake.Runtimes()) != launches {
+		t.Error("adoption started a runtime")
+	}
+	got := kinds(r.events(adopted.ID))
+	if !slices.Equal(got, []string{"runtime:resuming", "user", "assistant", "runtime:resumed"}) {
+		t.Errorf("events = %v", got)
+	}
+
+	// it is no longer offered, and cannot be adopted twice.
+	if sessions, _ := r.svc.Discover(r.project.ID, model.HarnessClaude); len(sessions) != 0 {
+		t.Errorf("still offered: %+v", sessions)
+	}
+	_, err = r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "again")
+	wantCode(t, err, CodeInvalid)
+	_, err = r.svc.Adopt(r.project.ID, model.HarnessClaude, "never-listed", "")
+	wantCode(t, err, CodeInvalid)
+
+	// the first prompt resumes exactly the adopted session.
+	if err := r.svc.Prompt(adopted.ID, "go on"); err != nil {
+		t.Fatal(err)
+	}
+	if spec := r.fake.Last().Spec; spec.NativeID != "terminal-1" {
+		t.Errorf("resumed %q", spec.NativeID)
+	}
+}
+
+func TestLeftRunningIsNeverACleanStop(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	finishTurn(rt, "a-1", "done")
+	rt.HoldOnClose()
+	if err := r.svc.Release(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "input to close", rt.Closed)
+	rt.Exit(fmt.Errorf("%w: pids [4242]", harness.ErrLeftRunning))
+	evs := r.events(conv.ID)
+	last := evs[len(evs)-1]
+	if last.Status != model.StatusError || !strings.Contains(last.Text, "4242") {
+		t.Errorf("last event = %+v", last)
+	}
+}
+
+func TestFirstRuntimeExitingDuringLaunchKeepsItsSession(t *testing.T) {
+	r := newRig(t)
+	r.fake.ExitDuringLaunch(true)
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "early", "one")
+	if err == nil {
+		t.Fatal("expected the start to report the early exit")
+	}
+	first := r.fake.Last()
+	if conv.NativeID != first.NativeID() || conv.Runtime != model.RuntimeNone {
+		t.Fatalf("conversation = %+v, session %q", conv, first.NativeID())
+	}
+	r.fake.ExitDuringLaunch(false)
+	if err := r.svc.Prompt(conv.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	if spec := r.fake.Last().Spec; spec.NativeID != first.NativeID() {
+		t.Errorf("the next runtime launched %q, not the session the first one created (%q)", spec.NativeID, first.NativeID())
+	}
+}
+
+func TestUserMessageFromTheRuntimeOpensATurn(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	finishTurn(rt, "a-1", "done")
+	// an answer to a question whose turn completed starts the next turn, which
+	// the runtime first reports as the user message it began with.
+	rt.Emit(&model.Event{Kind: model.EventUser, Text: "Blue", NativeID: "u-2"})
+	if !r.view(conv.ID).TurnActive {
+		t.Error("the turn the answer started is not shown as active")
+	}
+	wantCode(t, r.svc.Prompt(conv.ID, "two"), CodeConflict)
+}
+
+func TestUnrecordedSessionIsResumedAndBoundByTheNextLaunch(t *testing.T) {
+	r := newRig(t)
+	dir := filepath.Dir(r.path)
+	// the registry stops taking writes while the first runtime starts, so the
+	// session it creates cannot be recorded.
+	r.fake.OnLaunch(func() {
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Error(err)
+		}
+	})
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unbound", "one")
+	if err == nil {
+		t.Skip("directory permissions are not enforced here")
+	}
+	first := r.fake.Last()
+	waitFor(t, "the unbindable runtime to stop", first.Exited)
+	if view := r.view(conv.ID); view.NativeID != "" {
+		t.Fatalf("the registry recorded %q despite the failed write", view.NativeID)
+	}
+
+	r.fake.OnLaunch(nil)
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
+		t.Fatal(err)
+	}
+	if spec := r.fake.Last().Spec; spec.NativeID != first.NativeID() {
+		t.Errorf("the next launch used %q, not the session already created (%q)", spec.NativeID, first.NativeID())
+	}
+	if view := r.view(conv.ID); view.NativeID != first.NativeID() {
+		t.Errorf("the registry holds %q after the next launch", view.NativeID)
+	}
+}
+
+func TestSessionStartedInTheLogIsResumedAfterARestart(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	finishTurn(rt, "a-1", "done")
+	if err := r.svc.Release(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the runtime to exit", rt.Exited)
+	// a registry that lost the binding while the log kept the started event.
+	r.svc.mu.Lock()
+	err := r.svc.reg.Update(func(d *registry.Document) error {
+		for i := range d.Conversations {
+			if d.Conversations[i].ID == conv.ID {
+				d.Conversations[i].NativeID = ""
+			}
+		}
+		return nil
+	})
+	r.svc.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r.restart()
+	launches := len(r.fake.Runtimes())
+	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.fake.Runtimes()) != launches+1 {
+		t.Fatal("no runtime launched")
+	}
+	if spec := r.fake.Last().Spec; spec.NativeID != rt.NativeID() {
+		t.Errorf("launched %q, not the session the log shows started (%q)", spec.NativeID, rt.NativeID())
+	}
+	if view := r.view(conv.ID); view.NativeID != rt.NativeID() {
+		t.Errorf("the registry holds %q", view.NativeID)
+	}
+	if reads := r.fake.Reads(); len(reads) == 0 || reads[len(reads)-1] != rt.NativeID() {
+		t.Errorf("history reads = %v", reads)
+	}
+}
+
+// both stores fail to keep the session a first launch created: the log
+// cannot record its start and the registry cannot bind it. after a restart and
+// a resume, the conversation must not start another session in its place.
+func TestUnkeptSessionIsNeverReplacedAfterRestart(t *testing.T) {
+	r := newRig(t)
+	dir := filepath.Dir(r.path)
+	svc := r.svc
+	r.fake.OnLaunch(func() {
+		svc.mu.Lock()
+		for _, l := range svc.live {
+			l.log.Close()
+		}
+		svc.mu.Unlock()
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Error(err)
+		}
+	})
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unkept", "one")
+	if err == nil {
+		t.Skip("directory permissions are not enforced here")
+	}
+	first := r.fake.Last()
+	waitFor(t, "the unbindable runtime to stop", first.Exited)
+	r.fake.OnLaunch(nil)
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	r.restart()
+	if err := r.svc.Resume(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	launches := len(r.fake.Runtimes())
+	err = r.svc.Prompt(conv.ID, "two")
+	wantCode(t, err, CodeConflict)
+	if err == nil || !strings.Contains(err.Error(), "Adopt a session") {
+		t.Errorf("refusal = %v", err)
+	}
+	if len(r.fake.Runtimes()) != launches {
+		t.Error("a fresh session was started in place of the unkept one")
+	}
+}
+
+func TestRecordedNotStartedAllowsAFreshSession(t *testing.T) {
+	r := newRig(t)
+	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "retry", "one")
+	if err == nil {
+		t.Fatal("expected the launch to fail")
+	}
+	r.fake.FailLaunch(nil)
+	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
+		t.Fatal(err)
+	}
+	if spec := r.fake.Last().Spec; spec.NativeID != "" {
+		t.Errorf("launched %q, want a fresh session", spec.NativeID)
+	}
+}
+
+// a launch whose failure itself could not be recorded leaves a starting with
+// nothing after it: the accepted closed side, refused although no session
+// exists.
+func TestStartingWithNothingAfterItIsRefused(t *testing.T) {
+	r := newRig(t)
+	svc := r.svc
+	r.fake.OnLaunch(func() {
+		svc.mu.Lock()
+		for _, l := range svc.live {
+			l.log.Close()
+		}
+		svc.mu.Unlock()
+	})
+	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "closed", "one")
+	if err == nil {
+		t.Fatal("expected the launch to fail")
+	}
+	r.fake.OnLaunch(nil)
+	r.fake.FailLaunch(nil)
+	r.restart()
+	if got := kinds(r.events(conv.ID)); !slices.Equal(got[:1], []string{"runtime:starting"}) || slices.Contains(got, "runtime:not_started") {
+		t.Fatalf("events = %v", got)
+	}
+	if err := r.svc.Resume(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	launches := len(r.fake.Runtimes())
+	wantCode(t, r.svc.Prompt(conv.ID, "two"), CodeConflict)
+	if len(r.fake.Runtimes()) != launches {
+		t.Error("a fresh session was started without proof that none exists")
+	}
+}
+
+// an unwrapped launch error leaves the session unknown, as a codex thread/start
+// that got no reply may have created a thread: it is recorded as an error, and
+// the conversation is refused a fresh session.
+func TestUnclassifiedLaunchFailureLeavesTheSessionUnknown(t *testing.T) {
+	r := newRig(t)
+	r.fake.FailLaunch(errors.New("no reply to thread/start"))
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unknown", "one")
+	if err == nil {
+		t.Fatal("expected the launch to fail")
+	}
+	if got := kinds(r.events(conv.ID)); !slices.Equal(got, []string{"runtime:starting", "runtime:error"}) {
+		t.Errorf("events = %v", got)
+	}
+	if view := r.view(conv.ID); view.State != model.RuntimeNone || view.Runtime != model.RuntimeNone {
+		t.Errorf("view = %+v", view)
+	}
+	r.fake.FailLaunch(nil)
+	launches := len(r.fake.Runtimes())
+	wantCode(t, r.svc.Prompt(conv.ID, "again"), CodeConflict)
+	if len(r.fake.Runtimes()) != launches {
+		t.Error("a fresh session was started after a launch whose session is unknown")
 	}
 }

@@ -15,6 +15,7 @@ Read the most recent entries in `docs/journal/` on arrival. The investigation th
 - Preserve native permission behavior. Never weaken a harness's permissions, set trust flags on Michael's behalf, or bypass an approval to make a test pass.
 - Test against disposable repositories and newly created sessions only. Do not alter, adopt, interrupt, or delete real-work sessions. The fixtures live under `/home/michael/Repos/q/research/roundhouse-fixtures/`.
 - Do not upgrade harnesses, change global configuration, or expose network listeners beyond loopback without Michael's approval.
+- Michael runs his own roundhouse on the default port (8470) and the default data directory. Scratch runs, browser scripts and e2e use another port and a `--data` directory under scratch, never his service or his data. Leave his processes alone.
 - Keep credentials and private transcripts out of reports and committed fixtures.
 - Durable project memory goes in `docs/journal/YYYY-MM-DD.md`, one file per day, appended across sessions: current state, gotchas, decisions, and what a future session would otherwise rediscover. Read recent entries before changing anything; where an entry conflicts with the code, the code wins.
 - `CHANGELOG.md` follows the house convention: newest release first, prose entries led by `FEATURE:`, `CHANGE:` or `FIX:`, new entries into the `## Unreleased` slot.

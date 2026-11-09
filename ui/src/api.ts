@@ -70,3 +70,23 @@ export const interruptConversation = (id: string) => request<void>('POST', `${co
 export const releaseConversation = (id: string) => request<void>('POST', `${conversationPath(id)}/release`)
 
 export const resumeConversation = (id: string) => request<void>('POST', `${conversationPath(id)}/resume`)
+
+export interface DiscoveredSession {
+  native_id: string
+  preview: string
+  created_at?: string
+  updated_at?: string
+}
+
+export const discoverSessions = (projectId: string, harness: string) =>
+  request<{ sessions: DiscoveredSession[] }>(
+    'GET',
+    `/api/projects/${encodeURIComponent(projectId)}/discover?harness=${encodeURIComponent(harness)}`,
+  )
+
+export const adoptSession = (projectId: string, harness: string, nativeId: string, name: string) =>
+  request<Conversation>('POST', `/api/projects/${encodeURIComponent(projectId)}/adopt`, {
+    harness,
+    native_id: nativeId,
+    name,
+  })

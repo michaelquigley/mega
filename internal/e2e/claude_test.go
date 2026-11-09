@@ -115,19 +115,7 @@ func TestClaudeRoundTrip(t *testing.T) {
 		Shim:       shim,
 		Executable: env("ROUNDHOUSE_E2E_CLAUDE", filepath.Join(home, ".local", "share", "claude", "versions", "2.1.318")),
 	})
-	data := t.TempDir()
-	reg, err := registry.Load(filepath.Join(data, "registry.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc, err := service.New(reg, service.Options{
-		EventLogPath: func(id string) string { return filepath.Join(data, "conversations", id, "events.jsonl") },
-		Harnesses:    []harness.Harness{h},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer svc.Close()
+	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
 		t.Fatal(err)
@@ -235,11 +223,37 @@ func TestClaudeRoundTrip(t *testing.T) {
 		t.Errorf("resumed session = %+v, bound to %s", facts, conv.NativeID)
 	}
 
+	shutdown(t, svc, s)
+	t.Logf("session %s", conv.NativeID)
+}
+
+// newE2EService is a service over h with a throwaway data directory.
+func newE2EService(t *testing.T, h harness.Harness) *service.Service {
+	t.Helper()
+	data := t.TempDir()
+	reg, err := registry.Load(filepath.Join(data, "registry.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := service.New(reg, service.Options{
+		EventLogPath: func(id string) string { return filepath.Join(data, "conversations", id, "events.jsonl") },
+		Harnesses:    []harness.Harness{h},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	return svc
+}
+
+// shutdown releases every runtime the way serve does and checks each was seen
+// to stop.
+func shutdown(t *testing.T, svc *service.Service, s *session) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	svc.Shutdown(ctx)
 	if v := s.view(); v.Runtime != model.RuntimeNone {
 		t.Errorf("after shutdown the conversation records %q", v.Runtime)
 	}
-	t.Logf("session %s", conv.NativeID)
 }

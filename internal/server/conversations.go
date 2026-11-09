@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"git.hq.quigley.com/research/roundhouse/internal/harness"
 	"git.hq.quigley.com/research/roundhouse/internal/model"
@@ -86,6 +87,49 @@ type answerRequest struct {
 
 type eventsView struct {
 	Events []*model.Event
+}
+
+type sessionView struct {
+	NativeID  string
+	Preview   string
+	CreatedAt time.Time `dd:",+omitempty"`
+	UpdatedAt time.Time `dd:",+omitempty"`
+}
+
+type sessionsView struct {
+	Sessions []*sessionView
+}
+
+type adoptRequest struct {
+	Harness  string
+	NativeID string
+	Name     string
+}
+
+func (s *Server) discover(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.svc.Discover(r.PathValue("id"), r.URL.Query().Get("harness"))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	view := &sessionsView{Sessions: make([]*sessionView, 0, len(sessions))}
+	for _, session := range sessions {
+		view.Sessions = append(view.Sessions, &sessionView{NativeID: session.NativeID, Preview: session.Preview, CreatedAt: session.CreatedAt, UpdatedAt: session.UpdatedAt})
+	}
+	writeJSON(w, r, http.StatusOK, view)
+}
+
+func (s *Server) adopt(w http.ResponseWriter, r *http.Request) {
+	var req adoptRequest
+	if !readJSON(w, r, &req) {
+		return
+	}
+	conv, err := s.svc.Adopt(r.PathValue("id"), req.Harness, req.NativeID, req.Name)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, r, http.StatusCreated, newConversationView(conv))
 }
 
 func (s *Server) startConversation(w http.ResponseWriter, r *http.Request) {

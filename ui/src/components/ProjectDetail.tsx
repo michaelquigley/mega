@@ -9,9 +9,10 @@ interface ProjectDetailProps {
   conversations: Conversation[]
   stale: boolean
   onLaunch: () => void
+  onAdopt: () => void
 }
 
-export function ProjectDetail({ project, conversations, stale, onLaunch }: ProjectDetailProps) {
+export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt }: ProjectDetailProps) {
   const [name, setName] = useState(project.name)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -47,9 +48,14 @@ export function ProjectDetail({ project, conversations, stale, onLaunch }: Proje
       <section>
         <div className="section-head">
           <h2>Conversations</h2>
-          <button type="button" onClick={onLaunch}>
-            New conversation
-          </button>
+          <span className="section-actions">
+            <button type="button" onClick={onAdopt}>
+              Adopt a session
+            </button>
+            <button type="button" onClick={onLaunch}>
+              New conversation
+            </button>
+          </span>
         </div>
         {conversations.length === 0 ? (
           <p className="muted">No conversations yet.</p>

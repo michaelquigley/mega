@@ -88,9 +88,10 @@ export function ConversationView({ conversation, project, log, stale }: Conversa
     }
   }
 
+  const terminalCommands: Record<string, string> = { claude: 'claude --resume', codex: 'codex resume' }
   const terminal =
-    conversation.harness === 'claude' && conversation.native_id
-      ? `cd ${project.checkout} && claude --resume ${conversation.native_id}`
+    conversation.native_id && terminalCommands[conversation.harness]
+      ? `cd ${project.checkout} && ${terminalCommands[conversation.harness]} ${conversation.native_id}`
       : null
 
   return (
@@ -100,7 +101,7 @@ export function ConversationView({ conversation, project, log, stale }: Conversa
           <h1>{conversation.name}</h1>
           {conversation.label && <span className="tag">{conversation.label}</span>}
           <span className={`state state-${state}${stale ? ' stale' : ''}`}>
-            {stale ? `${stateLabels[state]} (last known; reconnecting)` : stateLabels[state]}
+            {stale ? `${stateLabels[state]} (last known)` : stateLabels[state]}
           </span>
         </div>
         <p className="facts">

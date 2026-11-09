@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { startConversation } from '../api'
+import { harnesses } from '../harnesses'
 import type { Conversation } from '../types'
 
 interface LaunchDialogProps {
@@ -7,11 +8,6 @@ interface LaunchDialogProps {
   onClose: () => void
   onLaunched: (conversation: Conversation) => void
 }
-
-const harnesses = [
-  { value: 'claude', label: 'Claude Code', available: true },
-  { value: 'codex', label: 'Codex (not yet)', available: false },
-]
 
 export function LaunchDialog({ projectId, onClose, onLaunched }: LaunchDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -45,7 +41,7 @@ export function LaunchDialog({ projectId, onClose, onLaunched }: LaunchDialogPro
           Harness
           <select value={harness} onChange={(event) => setHarness(event.target.value)}>
             {harnesses.map((h) => (
-              <option key={h.value} value={h.value} disabled={!h.available}>
+              <option key={h.value} value={h.value}>
                 {h.label}
               </option>
             ))}

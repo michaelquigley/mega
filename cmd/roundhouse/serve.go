@@ -16,6 +16,7 @@ import (
 	"git.hq.quigley.com/research/roundhouse/internal/config"
 	"git.hq.quigley.com/research/roundhouse/internal/harness"
 	"git.hq.quigley.com/research/roundhouse/internal/harness/claude"
+	"git.hq.quigley.com/research/roundhouse/internal/harness/codex"
 	"git.hq.quigley.com/research/roundhouse/internal/registry"
 	"git.hq.quigley.com/research/roundhouse/internal/server"
 	"git.hq.quigley.com/research/roundhouse/internal/service"
@@ -70,12 +71,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 		EventLogPath: cfg.EventLogPath,
 		Harnesses: []harness.Harness{
 			claude.New(claude.Config{Node: cfg.Claude.Node, Shim: cfg.Claude.Shim, Executable: cfg.Claude.Executable}),
+			codex.New(codex.Config{Binary: cfg.Codex.Binary}),
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("starting service: %w", err)
 	}
 	dl.Debugf("claude: node='%s' shim='%s' executable='%s'", cfg.Claude.Node, cfg.Claude.Shim, cfg.Claude.Executable)
+	dl.Debugf("codex: binary='%s'", cfg.Codex.Binary)
 	httpServer := &http.Server{
 		Handler:           server.New(svc).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,

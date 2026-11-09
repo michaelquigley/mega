@@ -4,6 +4,7 @@ import { parseHash, select, type Selection } from './selection'
 import { useStream } from './stream'
 import { merge, type ConversationLog } from './log'
 import type { StreamFrame, Workspace } from './types'
+import { AdoptDialog } from './components/AdoptDialog'
 import { ConversationView } from './components/ConversationView'
 import { LaunchDialog } from './components/LaunchDialog'
 import { ProjectDetail } from './components/ProjectDetail'
@@ -16,6 +17,7 @@ export function App() {
   const [selection, setSelection] = useState<Selection | null>(parseHash)
   const [registering, setRegistering] = useState(false)
   const [launching, setLaunching] = useState<string | null>(null)
+  const [adopting, setAdopting] = useState<string | null>(null)
   const [log, setLog] = useState<ConversationLog | null>(null)
 
   const selectedConversationId = selection?.kind === 'conversation' ? selection.id : null
@@ -35,6 +37,11 @@ export function App() {
   // synced is true once the workspace has been re-read on the current
   // connection; until then runtime state on the page is only last known.
   const [synced, setSynced] = useState(false)
+
+  // connection numbers each stream connection, so only a refresh sent on the
+  // current one can mark the page up to date: one still out when its
+  // connection dropped lands on a page that has moved on, and changes nothing.
+  const connection = useRef(0)
 
   // refreshes are numbered and coalesced: at most one workspace fetch is in
   // flight, changes announced meanwhile get one follow-up fetch, and only the
@@ -57,16 +64,23 @@ export function App() {
       do {
         state.again = false
         const number = ++state.sent
+        const sentOn = connection.current
         try {
           const fetched = await getWorkspace()
           if (number === state.sent) {
             setWorkspace(fetched)
             setLoadError(null)
             ok = true
+            if (sentOn === connection.current) {
+              setSynced(true)
+            }
           }
         } catch (error) {
           if (number === state.sent) {
+            // what the page shows is now only last known, until a refresh on
+            // the current connection succeeds.
             setLoadError(error instanceof Error ? error.message : String(error))
+            setSynced(false)
             ok = false
           }
         }
@@ -109,21 +123,12 @@ export function App() {
     }
   }, [selectedConversationId])
 
-  // connection numbers each stream connection, so only the current one's
-  // refresh can mark the page up to date: one still out when its connection
-  // dropped lands on a page that has moved on, and changes nothing.
-  const connection = useRef(0)
-
   // every connection re-reads confirmed state; the service never replays on
   // its own, so whatever was missed comes from the workspace and the log.
   const onOpen = useCallback(() => {
-    const mine = ++connection.current
+    connection.current++
     setSynced(false)
-    void refresh().then((ok) => {
-      if (connection.current === mine) {
-        setSynced(ok)
-      }
-    })
+    void refresh()
     const id = selectedRef.current
     if (id) {
       const current = logRef.current
@@ -188,6 +193,7 @@ export function App() {
         conversations={conversations.filter((c) => c.project_id === selectedProject.id)}
         stale={stale}
         onLaunch={() => setLaunching(selectedProject.id)}
+        onAdopt={() => setAdopting(selectedProject.id)}
       />
     )
   } else {
@@ -220,6 +226,16 @@ export function App() {
           onRegistered={(project) => {
             setRegistering(false)
             select({ kind: 'project', id: project.id })
+          }}
+        />
+      )}
+      {adopting && (
+        <AdoptDialog
+          projectId={adopting}
+          onClose={() => setAdopting(null)}
+          onAdopted={(conversation) => {
+            setAdopting(null)
+            select({ kind: 'conversation', id: conversation.id })
           }}
         />
       )}

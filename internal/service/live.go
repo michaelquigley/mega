@@ -42,14 +42,20 @@ type ConversationView struct {
 // inc, busy and releasing describe the process and the operations on it, and
 // follow the process whether or not the log could record anything.
 type live struct {
-	id         string
-	log        *events.Log
-	seen       map[string]bool // native ids already in the log
-	runtime    harness.Runtime
-	inc        *incarnation // the current runtime's identity; nil when none
-	busy       bool         // a start or a resume is under way
-	releasing  bool         // the current runtime has been asked to stop
-	state      string       // displayed: "", starting, running, stopping or resuming
+	id        string
+	log       *events.Log
+	seen      map[string]bool // native ids already in the log
+	runtime   harness.Runtime
+	inc       *incarnation // the current runtime's identity; nil when none
+	busy      bool         // a start or a resume is under way
+	releasing bool         // the current runtime has been asked to stop
+
+	// session is a native session this conversation created that the registry
+	// does not hold yet: one a runtime reported, or the last one the log shows
+	// started. the next launch binds it and resumes it; a fresh session starts
+	// only when neither the registry nor this knows one.
+	session    string
+	state      string // displayed: "", starting, running, stopping or resuming
 	turnActive bool
 	facts      *model.RuntimeFacts
 	pending    []*model.Request
@@ -80,6 +86,9 @@ func (s *Service) liveLocked(conversationID string) (*live, error) {
 	for _, ev := range evs {
 		if ev.NativeID != "" {
 			l.seen[ev.NativeID] = true
+		}
+		if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarted && ev.Facts != nil && ev.Facts.Session != "" {
+			l.session = ev.Facts.Session
 		}
 	}
 	s.live[conversationID] = l
@@ -134,13 +143,19 @@ func (s *Service) transition(l *live, ev *model.Event, state string, apply func(
 	return nil
 }
 
-// failedLaunch records that no runtime started. like every transition it is
-// shown only once recorded: if the log cannot record it, the last confirmed
-// starting stays on screen, and the log's sticky refusal of later writes is
-// what says a restart is needed. it reports whether the failure was recorded.
-// callers hold s.mu.
-func (s *Service) failedLaunch(l *live, reason error) bool {
-	ev := &model.Event{Status: model.StatusError, Text: fmt.Sprintf("the runtime did not start: %v", reason)}
+// failedLaunch records a launch that failed. only a failure proven to come
+// before any native session could exist is not_started: the service's own
+// failures before launching, and a harness error wrapping harness.ErrNotStarted.
+// any other failure is an error whose session is unknown, which keeps the
+// conversation refused a fresh session. like every transition it is shown only
+// once recorded: if the log cannot record it, the last confirmed starting stays
+// on screen and the log's sticky refusal of later writes says a restart is
+// needed. it reports whether the failure was recorded. callers hold s.mu.
+func (s *Service) failedLaunch(l *live, reason error, beforeLaunch bool) bool {
+	ev := &model.Event{Status: model.StatusNotStarted, Text: fmt.Sprintf("the runtime did not start: %v", reason)}
+	if !beforeLaunch && !errors.Is(reason, harness.ErrNotStarted) {
+		ev = &model.Event{Status: model.StatusError, Text: fmt.Sprintf("the launch failed and whether it created a session is unknown: %v", reason)}
+	}
 	if err := s.transition(l, ev, "", nil); err != nil {
 		dl.Errorf("%v", err)
 		return false
@@ -184,6 +199,51 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 		view.Pending = append(view.Pending, *req)
 	}
 	return view
+}
+
+// sessionOf is the native session the conversation is bound to: the one the
+// registry holds, or else one it created that the registry does not hold yet.
+// callers hold s.mu.
+func (l *live) sessionOf(conv model.Conversation) string {
+	if conv.NativeID != "" {
+		return conv.NativeID
+	}
+	return l.session
+}
+
+// errSessionUnknown refuses to start a fresh session for a conversation whose
+// earlier launch may have created one that neither the registry nor the log
+// recorded.
+var errSessionUnknown = newError(CodeConflict, "this conversation launched before but its session could not be recorded, so roundhouse will not start another in its place; find the session under 'Adopt a session' and adopt it into a new conversation")
+
+// freshAllowedLocked reports whether the log proves no native session can
+// exist for the conversation: no launch has started, or every launch that
+// started was recorded as not_started. callers hold s.mu.
+func (s *Service) freshAllowedLocked(l *live) (bool, error) {
+	evs, err := l.log.Since(0)
+	if err != nil {
+		return false, err
+	}
+	open := false
+	for _, ev := range evs {
+		if ev.Kind != model.EventRuntime {
+			continue
+		}
+		switch ev.Status {
+		case model.StatusStarting:
+			if open {
+				return false, nil
+			}
+			open = true
+		case model.StatusNotStarted:
+			open = false
+		default:
+			if open {
+				return false, nil
+			}
+		}
+	}
+	return !open, nil
 }
 
 // takePending removes a request from the pending set. callers hold s.mu.
@@ -270,7 +330,9 @@ func (k *sink) Event(ev *model.Event) {
 		return
 	}
 	switch ev.Kind {
-	case model.EventAssistant, model.EventToolUse, model.EventToolResult:
+	case model.EventUser, model.EventAssistant, model.EventToolUse, model.EventToolResult:
+		// a user message the runtime reports opens a turn too, such as an
+		// answer that starts the next turn.
 		if !l.turnActive {
 			l.turnActive = true
 			s.changed()
@@ -291,10 +353,11 @@ func (k *sink) started(ev *model.Event) {
 	if err != nil {
 		return
 	}
-	if ev.Facts != nil && ev.Facts.Session != "" && conv.NativeID != "" && ev.Facts.Session != conv.NativeID {
+	bound := l.sessionOf(conv)
+	if ev.Facts != nil && ev.Facts.Session != "" && bound != "" && ev.Facts.Session != bound {
 		s.beginStopLocked(l, &model.Event{
 			Status: model.StatusError,
-			Text:   fmt.Sprintf("the runtime reported session '%s', but this conversation is bound to '%s'; stopping it", ev.Facts.Session, conv.NativeID),
+			Text:   fmt.Sprintf("the runtime reported session '%s', but this conversation is bound to '%s'; stopping it", ev.Facts.Session, bound),
 		})
 		return
 	}
@@ -393,6 +456,10 @@ func (k *sink) Exited(err error) {
 	l.pending = unrecorded
 	ev := &model.Event{Status: model.StatusStopped}
 	switch {
+	case errors.Is(err, harness.ErrLeftRunning):
+		// never a clean stop, asked for or not: something it started may still
+		// be working.
+		ev.Status, ev.Text = model.StatusError, fmt.Sprintf("the runtime exited but left processes running: %v", err)
 	case l.turnActive:
 		ev.Status, ev.Text = model.StatusError, "the runtime exited during a turn"
 		if err != nil {

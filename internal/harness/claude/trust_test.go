@@ -24,16 +24,29 @@ func writeConfig(t *testing.T, trusted ...string) string {
 	return path
 }
 
-// checkoutBase returns a fresh temporary directory for test checkouts, failing
-// first if any directory above it holds a .git. the trust lookup takes the
-// nearest .git as the git root, so a stray one (an empty /tmp/.git appeared once)
-// silently turns every checkout below it into part of that repository.
+// checkoutBase returns a fresh directory for test checkouts, failing first if
+// any directory above it holds a .git. the trust lookup takes the nearest .git
+// as the git root, so a stray one silently turns every checkout below it into
+// part of that repository. it lives under the user cache directory rather than
+// the system temporary directory: codex 0.166.0 creates an empty /tmp/.git
+// while any of its sandboxed commands runs, anywhere on the machine.
 func checkoutBase(t *testing.T) string {
 	t.Helper()
-	base := t.TempDir()
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cache, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base, err := os.MkdirTemp(cache, "roundhouse-trust-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
 	for dir := filepath.Dir(base); ; dir = filepath.Dir(dir) {
 		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			t.Fatalf("'%s' exists above the test's temporary directory, so every test checkout resolves to it as a git root; remove it or point TMPDIR elsewhere", filepath.Join(dir, ".git"))
+			t.Fatalf("'%s' exists above the test's checkout directory, so every test checkout resolves to it as a git root", filepath.Join(dir, ".git"))
 		}
 		if parent := filepath.Dir(dir); parent == dir {
 			return base

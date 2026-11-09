@@ -4,6 +4,7 @@ package harnesstest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -20,8 +21,10 @@ type Harness struct {
 	mu        sync.Mutex
 	runtimes  []*Runtime
 	history   map[string][]*model.Event
+	sessions  []harness.Session
 	launchErr error
 	onLaunch  func()
+	exitEarly bool
 	launched  int
 	reads     []string // native ids History was asked for, in order
 }
@@ -53,6 +56,27 @@ func (h *Harness) SetHistory(nativeID string, evs []*model.Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.history[nativeID] = evs
+}
+
+// ExitDuringLaunch makes the next runtimes exit before Launch returns, as a
+// runtime that reports its start and dies at once does.
+func (h *Harness) ExitDuringLaunch(early bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.exitEarly = early
+}
+
+// SetSessions scripts what Discover returns.
+func (h *Harness) SetSessions(sessions []harness.Session) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.sessions = sessions
+}
+
+func (h *Harness) Discover(context.Context, string) ([]harness.Session, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.sessions), nil
 }
 
 // Reads lists the native ids whose history was read.
@@ -94,6 +118,9 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		r.nativeID = fmt.Sprintf("native-%d", h.launched)
 	}
 	h.runtimes = append(h.runtimes, r)
+	if h.exitEarly {
+		r.Exit(errors.New("exited while starting"))
+	}
 	return r, nil
 }
 

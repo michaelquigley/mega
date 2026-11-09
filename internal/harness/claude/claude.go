@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/michaelquigley/df/dd"
 
@@ -81,9 +82,14 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	}
 	cmd, err := h.command(context.Background(), "run", "--cwd", spec.Cwd, "--exec", h.cfg.Executable, sessionFlag, nativeID)
 	if err != nil {
+		// the shim was never started, so no session can exist.
+		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
+	}
+	r, err := start(cmd, nativeID, sink)
+	if err != nil {
 		return nil, err
 	}
-	return start(cmd, nativeID, sink)
+	return r, nil
 }
 
 // History reads the session's stored messages through the shim.
@@ -123,6 +129,62 @@ func (h *Harness) History(ctx context.Context, cwd, nativeID string) ([]*model.E
 			return nil, err
 		}
 	}
+}
+
+// sessionInfo is the subset of the sdk's listSessions entries discovery reads.
+type sessionInfo struct {
+	SessionID    string  `dd:"sessionId"`
+	Summary      string  `dd:",+nullable"`
+	FirstPrompt  string  `dd:"firstPrompt,+nullable"`
+	Cwd          string  `dd:",+nullable"`
+	LastModified float64 `dd:"lastModified,+nullable"`
+	CreatedAt    float64 `dd:"createdAt,+nullable"`
+}
+
+// Discover lists the sessions claude stores for cwd, newest first as the sdk
+// returns them.
+func (h *Harness) Discover(ctx context.Context, cwd string) ([]harness.Session, error) {
+	cmd, err := h.command(ctx, "list", "--cwd", cwd)
+	if err != nil {
+		return nil, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions in '%s': %w: %s", cwd, err, strings.TrimSpace(stderr.String()))
+	}
+	var sessions []harness.Session
+	for _, line := range bytes.Split(out, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		info := &sessionInfo{}
+		if err := dd.BindJSON(info, line); err != nil {
+			return nil, fmt.Errorf("reading session list for '%s': %w", cwd, err)
+		}
+		if info.SessionID == "" || (info.Cwd != "" && info.Cwd != cwd) {
+			continue
+		}
+		preview := info.FirstPrompt
+		if preview == "" {
+			preview = info.Summary
+		}
+		sessions = append(sessions, harness.Session{
+			NativeID:  info.SessionID,
+			Preview:   clip(preview),
+			CreatedAt: millis(info.CreatedAt),
+			UpdatedAt: millis(info.LastModified),
+		})
+	}
+	return sessions, nil
+}
+
+func millis(ms float64) time.Time {
+	if ms <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(int64(ms)).UTC()
 }
 
 // newUUID mints a version 4 uuid, the form claude requires for a session id.

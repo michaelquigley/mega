@@ -33,6 +33,12 @@ type Config struct {
 	Listen string
 	Data   string
 	Claude Claude
+	Codex  Codex
+}
+
+// Codex locates the codex executable, whose app-server the codex adapter runs.
+type Codex struct {
+	Binary string
 }
 
 // Claude locates what the claude adapter runs: node, the shim directory, and
@@ -50,6 +56,7 @@ func Load(configPath, dataOverride string) (*Config, error) {
 	cfg := &Config{
 		Listen: defaultListen,
 		Claude: Claude{Node: "node", Shim: defaultClaudeShim, Executable: defaultClaudeExecutable},
+		Codex:  Codex{Binary: "codex"},
 	}
 	if configPath != "" {
 		if err := dd.MergeYAMLFile(cfg, configPath); err != nil {

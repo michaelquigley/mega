@@ -6,12 +6,23 @@ package harness
 import (
 	"context"
 	"errors"
+	"time"
 
 	"git.hq.quigley.com/research/roundhouse/internal/model"
 )
 
 // ErrNotPending reports an answer to a request the runtime no longer waits on.
 var ErrNotPending = errors.New("request is not pending")
+
+// ErrNotStarted marks a Launch failure the adapter can prove came before any
+// native session could exist. adapters wrap it at each such failure site, never
+// as a blanket over Launch: an error without it means the session is unknown,
+// and the service then refuses to start a fresh one in its place.
+var ErrNotStarted = errors.New("the runtime did not start")
+
+// ErrLeftRunning reports a runtime whose own process exited while processes it
+// started were still running when the bounded check gave up.
+var ErrLeftRunning = errors.New("processes the runtime started are still running")
 
 // Harness launches runtimes and reads native history for one kind of agent.
 type Harness interface {
@@ -20,12 +31,27 @@ type Harness interface {
 
 	// Launch starts a runtime in cwd. an empty nativeID starts a new native
 	// session; otherwise the runtime resumes exactly that session. the runtime's
-	// native identity is known when Launch returns.
+	// native identity is known when Launch returns. Launch may deliver to the
+	// sink before it returns, so callers must not hold a lock the sink needs.
+	// a failure that provably came before any session could exist wraps
+	// ErrNotStarted; any other failure leaves the session unknown.
 	Launch(spec Spec, sink Sink) (Runtime, error)
 
 	// History reads the native session's stored messages without a runtime.
 	// every event carries a NativeID so the caller can match without text.
 	History(ctx context.Context, cwd, nativeID string) ([]*model.Event, error)
+
+	// Discover lists the native sessions stored for cwd, for the operator to
+	// choose from. it never picks one.
+	Discover(ctx context.Context, cwd string) ([]Session, error)
+}
+
+// Session is a native session found by discovery.
+type Session struct {
+	NativeID  string
+	Preview   string // usually the first prompt
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Spec describes a runtime to launch.

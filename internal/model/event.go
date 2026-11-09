@@ -25,8 +25,12 @@ const (
 // runtime event states, carried in Event.Status. every change to a
 // conversation's displayed runtime state is recorded as one of these.
 const (
-	StatusStarting     = "starting"
-	StatusStarted      = "started"
+	StatusStarting = "starting"
+	StatusStarted  = "started"
+	// StatusNotStarted records a launch that failed before any process or
+	// native session existed. it is the proof that a later launch may start a
+	// fresh session.
+	StatusNotStarted   = "not_started"
 	StatusStopping     = "stopping"
 	StatusStopped      = "stopped"
 	StatusUnsupervised = "unsupervised"

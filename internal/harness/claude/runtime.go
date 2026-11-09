@@ -76,21 +76,23 @@ type runtime struct {
 // errExited fails an answer whose runtime ended before the shim confirmed it.
 var errExited = errors.New("the claude runtime exited before the answer was confirmed")
 
+// start runs the shim. each failure here comes before or while starting the
+// shim process, so no session can exist and each is marked not started.
 func start(cmd *exec.Cmd, nativeID string, sink harness.Sink) (*runtime, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting claude shim: %w", err)
+		return nil, fmt.Errorf("%w: starting claude shim: %w", harness.ErrNotStarted, err)
 	}
 	r := &runtime{
 		nativeID: nativeID,
