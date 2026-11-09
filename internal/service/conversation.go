@@ -453,13 +453,13 @@ func (s *Service) Resume(conversationID string) error {
 	l.busy = true
 	s.mu.Unlock()
 
-	var added int
+	var result imported
 	var importErr error
 	s.mu.Lock()
 	conv.NativeID = l.sessionOf(conv)
 	s.mu.Unlock()
 	if conv.NativeID != "" {
-		added, importErr = s.importHistory(conv, l)
+		result, importErr = s.importHistory(conv, l)
 	}
 
 	s.mu.Lock()
@@ -471,7 +471,22 @@ func (s *Service) Resume(conversationID string) error {
 		}
 		return importErr
 	}
-	if err := s.transition(l, &model.Event{Status: model.StatusResumed, Text: fmt.Sprintf("%d messages added from native history", added)}, "", nil); err != nil {
+	// after an unclean restart the runtime may have kept working where nobody
+	// could see it, and the turn it was in never ended where the service could
+	// see it either. the marker moves to the newest finished agent output in the
+	// whole log, cached or imported; the reading position decides whether it is
+	// unread. after a release the operator was the one in the terminal, so the
+	// import changes nothing.
+	if conv.Runtime == model.RuntimeUnsupervised {
+		seq, at, err := s.newestFinishedOutputLocked(l, result.open)
+		if err == nil && seq > 0 {
+			err = s.markUnreadLocked(l, seq, at)
+		}
+		if err != nil {
+			dl.Errorf("marking the output found on resuming '%s' unread: %v", conversationID, err)
+		}
+	}
+	if err := s.transition(l, &model.Event{Status: model.StatusResumed, Text: fmt.Sprintf("%d messages added from native history", result.added)}, "", nil); err != nil {
 		return err
 	}
 	if conv.Runtime == model.RuntimeUnsupervised {
@@ -480,40 +495,85 @@ func (s *Service) Resume(conversationID string) error {
 	return nil
 }
 
+// imported reports what an import added, and which native events belong to a
+// turn still in progress.
+type imported struct {
+	added int
+	open  map[string]bool
+}
+
 // importHistory appends the native messages the cache lacks, matched by native
-// identity, as native-origin events, and reports how many it added. it never
-// rewrites what the log holds.
-func (s *Service) importHistory(conv model.Conversation, l *live) (int, error) {
+// identity, as native-origin events, and reports what it added. it never
+// rewrites what the log holds, and never moves the unread marker itself.
+func (s *Service) importHistory(conv model.Conversation, l *live) (imported, error) {
 	s.mu.Lock()
 	h, ok := s.harnesses[conv.Harness]
 	project, projectErr := s.projectLocked(conv.ProjectID)
 	s.mu.Unlock()
 	if !ok {
-		return 0, newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", conv.Harness))
+		return imported{}, newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", conv.Harness))
 	}
 	if projectErr != nil {
-		return 0, projectErr
+		return imported{}, projectErr
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), historyTimeout)
 	defer cancel()
-	evs, err := h.History(ctx, project.Checkout, conv.NativeID)
+	history, err := h.History(ctx, project.Checkout, conv.NativeID)
 	if err != nil {
-		return 0, fmt.Errorf("importing history of '%s': %w", conv.ID, err)
+		return imported{}, fmt.Errorf("importing history of '%s': %w", conv.ID, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	added := 0
-	for _, ev := range evs {
+	result := imported{open: history.Open}
+	for _, ev := range history.Events {
 		if ev.NativeID == "" || l.seen[ev.NativeID] {
 			continue
 		}
 		ev.Origin = model.OriginNative
 		if err := s.record(l, ev); err != nil {
-			return added, err
+			return result, err
 		}
-		added++
+		result.added++
 	}
-	return added, nil
+	return result, nil
+}
+
+// newestFinishedOutputLocked finds the newest agent output anywhere in the log,
+// cached or imported, leaving out events of a turn still in progress. callers
+// hold s.mu.
+func (s *Service) newestFinishedOutputLocked(l *live, open map[string]bool) (int64, time.Time, error) {
+	evs, err := l.log.Since(0)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	for i := len(evs) - 1; i >= 0; i-- {
+		ev := evs[i]
+		switch ev.Kind {
+		case model.EventAssistant, model.EventToolUse, model.EventToolResult, model.EventNative:
+			if ev.NativeID != "" && open[ev.NativeID] {
+				continue
+			}
+			return ev.Seq, ev.At, nil
+		}
+	}
+	return 0, time.Time{}, nil
+}
+
+// markUnreadLocked advances the unread marker to seq, as a confirmed registry
+// write that memory follows. callers hold s.mu.
+func (s *Service) markUnreadLocked(l *live, seq int64, at time.Time) error {
+	err := s.updateConversation(l.id, func(c *model.Conversation) {
+		if seq > c.OutputSeq {
+			c.OutputSeq = seq
+		}
+	})
+	if err != nil {
+		return err
+	}
+	if conv, err := s.conversationLocked(l.id); err == nil && conv.OutputSeq == seq {
+		l.outputAt = at
+	}
+	return nil
 }
 
 // Events returns the conversation's recorded events after seq.

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/michaelquigley/df/dl"
 
@@ -32,6 +33,12 @@ type ConversationView struct {
 	TurnActive bool
 	Facts      *model.RuntimeFacts
 	Pending    []model.Request
+
+	// Attention is computed from the facts above every time it is read, and
+	// AttentionAt is when the fact behind it happened: the oldest pending
+	// request, or the unread output.
+	Attention   string
+	AttentionAt time.Time
 }
 
 // live is the in-memory side of one conversation. the pending set lives here
@@ -59,6 +66,21 @@ type live struct {
 	turnActive bool
 	facts      *model.RuntimeFacts
 	pending    []*model.Request
+	pendingAt  map[string]time.Time // when each pending request was recorded
+
+	// fault is whether the last runtime ended badly: an error, an exit during a
+	// turn, or a launch that did not start. a runtime that starts or stops
+	// cleanly clears it.
+	fault bool
+
+	// turnOutput is the newest agent output recorded in the turn in flight. it
+	// becomes the conversation's OutputSeq only when the turn ends, so output
+	// still being produced is running, not unread.
+	turnOutput   int64
+	turnOutputAt time.Time
+
+	// outputAt is when the conversation's OutputSeq event was recorded.
+	outputAt time.Time
 }
 
 // incarnation tells one runtime's callbacks from a later runtime's, so a late
@@ -82,13 +104,23 @@ func (s *Service) liveLocked(conversationID string) (*live, error) {
 		log.Close()
 		return nil, err
 	}
-	l := &live{id: conversationID, log: log, seen: make(map[string]bool)}
+	l := &live{id: conversationID, log: log, seen: make(map[string]bool), pendingAt: make(map[string]time.Time)}
+	var outputSeq int64
+	if conv, err := s.conversationLocked(conversationID); err == nil {
+		outputSeq = conv.OutputSeq
+	}
 	for _, ev := range evs {
 		if ev.NativeID != "" {
 			l.seen[ev.NativeID] = true
 		}
 		if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarted && ev.Facts != nil && ev.Facts.Session != "" {
 			l.session = ev.Facts.Session
+		}
+		if ev.Kind == model.EventRuntime {
+			l.noteRuntime(ev.Status)
+		}
+		if ev.Seq == outputSeq {
+			l.outputAt = ev.At
 		}
 	}
 	s.live[conversationID] = l
@@ -136,11 +168,22 @@ func (s *Service) transition(l *live, ev *model.Event, state string, apply func(
 		return err
 	}
 	l.state = state
+	l.noteRuntime(ev.Status)
 	if apply != nil {
 		apply()
 	}
 	s.changed()
 	return nil
+}
+
+// noteRuntime follows how the last runtime ended, for the error attention.
+func (l *live) noteRuntime(status string) {
+	switch status {
+	case model.StatusStarted, model.StatusStopped:
+		l.fault = false
+	case model.StatusError, model.StatusNotStarted:
+		l.fault = true
+	}
 }
 
 // failedLaunch records a launch that failed. only a failure proven to come
@@ -198,7 +241,37 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 	for _, req := range l.pending {
 		view.Pending = append(view.Pending, *req)
 	}
+	view.Attention, view.AttentionAt = l.attention(conv)
 	return view
+}
+
+// attention is computed from confirmed facts, in order: a pending request; an
+// unsupervised runtime, uncertain and never shown as running or idle; a turn in
+// flight; a runtime that ended badly; agent output from a completed turn past
+// the reading position; and otherwise idle. reading never resolves a request.
+// callers hold s.mu.
+func (l *live) attention(conv model.Conversation) (string, time.Time) {
+	if len(l.pending) > 0 {
+		var oldest time.Time
+		for _, req := range l.pending {
+			if at := l.pendingAt[req.ID]; oldest.IsZero() || at.Before(oldest) {
+				oldest = at
+			}
+		}
+		return model.AttentionRequest, oldest
+	}
+	switch {
+	case conv.Runtime == model.RuntimeUnsupervised:
+		return model.AttentionUnsupervised, time.Time{}
+	case l.turnActive:
+		return model.AttentionRunning, time.Time{}
+	case l.fault:
+		return model.AttentionError, time.Time{}
+	case conv.OutputSeq > conv.ReadSeq:
+		return model.AttentionUnread, l.outputAt
+	default:
+		return model.AttentionIdle, time.Time{}
+	}
 }
 
 // sessionOf is the native session the conversation is bound to: the one the
@@ -254,6 +327,7 @@ func (l *live) takePending(requestID string) (*model.Request, bool) {
 	}
 	req := l.pending[i]
 	l.pending = slices.Delete(l.pending, i, i+1)
+	delete(l.pendingAt, requestID)
 	return req, true
 }
 
@@ -339,7 +413,31 @@ func (k *sink) Event(ev *model.Event) {
 		}
 	case model.EventTurnEnd:
 		l.turnActive = false
+		s.endTurnLocked(l)
 		s.changed()
+	}
+	// agent output, including the harness's own native events, counts toward
+	// unread only within a turn, and only once that turn ends.
+	switch ev.Kind {
+	case model.EventAssistant, model.EventToolUse, model.EventToolResult, model.EventNative:
+		if l.turnActive && ev.Seq > 0 {
+			l.turnOutput, l.turnOutputAt = ev.Seq, ev.At
+		}
+	}
+}
+
+// endTurnLocked makes the ended turn's newest agent output the conversation's
+// OutputSeq, so it reads as unread. the registry is the record: memory follows
+// only a confirmed write. a turn with no agent output changes nothing.
+// callers hold s.mu.
+func (s *Service) endTurnLocked(l *live) {
+	seq, at := l.turnOutput, l.turnOutputAt
+	l.turnOutput, l.turnOutputAt = 0, time.Time{}
+	if seq == 0 {
+		return
+	}
+	if err := s.markUnreadLocked(l, seq, at); err != nil {
+		dl.Errorf("recording the output of '%s': %v", l.id, err)
 	}
 }
 
@@ -389,11 +487,13 @@ func (k *sink) Request(kind string, payload any) string {
 		return req.ID
 	}
 	l := k.l
-	if err := s.record(l, &model.Event{Kind: model.EventRequest, Origin: model.OriginManaged, Text: kind, Req: req}); err != nil {
+	recorded := &model.Event{Kind: model.EventRequest, Origin: model.OriginManaged, Text: kind, Req: req}
+	if err := s.record(l, recorded); err != nil {
 		dl.Errorf("request '%s' for '%s' could not be recorded and is not answerable: %v", req.ID, l.id, err)
 		return req.ID
 	}
 	l.pending = append(l.pending, req)
+	l.pendingAt[req.ID] = recorded.At
 	s.changed()
 	return req.ID
 }

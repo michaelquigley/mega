@@ -299,19 +299,24 @@ dialog label {
   width: 8px;
 }
 
-.mark-running {
-  border-color: var(--accent);
-}
-
-.mark-active {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
 .mark-request {
   background: var(--notice-line);
   border-color: var(--notice-line);
   border-radius: 2px;
+}
+
+.mark-unread {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.mark-running {
+  animation: pulse 1.6s ease-in-out infinite;
+  border-color: var(--accent);
+}
+
+.mark-error {
+  border-color: var(--error);
 }
 
 .mark-unsupervised {
@@ -319,8 +324,27 @@ dialog label {
   border-color: var(--error);
 }
 
-.mark-transition {
-  border-style: dashed;
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.needs-you .tree-item {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.waiting-project {
+  flex: none;
+  font-size: 11px;
+  margin: 0 0 0 auto;
+}
+
+.shortcut {
+  font-size: 11px;
+  margin: 0;
 }
 
 .conversation-list .tree-item {
@@ -525,6 +549,11 @@ hr.turn {
   opacity: 0.55;
 }
 
+/* a last-known mark must not move as if it were live. */
+.mark-running.mark-stale {
+  animation: none;
+}
+
 .section-actions {
   display: flex;
   gap: 6px;
@@ -543,4 +572,10 @@ hr.turn {
 
 .sessions code {
   font-size: 11px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark-running {
+    animation: none;
+  }
 }

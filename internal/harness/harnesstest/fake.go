@@ -21,6 +21,7 @@ type Harness struct {
 	mu        sync.Mutex
 	runtimes  []*Runtime
 	history   map[string][]*model.Event
+	open      map[string]map[string]bool
 	sessions  []harness.Session
 	launchErr error
 	onLaunch  func()
@@ -31,7 +32,7 @@ type Harness struct {
 
 // New returns a fake harness registered under name.
 func New(name string) *Harness {
-	return &Harness{name: name, history: make(map[string][]*model.Event)}
+	return &Harness{name: name, history: make(map[string][]*model.Event), open: make(map[string]map[string]bool)}
 }
 
 func (h *Harness) Name() string { return h.name }
@@ -79,6 +80,18 @@ func (h *Harness) Discover(context.Context, string) ([]harness.Session, error) {
 	return slices.Clone(h.sessions), nil
 }
 
+// SetOpen marks events of a native session's history as belonging to a turn
+// still in progress.
+func (h *Harness) SetOpen(nativeID string, eventIDs ...string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	open := make(map[string]bool)
+	for _, id := range eventIDs {
+		open[id] = true
+	}
+	h.open[nativeID] = open
+}
+
 // Reads lists the native ids whose history was read.
 func (h *Harness) Reads() []string {
 	h.mu.Lock()
@@ -124,14 +137,14 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	return r, nil
 }
 
-func (h *Harness) History(_ context.Context, _ string, nativeID string) ([]*model.Event, error) {
+func (h *Harness) History(_ context.Context, _ string, nativeID string) (harness.History, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.reads = append(h.reads, nativeID)
-	var out []*model.Event
+	out := harness.History{Open: h.open[nativeID]}
 	for _, ev := range h.history[nativeID] {
 		copied := *ev
-		out = append(out, &copied)
+		out.Events = append(out.Events, &copied)
 	}
 	return out, nil
 }

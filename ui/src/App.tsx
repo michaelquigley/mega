@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getEvents, getWorkspace } from './api'
+import { getEvents, getWorkspace, readConversation } from './api'
 import { parseHash, select, type Selection } from './selection'
 import { useStream } from './stream'
-import { merge, type ConversationLog } from './log'
+import { loadedThrough, merge, type ConversationLog } from './log'
 import type { StreamFrame, Workspace } from './types'
 import { AdoptDialog } from './components/AdoptDialog'
 import { ConversationView } from './components/ConversationView'
@@ -166,6 +166,62 @@ export function App() {
 
   const projects = workspace?.projects ?? []
   const conversations = workspace?.conversations ?? []
+  const needsYou = workspace?.needs_you ?? []
+
+  // next-waiting walks the needs-you list from the selected conversation; it
+  // only moves the selection, so a reply in progress keeps its place. ctrl+/
+  // works anywhere; a bare n works only while focus is outside anything that
+  // takes text, so typing an n never moves the selection.
+  const needsYouRef = useRef(needsYou)
+  useEffect(() => {
+    needsYouRef.current = needsYou
+  })
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!isNextWaiting(event)) {
+        return
+      }
+      event.preventDefault()
+      const list = needsYouRef.current
+      if (list.length === 0) {
+        return
+      }
+      const at = list.indexOf(selectedRef.current ?? '')
+      select({ kind: 'conversation', id: list[(at + 1) % list.length] })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // opening a conversation acknowledges what is on screen: once its history is
+  // loaded and current, the reading position moves to its last event. this
+  // never touches a pending request, which stays until it is answered.
+  const [visible, setVisible] = useState(() => document.visibilityState === 'visible')
+  useEffect(() => {
+    const onVisibility = () => setVisible(document.visibilityState === 'visible')
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+  const posted = useRef<{ id: string; seq: number } | null>(null)
+  const openConversation = conversations.find((c) => c.id === selectedConversationId)
+  const openReadSeq = openConversation?.read_seq ?? 0
+  // only the unbroken run of events from the first one counts as on screen: a
+  // live event that arrived while history was still loading proves nothing
+  // about the events before it.
+  const loggedSeq = log && log.id === selectedConversationId ? loadedThrough(log.events) : 0
+  useEffect(() => {
+    const id = selectedConversationId
+    if (!id || !visible || stale || loggedSeq <= openReadSeq) {
+      return
+    }
+    if (posted.current && posted.current.id === id && posted.current.seq >= loggedSeq) {
+      return
+    }
+    posted.current = { id, seq: loggedSeq }
+    readConversation(id, loggedSeq).catch(() => {
+      posted.current = null
+    })
+  }, [selectedConversationId, loggedSeq, openReadSeq, visible, stale])
   const selectedProject = selection?.kind === 'project' ? projects.find((p) => p.id === selection.id) : undefined
   const selectedConversation = selectedConversationId
     ? conversations.find((c) => c.id === selectedConversationId)
@@ -211,6 +267,7 @@ export function App() {
       <Sidebar
         projects={projects}
         conversations={conversations}
+        needsYou={needsYou}
         selection={selection}
         streamState={streamState}
         stale={stale}
@@ -250,5 +307,29 @@ export function App() {
         />
       )}
     </div>
+  )
+}
+
+// the next-waiting shortcut: ctrl+/ (by physical key, so it holds across
+// layouts), or a bare n while focus is not in a text field.
+function isNextWaiting(event: KeyboardEvent): boolean {
+  if (event.ctrlKey && event.code === 'Slash') {
+    return true
+  }
+  if (event.key !== 'n' || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) {
+    return false
+  }
+  return !takesText(event.target)
+}
+
+function takesText(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
   )
 }

@@ -108,13 +108,14 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	return r, nil
 }
 
-// History reads the thread's stored turns from a short-lived app-server.
-func (h *Harness) History(ctx context.Context, cwd, nativeID string) ([]*model.Event, error) {
+// History reads the thread's stored turns from a short-lived app-server. items
+// of a turn still in progress are reported open.
+func (h *Harness) History(ctx context.Context, cwd, nativeID string) (harness.History, error) {
 	read := &threadRead{}
 	if err := h.once(ctx, cwd, "thread/read", &threadReadParams{ThreadID: nativeID, IncludeTurns: true}, read); err != nil {
-		return nil, fmt.Errorf("reading history of '%s': %w", nativeID, err)
+		return harness.History{}, fmt.Errorf("reading history of '%s': %w", nativeID, err)
 	}
-	var evs []*model.Event
+	history := harness.History{Open: make(map[string]bool)}
 	for _, t := range read.Thread.Turns {
 		items, _ := t.Items.([]any)
 		for _, entry := range items {
@@ -124,15 +125,18 @@ func (h *Harness) History(ctx context.Context, cwd, nativeID string) ([]*model.E
 			}
 			mapped, err := mapItem(raw)
 			if err != nil {
-				return nil, err
+				return harness.History{}, err
 			}
 			for _, ev := range mapped {
 				ev.Origin = model.OriginNative
+				if t.Status == "inProgress" {
+					history.Open[ev.NativeID] = true
+				}
 			}
-			evs = append(evs, mapped...)
+			history.Events = append(history.Events, mapped...)
 		}
 	}
-	return evs, nil
+	return history, nil
 }
 
 // Discover lists the threads codex stores for cwd.

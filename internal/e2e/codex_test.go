@@ -33,10 +33,11 @@ func TestCodexDiscoveryAndHistory(t *testing.T) {
 	for _, s := range sessions[:min(3, len(sessions))] {
 		t.Logf("thread %s updated %s: %.60q", s.NativeID, s.UpdatedAt.Format(time.RFC3339), s.Preview)
 	}
-	evs, err := h.History(ctx, fixture, sessions[0].NativeID)
+	history, err := h.History(ctx, fixture, sessions[0].NativeID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	evs := history.Events
 	counts := map[string]int{}
 	seen := map[string]bool{}
 	for _, ev := range evs {
@@ -154,7 +155,7 @@ func TestCodexRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, ev := range history {
+	for _, ev := range history.Events {
 		if !recorded[ev.NativeID] {
 			t.Errorf("native message %s %s %q is not in the log", ev.Kind, ev.NativeID, ev.Text)
 		}

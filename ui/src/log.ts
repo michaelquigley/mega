@@ -22,3 +22,16 @@ export function merge(log: ConversationLog | null, id: string, events: Conversat
   }
   return { id, events: [...bySeq.values()].sort((a, b) => a.seq - b.seq), delta }
 }
+
+// loadedThrough is the last seq of the unbroken run of events from seq 1, the
+// part of the history known to be loaded. seqs in a log start at 1 with no gaps.
+export function loadedThrough(events: ConversationEvent[]): number {
+  let through = 0
+  for (const event of events) {
+    if (event.seq !== through + 1) {
+      break
+    }
+    through = event.seq
+  }
+  return through
+}

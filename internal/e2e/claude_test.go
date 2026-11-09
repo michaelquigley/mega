@@ -203,7 +203,7 @@ func TestClaudeRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	var prompts int
-	for _, ev := range history {
+	for _, ev := range history.Events {
 		if !recorded[ev.NativeID] {
 			t.Errorf("native message %s %s %q is not in the log", ev.Kind, ev.NativeID, ev.Text)
 		}
@@ -211,8 +211,8 @@ func TestClaudeRoundTrip(t *testing.T) {
 			prompts++
 		}
 	}
-	if len(history) == 0 || prompts != 3 {
-		t.Errorf("history has %d events and %d prompts, want the 3 managed prompts", len(history), prompts)
+	if len(history.Events) == 0 || prompts != 3 {
+		t.Errorf("history has %d events and %d prompts, want the 3 managed prompts", len(history.Events), prompts)
 	}
 
 	// C6: the next prompt resumes the exact session and remembers everything.

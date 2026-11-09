@@ -92,17 +92,18 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	return r, nil
 }
 
-// History reads the session's stored messages through the shim.
-func (h *Harness) History(ctx context.Context, cwd, nativeID string) ([]*model.Event, error) {
+// History reads the session's stored messages through the shim. a claude
+// transcript carries no turn status, so no event is reported open.
+func (h *Harness) History(ctx context.Context, cwd, nativeID string) (harness.History, error) {
 	cmd, err := h.command(ctx, "messages", "--session", nativeID, "--cwd", cwd)
 	if err != nil {
-		return nil, err
+		return harness.History{}, err
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("reading history of '%s': %w: %s", nativeID, err, strings.TrimSpace(stderr.String()))
+		return harness.History{}, fmt.Errorf("reading history of '%s': %w: %s", nativeID, err, strings.TrimSpace(stderr.String()))
 	}
 	var evs []*model.Event
 	reader := bufio.NewReader(bytes.NewReader(out))
@@ -111,11 +112,11 @@ func (h *Harness) History(ctx context.Context, cwd, nativeID string) ([]*model.E
 		if len(bytes.TrimSpace(line)) > 0 {
 			raw, bindErr := dd.DecodeStrictJSON(line)
 			if bindErr != nil {
-				return nil, fmt.Errorf("reading history of '%s': %w", nativeID, bindErr)
+				return harness.History{}, fmt.Errorf("reading history of '%s': %w", nativeID, bindErr)
 			}
 			mapped, mapErr := mapMessage(raw)
 			if mapErr != nil {
-				return nil, mapErr
+				return harness.History{}, mapErr
 			}
 			for _, ev := range mapped {
 				ev.Origin = model.OriginNative
@@ -123,10 +124,10 @@ func (h *Harness) History(ctx context.Context, cwd, nativeID string) ([]*model.E
 			evs = append(evs, mapped...)
 		}
 		if errors.Is(err, io.EOF) {
-			return evs, nil
+			return harness.History{Events: evs}, nil
 		}
 		if err != nil {
-			return nil, err
+			return harness.History{}, err
 		}
 	}
 }

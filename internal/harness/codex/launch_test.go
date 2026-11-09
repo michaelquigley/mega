@@ -35,6 +35,10 @@ func fakeAppServer(mode string) {
 		switch frame["method"] {
 		case "initialize":
 			fmt.Printf(`{"id":%v,"result":{"userAgent":"fake","codexHome":"/x","platformFamily":"unix","platformOs":"linux"}}`+"\n", frame["id"])
+		case "thread/read":
+			fmt.Printf(`{"id":%v,"result":{"thread":{"id":"t-1","turns":[`+
+				`{"id":"turn-1","status":"completed","items":[{"type":"agentMessage","id":"a-1","text":"done"}]},`+
+				`{"id":"turn-2","status":"inProgress","items":[{"type":"userMessage","id":"u-2","content":[{"type":"text","text":"next"}]},{"type":"agentMessage","id":"a-2","text":"going"}]}]}}}`+"\n", frame["id"])
 		case "thread/start":
 			switch mode {
 			case "no-reply":
@@ -76,5 +80,19 @@ func TestMissingAppServerIsNotStarted(t *testing.T) {
 	_, err := h.Launch(harness.Spec{Cwd: t.TempDir()}, &recordingSink{})
 	if !errors.Is(err, harness.ErrNotStarted) {
 		t.Errorf("a missing app-server: %v", err)
+	}
+}
+
+func TestHistoryReportsItemsOfATurnInProgressAsOpen(t *testing.T) {
+	h := fakeHarness(t, "history")
+	history, err := h.History(t.Context(), t.TempDir(), "t-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Events) != 3 {
+		t.Fatalf("events = %d", len(history.Events))
+	}
+	if history.Open["a-1"] || !history.Open["u-2"] || !history.Open["a-2"] {
+		t.Errorf("open = %v", history.Open)
 	}
 }

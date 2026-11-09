@@ -1,11 +1,12 @@
 import { select, type Selection } from '../selection'
 import type { StreamState } from '../stream'
 import type { Conversation, Project } from '../types'
-import { RuntimeMark } from './RuntimeMark'
+import { AttentionMark } from './AttentionMark'
 
 interface SidebarProps {
   projects: Project[]
   conversations: Conversation[]
+  needsYou: string[]
   selection: Selection | null
   streamState: StreamState
   stale: boolean
@@ -18,14 +19,41 @@ const streamLabels: Record<StreamState, string> = {
   disconnected: 'Reconnecting',
 }
 
-export function Sidebar({ projects, conversations, selection, streamState, stale, onRegister }: SidebarProps) {
+export function Sidebar({ projects, conversations, needsYou, selection, streamState, stale, onRegister }: SidebarProps) {
   const isSelected = (kind: Selection['kind'], id: string) => selection?.kind === kind && selection.id === id
+  const byId = new Map(conversations.map((conversation) => [conversation.id, conversation]))
+  const projectNames = new Map(projects.map((project) => [project.id, project.name]))
+  const waiting = needsYou.map((id) => byId.get(id)).filter((c): c is Conversation => c !== undefined)
 
   return (
     <nav className="sidebar">
-      <section>
-        <h2>Needs you</h2>
-        <p className="muted">Nothing waiting.</p>
+      <section className="needs-you">
+        <div className="section-head">
+          <h2>Needs you</h2>
+          <span className="muted shortcut" title="Next waiting conversation: Ctrl+/ anywhere, or n outside a text field">
+            Ctrl+/ or n
+          </span>
+        </div>
+        {waiting.length === 0 ? (
+          <p className="muted">Nothing waiting.</p>
+        ) : (
+          <ul>
+            {waiting.map((conversation) => (
+              <li key={conversation.id}>
+                <button
+                  type="button"
+                  className={isSelected('conversation', conversation.id) ? 'tree-item waiting selected' : 'tree-item waiting'}
+                  aria-current={isSelected('conversation', conversation.id) ? 'true' : undefined}
+                  onClick={() => select({ kind: 'conversation', id: conversation.id })}
+                >
+                  <AttentionMark conversation={conversation} stale={stale} />
+                  <span className="tree-label">{conversation.name}</span>
+                  <span className="muted waiting-project">{projectNames.get(conversation.project_id)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
       <section className="projects">
         <div className="section-head">
@@ -57,7 +85,7 @@ export function Sidebar({ projects, conversations, selection, streamState, stale
                         aria-current={isSelected('conversation', conversation.id) ? 'true' : undefined}
                         onClick={() => select({ kind: 'conversation', id: conversation.id })}
                       >
-                        <RuntimeMark conversation={conversation} stale={stale} />
+                        <AttentionMark conversation={conversation} stale={stale} />
                         <span className="tree-label">{conversation.name}</span>
                         {conversation.label && <span className="tag">{conversation.label}</span>}
                       </button>

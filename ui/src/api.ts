@@ -90,3 +90,6 @@ export const adoptSession = (projectId: string, harness: string, nativeId: strin
     native_id: nativeId,
     name,
   })
+
+export const readConversation = (id: string, seq: number) =>
+  request<void>('POST', `${conversationPath(id)}/read`, { seq })

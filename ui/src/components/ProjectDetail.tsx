@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { select } from '../selection'
 import { removeProject, renameProject } from '../api'
 import type { Conversation, Project } from '../types'
-import { RuntimeMark } from './RuntimeMark'
+import { AttentionMark } from './AttentionMark'
 
 interface ProjectDetailProps {
   project: Project
@@ -68,7 +68,7 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
                   className="tree-item"
                   onClick={() => select({ kind: 'conversation', id: conversation.id })}
                 >
-                  <RuntimeMark conversation={conversation} stale={stale} />
+                  <AttentionMark conversation={conversation} stale={stale} />
                   <span className="tree-label">{conversation.name}</span>
                   <span className="muted">{conversation.harness}</span>
                 </button>

@@ -23,6 +23,7 @@ type conversationView struct {
 	Mode           string
 	State          string
 	TurnActive     bool
+	Attention      string
 	ReadSeq        int64
 	LastSeq        int64
 	OutputSeq      int64
@@ -49,6 +50,7 @@ func newConversationView(conv service.ConversationView) *conversationView {
 		Mode:       conv.Mode,
 		State:      conv.State,
 		TurnActive: conv.TurnActive,
+		Attention:  conv.Attention,
 		ReadSeq:    conv.ReadSeq,
 		LastSeq:    conv.LastSeq,
 		OutputSeq:  conv.OutputSeq,
@@ -76,6 +78,10 @@ type updateConversationRequest struct {
 
 type promptRequest struct {
 	Text string
+}
+
+type readRequest struct {
+	Seq int64
 }
 
 type answerRequest struct {
@@ -194,6 +200,14 @@ func (s *Server) answer(w http.ResponseWriter, r *http.Request) {
 	}
 	answer := harness.Answer{Decision: req.Decision, Message: req.Message, Answers: req.Answers}
 	s.command(w, r, s.svc.Answer(r.PathValue("id"), req.RequestID, answer))
+}
+
+func (s *Server) read(w http.ResponseWriter, r *http.Request) {
+	var req readRequest
+	if !readJSON(w, r, &req) {
+		return
+	}
+	s.command(w, r, s.svc.Read(r.PathValue("id"), req.Seq))
 }
 
 func (s *Server) interrupt(w http.ResponseWriter, r *http.Request) {

@@ -7,6 +7,9 @@ export interface Project {
   untrusted: boolean
 }
 
+// what a conversation asks of the operator, computed by the service.
+export type Attention = 'request' | 'unsupervised' | 'running' | 'error' | 'unread' | 'idle'
+
 // the runtime as the service sees it now.
 export type ConversationState = 'none' | 'starting' | 'running' | 'stopping' | 'resuming' | 'unsupervised'
 
@@ -45,6 +48,7 @@ export interface Conversation {
   mode: string
   state: ConversationState
   turn_active: boolean
+  attention: Attention
   read_seq: number
   last_seq: number
   output_seq: number
@@ -57,6 +61,8 @@ export interface Conversation {
 export interface Workspace {
   projects: Project[]
   conversations: Conversation[]
+  // the conversations waiting on the operator, in the order to take them.
+  needs_you: string[]
 }
 
 export type EventKind =

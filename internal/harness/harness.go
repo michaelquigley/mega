@@ -39,11 +39,20 @@ type Harness interface {
 
 	// History reads the native session's stored messages without a runtime.
 	// every event carries a NativeID so the caller can match without text.
-	History(ctx context.Context, cwd, nativeID string) ([]*model.Event, error)
+	History(ctx context.Context, cwd, nativeID string) (History, error)
 
 	// Discover lists the native sessions stored for cwd, for the operator to
 	// choose from. it never picks one.
 	Discover(ctx context.Context, cwd string) ([]Session, error)
+}
+
+// History is a native session's stored messages, in order. Open names the
+// events (by NativeID) that belong to a turn still in progress, so their output
+// is not counted as finished; a harness whose history carries no turn status
+// reports none.
+type History struct {
+	Events []*model.Event
+	Open   map[string]bool
 }
 
 // Session is a native session found by discovery.

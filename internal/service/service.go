@@ -30,6 +30,10 @@ type Options struct {
 type Workspace struct {
 	Projects      []model.Project
 	Conversations []ConversationView
+
+	// NeedsYou lists the conversations waiting on the operator, in the order
+	// to take them: pending requests first, then unread output, oldest first.
+	NeedsYou []string
 }
 
 // Service owns the registry, the event logs, the runtimes and their pending
@@ -83,7 +87,7 @@ func (s *Service) Workspace() Workspace {
 	for i := range doc.Projects {
 		s.applyTrust(&doc.Projects[i])
 	}
-	return Workspace{Projects: doc.Projects, Conversations: conversations}
+	return Workspace{Projects: doc.Projects, Conversations: conversations, NeedsYou: needsYou(conversations)}
 }
 
 // RegisterProject adds an existing checkout to the workspace. an empty name

@@ -197,3 +197,31 @@ func TestDiscoverAndAdopt(t *testing.T) {
 		t.Errorf("events = %v", evs)
 	}
 }
+
+func TestAttentionAndReadOnTheWire(t *testing.T) {
+	f := start(t)
+	id, rt := f.startConversation(t)
+	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"})
+	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	_, workspace := f.do(t, http.MethodGet, "/api/workspace", "")
+	if conv := f.conversation(t, id); conv["attention"] != "unread" {
+		t.Errorf("attention = %v", conv["attention"])
+	}
+	if needs, _ := workspace["needs_you"].([]any); len(needs) != 1 || needs[0] != id {
+		t.Errorf("needs_you = %v", workspace["needs_you"])
+	}
+	last := f.conversation(t, id)["last_seq"]
+	if status, body := f.do(t, http.MethodPost, "/api/conversations/"+id+"/read", jsonBody(map[string]any{"seq": last})); status != http.StatusAccepted {
+		t.Fatalf("read: %d %v", status, body)
+	}
+	_, workspace = f.do(t, http.MethodGet, "/api/workspace", "")
+	if conv := f.conversation(t, id); conv["attention"] != "idle" || conv["read_seq"] != last {
+		t.Errorf("after read: %v", conv)
+	}
+	if needs, _ := workspace["needs_you"].([]any); needs == nil || len(needs) != 0 {
+		t.Errorf("needs_you after read = %v", workspace["needs_you"])
+	}
+	if status, _ := f.do(t, http.MethodPost, "/api/conversations/"+id+"/read", `{"seq":-1}`); status != http.StatusBadRequest {
+		t.Errorf("negative read: %d", status)
+	}
+}

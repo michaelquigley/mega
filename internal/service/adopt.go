@@ -116,14 +116,14 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 		s.mu.Unlock()
 		return ConversationView{}, err
 	}
-	if err := s.transition(l, &model.Event{Status: model.StatusResuming, Text: "adopting session " + nativeID}, StateResuming, nil); err != nil {
+	if err := s.transition(l, &model.Event{Status: model.StatusResuming, Text: fmt.Sprintf("adopting session '%s'", nativeID)}, StateResuming, nil); err != nil {
 		s.mu.Unlock()
 		return s.view(conv.ID), err
 	}
 	l.busy = true
 	s.mu.Unlock()
 
-	added, importErr := s.importHistory(conv, l)
+	result, importErr := s.importHistory(conv, l)
 
 	s.mu.Lock()
 	l.busy = false
@@ -134,7 +134,9 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 		s.mu.Unlock()
 		return s.view(conv.ID), importErr
 	}
-	err = s.transition(l, &model.Event{Status: model.StatusResumed, Text: fmt.Sprintf("%d messages added from native history", added)}, "", nil)
+	// adopting is the operator's choice of a session they know, so what it
+	// brings in is not unread.
+	err = s.transition(l, &model.Event{Status: model.StatusResumed, Text: fmt.Sprintf("%d messages added from native history", result.added)}, "", nil)
 	s.mu.Unlock()
 	return s.view(conv.ID), err
 }

@@ -58,6 +58,7 @@ func (s *Server) api() http.Handler {
 	mux.HandleFunc("POST /api/conversations/{id}/interrupt", s.interrupt)
 	mux.HandleFunc("POST /api/conversations/{id}/release", s.release)
 	mux.HandleFunc("POST /api/conversations/{id}/resume", s.resume)
+	mux.HandleFunc("POST /api/conversations/{id}/read", s.read)
 	mux.HandleFunc("GET /api/stream", s.stream)
 	return mux
 }
