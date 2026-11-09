@@ -1,0 +1,214 @@
+// Package service is the single authority for workspace state. every write goes
+// through it, and it is the only writer of the registry and the event logs.
+package service
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+
+	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"git.hq.quigley.com/research/roundhouse/internal/registry"
+)
+
+// UntrustedChecker reports whether a checkout should carry the trust notice.
+type UntrustedChecker func(checkout string) bool
+
+// Workspace is the arrangement as the service last confirmed it.
+type Workspace struct {
+	Projects      []model.Project
+	Conversations []model.Conversation
+}
+
+// Service owns the registry and fans confirmed changes out to subscribers.
+type Service struct {
+	mu          sync.Mutex
+	reg         *registry.Registry
+	isUntrusted UntrustedChecker
+	subs        map[*Subscription]struct{}
+	closed      bool
+}
+
+// New returns a service over reg.
+func New(reg *registry.Registry, isUntrusted UntrustedChecker) *Service {
+	return &Service{
+		reg:         reg,
+		isUntrusted: isUntrusted,
+		subs:        make(map[*Subscription]struct{}),
+	}
+}
+
+// Workspace returns the current arrangement. trust notices are recomputed on
+// each read, so a terminal visit clears the notice without a restart.
+func (s *Service) Workspace() Workspace {
+	s.mu.Lock()
+	doc := s.reg.Snapshot()
+	s.mu.Unlock()
+	for i := range doc.Projects {
+		s.applyTrust(&doc.Projects[i])
+	}
+	return Workspace{Projects: doc.Projects, Conversations: doc.Conversations}
+}
+
+// RegisterProject adds an existing checkout to the workspace. an empty name
+// falls back to the checkout's directory name.
+func (s *Service) RegisterProject(name, checkout string) (model.Project, error) {
+	checkout, err := validateCheckout(checkout)
+	if err != nil {
+		return model.Project{}, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = filepath.Base(checkout)
+	}
+	project := model.Project{ID: registry.NewID(), Name: name, Checkout: checkout}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err = s.update(func(doc *registry.Document) error {
+		for _, existing := range doc.Projects {
+			if existing.Checkout == checkout {
+				return newError(CodeConflict, fmt.Sprintf("checkout '%s' is already registered as '%s'", checkout, existing.Name))
+			}
+		}
+		doc.Projects = append(doc.Projects, project)
+		return nil
+	})
+	if err != nil {
+		return model.Project{}, err
+	}
+	s.applyTrust(&project)
+	return project, nil
+}
+
+// RenameProject changes a project's display name.
+func (s *Service) RenameProject(id, name string) (model.Project, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return model.Project{}, newError(CodeInvalid, "name is required")
+	}
+	var project model.Project
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := s.update(func(doc *registry.Document) error {
+		i := slices.IndexFunc(doc.Projects, func(p model.Project) bool { return p.ID == id })
+		if i < 0 {
+			return newError(CodeNotFound, fmt.Sprintf("no project '%s'", id))
+		}
+		doc.Projects[i].Name = name
+		project = doc.Projects[i]
+		return nil
+	})
+	if err != nil {
+		return model.Project{}, err
+	}
+	s.applyTrust(&project)
+	return project, nil
+}
+
+// RemoveProject takes a project and its conversations out of the workspace. it
+// never touches the checkout, native histories, or stored event logs.
+func (s *Service) RemoveProject(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := s.update(func(doc *registry.Document) error {
+		i := slices.IndexFunc(doc.Projects, func(p model.Project) bool { return p.ID == id })
+		if i < 0 {
+			return newError(CodeNotFound, fmt.Sprintf("no project '%s'", id))
+		}
+		doc.Projects = slices.Delete(doc.Projects, i, i+1)
+		doc.Conversations = slices.DeleteFunc(doc.Conversations, func(c model.Conversation) bool {
+			return c.ProjectID == id
+		})
+		return nil
+	})
+	return err
+}
+
+// Subscribe starts delivery of updates. after the service closes, the returned
+// subscription's channel is already closed.
+func (s *Service) Subscribe() *Subscription {
+	sub := &Subscription{svc: s, updates: make(chan Update, updateBuffer)}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		close(sub.updates)
+		return sub
+	}
+	s.subs[sub] = struct{}{}
+	return sub
+}
+
+// Close ends every subscription.
+func (s *Service) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	for sub := range s.subs {
+		s.drop(sub)
+	}
+}
+
+// update writes through the registry and announces the confirmed change.
+// callers hold s.mu. a registry whose durability is uncertain refuses the write
+// as unavailable rather than as an internal fault, since it has already logged
+// the condition once. nothing was confirmed, so nothing is announced.
+func (s *Service) update(fn func(*registry.Document) error) error {
+	err := s.reg.Update(fn)
+	if errors.Is(err, registry.ErrUncertain) {
+		return newError(CodeUnavailable, err.Error())
+	}
+	if err != nil {
+		return err
+	}
+	s.publish(Update{WorkspaceChanged: true})
+	return nil
+}
+
+// publish delivers to every subscriber without blocking. callers hold s.mu, so
+// subscribers see updates in the order they were confirmed.
+func (s *Service) publish(update Update) {
+	for sub := range s.subs {
+		select {
+		case sub.updates <- update:
+		default:
+			s.drop(sub)
+		}
+	}
+}
+
+// drop removes and closes a subscription. callers hold s.mu.
+func (s *Service) drop(sub *Subscription) {
+	if _, ok := s.subs[sub]; !ok {
+		return
+	}
+	delete(s.subs, sub)
+	close(sub.updates)
+}
+
+func (s *Service) applyTrust(project *model.Project) {
+	project.Untrusted = s.isUntrusted(project.Checkout)
+}
+
+func validateCheckout(checkout string) (string, error) {
+	checkout = strings.TrimSpace(checkout)
+	if checkout == "" {
+		return "", newError(CodeInvalid, "checkout is required")
+	}
+	if !filepath.IsAbs(checkout) {
+		return "", newError(CodeInvalid, fmt.Sprintf("checkout '%s' must be an absolute path", checkout))
+	}
+	checkout = filepath.Clean(checkout)
+	info, err := os.Stat(checkout)
+	if err != nil {
+		return "", newError(CodeInvalid, fmt.Sprintf("checkout '%s' is not accessible here: %v", checkout, err))
+	}
+	if !info.IsDir() {
+		return "", newError(CodeInvalid, fmt.Sprintf("checkout '%s' is not a directory", checkout))
+	}
+	return checkout, nil
+}

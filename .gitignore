@@ -1,2 +1,4 @@
 .mercurius/
 mercurius.yaml
+node_modules
+ui/dist

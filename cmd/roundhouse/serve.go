@@ -1,0 +1,109 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/michaelquigley/df/dl"
+	"github.com/spf13/cobra"
+
+	"git.hq.quigley.com/research/roundhouse/internal/config"
+	"git.hq.quigley.com/research/roundhouse/internal/harness/claude"
+	"git.hq.quigley.com/research/roundhouse/internal/registry"
+	"git.hq.quigley.com/research/roundhouse/internal/server"
+	"git.hq.quigley.com/research/roundhouse/internal/service"
+)
+
+const shutdownTimeout = 10 * time.Second
+
+func init() {
+	rootCmd.AddCommand(&cobra.Command{
+		Use:   "serve",
+		Short: "Run the environment service (the default)",
+		Args:  cobra.NoArgs,
+		RunE:  runServe,
+	})
+}
+
+func runServe(_ *cobra.Command, _ []string) error {
+	cfg, err := config.Load(configPath, dataPath)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	dl.Debugf("config: listen='%s' data='%s'", cfg.Listen, cfg.Data)
+
+	// bind before touching the data directory, so a second instance on the
+	// same port fails without writing anything the running service owns.
+	listener, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return fmt.Errorf("binding: %w", err)
+	}
+	defer listener.Close()
+
+	// then hold the data directory, so an instance on another port that
+	// shares it cannot become a second writer of the registry.
+	lock, err := registry.AcquireLock(cfg.LockPath())
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
+	reg, err := registry.Load(cfg.RegistryPath())
+	if err != nil {
+		return fmt.Errorf("loading registry: %w", err)
+	}
+
+	svc := service.New(reg, untrustedChecker())
+	httpServer := &http.Server{
+		Handler:           server.New(svc).Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		<-ctx.Done()
+		dl.Infof("shutting down")
+		svc.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			dl.Errorf("server shutdown: %v", err)
+		}
+	}()
+
+	dl.Infof("listening on 'http://%s'", listener.Addr())
+	if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("serving: %w", err)
+	}
+	<-shutdownDone
+	return nil
+}
+
+// untrustedChecker binds the project trust notice to the operator's claude
+// config. the notice is informational, so a config that cannot be read shows
+// no notice rather than a false one.
+func untrustedChecker() service.UntrustedChecker {
+	claudeConfig, err := claude.DefaultConfigPath()
+	if err != nil {
+		dl.Warnf("trust notices disabled: %v", err)
+		return func(string) bool { return false }
+	}
+	return func(checkout string) bool {
+		trusted, err := claude.CheckoutTrusted(claudeConfig, checkout)
+		if err != nil {
+			dl.Warnf("reading trust state for '%s': %v", checkout, err)
+			return false
+		}
+		return !trusted
+	}
+}
