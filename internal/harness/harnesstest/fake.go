@@ -25,6 +25,7 @@ type Harness struct {
 	sessions  []harness.Session
 	launchErr error
 	onLaunch  func()
+	onHistory func()
 	exitEarly bool
 	launched  int
 	reads     []string // native ids History was asked for, in order
@@ -50,6 +51,15 @@ func (h *Harness) OnLaunch(fn func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.onLaunch = fn
+}
+
+// OnHistory runs fn at the start of every History call, before the history is
+// read. fn may block, which holds the read open; it must not call back into the
+// service.
+func (h *Harness) OnHistory(fn func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onHistory = fn
 }
 
 // SetHistory scripts what History returns for a native session.
@@ -138,6 +148,12 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 }
 
 func (h *Harness) History(_ context.Context, _ string, nativeID string) (harness.History, error) {
+	h.mu.Lock()
+	onHistory := h.onHistory
+	h.mu.Unlock()
+	if onHistory != nil {
+		onHistory()
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.reads = append(h.reads, nativeID)

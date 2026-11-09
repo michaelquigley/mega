@@ -324,3 +324,29 @@ func TestLargeEventsAreReadable(t *testing.T) {
 		t.Errorf("got %d events", len(evs))
 	}
 }
+
+func TestRemoveDeletesTheLogAndItsDirectory(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "conversations", "c1", "events.jsonl")
+	log, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendTexts(t, log, "one")
+	log.Close()
+	keep := filepath.Join(root, "conversations", "c2", "events.jsonl")
+	openLog(t, keep)
+
+	if err := Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the directory survived: %v", err)
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Errorf("another log went with it: %v", err)
+	}
+	if err := Remove(path); err != nil {
+		t.Errorf("removing it again: %v", err)
+	}
+}

@@ -83,6 +83,21 @@ func Open(path string) (*Log, error) {
 	return &Log{path: path, file: file, size: size, last: last}, nil
 }
 
+// Remove deletes the log at path together with the directory holding it, which
+// Open created for that log alone, and syncs the parent so the deletion
+// survives a crash. a log that does not exist is already removed. the caller
+// closes any open Log for path first.
+func Remove(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	if err := durable.SyncDir(filepath.Dir(dir)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("syncing directory of '%s': %w", dir, err)
+	}
+	return nil
+}
+
 // scan reads complete lines from the first limit bytes of file, calling fn with
 // each event and the offset just past its newline, until fn returns false or the
 // data ends. it reads by offset, so it never moves the file's position.

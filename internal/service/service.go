@@ -146,19 +146,27 @@ func (s *Service) RenameProject(id, name string) (model.Project, error) {
 	return project, nil
 }
 
-// RemoveProject takes a project and its conversations out of the workspace. it
-// never touches the checkout, native histories, or stored event logs, and it
-// refuses while any of its conversations has a runtime.
+// RemoveProject takes a project and its conversations out of the workspace,
+// and deletes those conversations' event logs. it never touches the checkout
+// or the native sessions, which discovery lists again if the checkout is
+// registered again. it refuses while any of its conversations has a runtime in
+// any state, as removing that conversation alone would. the project and its
+// conversations leave the registry in one confirmed write, and only then are
+// the logs deleted, in the same order and with the same failure handling as a
+// single conversation's removal.
 func (s *Service) RemoveProject(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, err := s.projectLocked(id); err != nil {
+		return err
+	}
 	var removed []string
 	for _, conv := range s.reg.Snapshot().Conversations {
 		if conv.ProjectID != id {
 			continue
 		}
-		if l := s.live[conv.ID]; l != nil && (l.runtime != nil || l.busy) {
-			return newError(CodeConflict, fmt.Sprintf("conversation '%s' has a runtime; release it before removing the project", conv.Name))
+		if reason := s.busyReasonLocked(conv); reason != "" {
+			return newError(CodeConflict, fmt.Sprintf("conversation '%s' %s and its project", conv.Name, reason))
 		}
 		removed = append(removed, conv.ID)
 	}
@@ -176,12 +184,7 @@ func (s *Service) RemoveProject(id string) error {
 	if err != nil {
 		return err
 	}
-	for _, convID := range removed {
-		if l := s.live[convID]; l != nil {
-			l.log.Close()
-			delete(s.live, convID)
-		}
-	}
+	s.dropLogsLocked(removed...)
 	return nil
 }
 

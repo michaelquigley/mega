@@ -11,6 +11,7 @@ import (
 
 	"github.com/michaelquigley/df/dl"
 
+	"git.hq.quigley.com/research/roundhouse/internal/events"
 	"git.hq.quigley.com/research/roundhouse/internal/harness"
 	"git.hq.quigley.com/research/roundhouse/internal/model"
 	"git.hq.quigley.com/research/roundhouse/internal/registry"
@@ -606,6 +607,77 @@ func (s *Service) UpdateConversation(conversationID, name, label string) (Conver
 		return ConversationView{}, err
 	}
 	return s.view(conversationID), nil
+}
+
+// RemoveConversation takes one conversation out of the workspace and deletes
+// its event log, the conversation's own history and reading state. it never
+// touches the checkout or the native session, which discovery lists again
+// afterwards. it refuses while the conversation has a runtime in any state
+// (see busyReasonLocked).
+//
+// the registry write comes first and memory follows it. the log directory is
+// deleted only once the registry no longer names the conversation, so a crash
+// between the two leaves an orphan directory, never a registered conversation
+// without its log (see dropLogsLocked).
+func (s *Service) RemoveConversation(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	conv, err := s.conversationLocked(id)
+	if err != nil {
+		return err
+	}
+	if reason := s.busyReasonLocked(conv); reason != "" {
+		return newError(CodeConflict, "the conversation "+reason)
+	}
+	err = s.update(func(doc *registry.Document) error {
+		i := slices.IndexFunc(doc.Conversations, func(c model.Conversation) bool { return c.ID == id })
+		if i < 0 {
+			return newError(CodeNotFound, fmt.Sprintf("no conversation '%s'", id))
+		}
+		doc.Conversations = slices.Delete(doc.Conversations, i, i+1)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	s.dropLogsLocked(id)
+	return nil
+}
+
+// busyReasonLocked says why a conversation cannot be removed, or returns "" if
+// it can. a conversation with a runtime in any state is refused: starting,
+// running, stopping, resuming, or unsupervised, since an orphan from before a
+// restart may still be working. a stop the log could not record leaves the
+// conversation recorded running, and that is refused too until a restart
+// settles it. the reason reads after the conversation's name. callers hold s.mu.
+func (s *Service) busyReasonLocked(conv model.Conversation) string {
+	l := s.live[conv.ID]
+	switch {
+	case conv.Runtime == model.RuntimeUnsupervised:
+		return "lost supervision when the service restarted and its execution is uncertain; resume it before removing it"
+	case l != nil && l.busy:
+		return "is starting a runtime or resuming; wait for it to settle before removing it"
+	case conv.Runtime == model.RuntimeRunning || (l != nil && (l.runtime != nil || l.releasing)):
+		return "has a runtime; release it before removing it"
+	}
+	return ""
+}
+
+// dropLogsLocked lets go of removed conversations once the registry write that
+// removed them is confirmed: their open logs are closed, their live state is
+// dropped, and their log directories are deleted. a directory that cannot be
+// deleted is logged and left behind, the same orphan a crash between the write
+// and the delete leaves; the removal itself stands. callers hold s.mu.
+func (s *Service) dropLogsLocked(ids ...string) {
+	for _, id := range ids {
+		if l := s.live[id]; l != nil {
+			l.log.Close()
+			delete(s.live, id)
+		}
+		if err := events.Remove(s.logPath(id)); err != nil {
+			dl.Errorf("removed conversation '%s' from the workspace; its log directory is left behind: %v", id, err)
+		}
+	}
 }
 
 // view returns one conversation's current view.

@@ -222,6 +222,28 @@ export function App() {
       posted.current = null
     })
   }, [selectedConversationId, loggedSeq, openReadSeq, visible, stale])
+  // a selected conversation that leaves the workspace, removed here or from
+  // another browser, hands the selection to its project. the project is taken
+  // from the last workspace that listed the conversation.
+  const lastProjectOf = useRef<{ id: string; project: string } | null>(null)
+  useEffect(() => {
+    const id = selectedConversationId
+    if (!id || !workspace) {
+      return
+    }
+    const listed = workspace.conversations.find((c) => c.id === id)
+    if (listed) {
+      lastProjectOf.current = { id, project: listed.project_id }
+      return
+    }
+    const last = lastProjectOf.current
+    if (last && last.id === id) {
+      lastProjectOf.current = null
+      if (workspace.projects.some((p) => p.id === last.project)) {
+        select({ kind: 'project', id: last.project })
+      }
+    }
+  }, [selectedConversationId, workspace])
   const selectedProject = selection?.kind === 'project' ? projects.find((p) => p.id === selection.id) : undefined
   const selectedConversation = selectedConversationId
     ? conversations.find((c) => c.id === selectedConversationId)
@@ -239,6 +261,7 @@ export function App() {
         project={conversationProject}
         log={log && log.id === selectedConversation.id ? log : null}
         stale={stale}
+        onRemoved={() => select({ kind: 'project', id: selectedConversation.project_id })}
       />
     )
   } else if (selectedProject) {

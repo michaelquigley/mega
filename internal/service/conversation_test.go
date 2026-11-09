@@ -521,12 +521,6 @@ func TestPromptAfterReleaseImportsBeforeStarting(t *testing.T) {
 	}
 }
 
-func TestRemoveProjectRefusedWhileRuntimeLives(t *testing.T) {
-	r := newRig(t)
-	r.start("one")
-	wantCode(t, r.svc.RemoveProject(r.project.ID), CodeConflict)
-}
-
 func TestDeltasAreStreamedNotStored(t *testing.T) {
 	r := newRig(t)
 	sub := r.svc.Subscribe()
@@ -1054,5 +1048,228 @@ func TestUnclassifiedLaunchFailureLeavesTheSessionUnknown(t *testing.T) {
 	wantCode(t, r.svc.Prompt(conv.ID, "again"), CodeConflict)
 	if len(r.fake.Runtimes()) != launches {
 		t.Error("a fresh session was started after a launch whose session is unknown")
+	}
+}
+
+func TestRemoveConversationRefusedWhileItHasARuntime(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	wantCode(t, r.svc.RemoveConversation(conv.ID), CodeConflict) // running
+
+	rt.HoldOnClose()
+	if err := r.svc.Release(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if view := r.view(conv.ID); view.State != StateStopping {
+		t.Fatalf("state = %q", view.State)
+	}
+	wantCode(t, r.svc.RemoveConversation(conv.ID), CodeConflict) // stopping
+
+	rt.Exit(nil)
+	waitFor(t, "the runtime to exit", rt.Exited)
+	if err := r.svc.RemoveConversation(conv.ID); err != nil {
+		t.Fatalf("removing a released conversation: %v", err)
+	}
+}
+
+func TestRemoveConversationRefusedWhileUnsupervisedOrResuming(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	started(r.fake.Last())
+	r.restart()
+	if view := r.view(conv.ID); view.Runtime != model.RuntimeUnsupervised {
+		t.Fatalf("runtime = %q", view.Runtime)
+	}
+	wantCode(t, r.svc.RemoveConversation(conv.ID), CodeConflict)
+
+	// while the resume reads native history the conversation is busy.
+	r.fake.SetHistory(conv.NativeID, nil)
+	reading := make(chan struct{})
+	release := make(chan struct{})
+	r.fake.OnHistory(func() {
+		close(reading)
+		<-release
+	})
+	done := make(chan error, 1)
+	go func() { done <- r.svc.Resume(conv.ID) }()
+	<-reading
+	wantCode(t, r.svc.RemoveConversation(conv.ID), CodeConflict)
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if err := r.svc.RemoveConversation(conv.ID); err != nil {
+		t.Fatalf("removing after the resume: %v", err)
+	}
+}
+
+func TestRemoveConversationDropsItsLogAndFreesItsSession(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	finishTurn(rt, "a-1", "done")
+	if err := r.svc.Release(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the runtime to exit", rt.Exited)
+	kept := r.start("kept")
+	r.fake.SetSessions([]harness.Session{{NativeID: conv.NativeID, Preview: "one"}})
+	if sessions, _ := r.svc.Discover(r.project.ID, model.HarnessClaude); len(sessions) != 0 {
+		t.Fatalf("a held session was offered: %+v", sessions)
+	}
+	logDir := filepath.Join(filepath.Dir(r.path), "conversations", conv.ID)
+	if _, err := os.Stat(logDir); err != nil {
+		t.Fatalf("no log before removal: %v", err)
+	}
+
+	sub := r.svc.Subscribe()
+	defer sub.Close()
+	if err := r.svc.RemoveConversation(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case update := <-sub.Updates():
+		if !update.WorkspaceChanged {
+			t.Errorf("first update = %+v", update)
+		}
+	case <-time.After(time.Second):
+		t.Error("the removal was not announced")
+	}
+
+	if _, err := os.Stat(logDir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the log directory survived: %v", err)
+	}
+	if _, err := os.Stat(r.project.Checkout); err != nil {
+		t.Errorf("the checkout was touched: %v", err)
+	}
+	ws := r.svc.Workspace()
+	if len(ws.Projects) != 1 || len(ws.Conversations) != 1 || ws.Conversations[0].ID != kept.ID {
+		t.Errorf("workspace after removal = %+v", ws)
+	}
+	_, err := r.svc.Events(conv.ID, 0)
+	wantCode(t, err, CodeNotFound)
+	wantCode(t, r.svc.RemoveConversation(conv.ID), CodeNotFound)
+
+	// the native session is untouched and offered for adoption again.
+	sessions, err := r.svc.Discover(r.project.ID, model.HarnessClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || sessions[0].NativeID != conv.NativeID {
+		t.Errorf("discovery after removal = %+v", sessions)
+	}
+
+	// a restart reads the same workspace.
+	r.restart()
+	if ws := r.svc.Workspace(); len(ws.Conversations) != 1 || ws.Conversations[0].ID != kept.ID {
+		t.Errorf("after restart = %+v", ws.Conversations)
+	}
+}
+
+func TestRemoveConversationKeepsItsLogWhenTheRegistryWriteFails(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	if err := r.svc.Release(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the runtime to exit", rt.Exited)
+	dir := filepath.Dir(r.path)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+
+	if err := r.svc.RemoveConversation(conv.ID); err == nil {
+		t.Skip("directory permissions are not enforced here")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "conversations", conv.ID, "events.jsonl")); err != nil {
+		t.Errorf("the log went with an unconfirmed removal: %v", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if evs := r.events(conv.ID); len(evs) == 0 {
+		t.Error("the conversation lost its history")
+	}
+}
+
+func TestRemoveProjectRefusedWhileAnyConversationHasARuntime(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	wantCode(t, r.svc.RemoveProject(r.project.ID), CodeConflict) // running
+
+	rt.HoldOnClose()
+	if err := r.svc.Release(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, r.svc.RemoveProject(r.project.ID), CodeConflict) // stopping
+
+	// the stop cannot be recorded, so the conversation stays recorded running.
+	r.closeLog(conv.ID)
+	rt.Exit(nil)
+	waitFor(t, "the runtime to exit", rt.Exited)
+	if view := r.view(conv.ID); view.Runtime != model.RuntimeRunning {
+		t.Fatalf("runtime after an unrecorded stop = %q", view.Runtime)
+	}
+	wantCode(t, r.svc.RemoveProject(r.project.ID), CodeConflict)
+
+	// a restart settles it as unsupervised, which is refused until resumed.
+	r.restart()
+	wantCode(t, r.svc.RemoveProject(r.project.ID), CodeConflict)
+	if err := r.svc.Resume(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.svc.RemoveProject(r.project.ID); err != nil {
+		t.Fatalf("removing after the resume: %v", err)
+	}
+}
+
+func TestRemoveProjectDeletesItsConversationsLogs(t *testing.T) {
+	r := newRig(t)
+	other, err := r.svc.RegisterProject("other", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, prompt := range []string{"one", "two"} {
+		conv := r.start(prompt)
+		rt := r.fake.Last()
+		started(rt)
+		if err := r.svc.Release(conv.ID); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, "the runtime to exit", rt.Exited)
+		ids = append(ids, conv.ID)
+	}
+	kept, err := r.svc.StartConversation(other.ID, model.HarnessClaude, "", "kept")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logs := filepath.Join(filepath.Dir(r.path), "conversations")
+
+	if err := r.svc.RemoveProject(r.project.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if _, err := os.Stat(filepath.Join(logs, id)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the log of '%s' survived: %v", id, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(logs, kept.ID, "events.jsonl")); err != nil {
+		t.Errorf("another project's log went with it: %v", err)
+	}
+	if _, err := os.Stat(r.project.Checkout); err != nil {
+		t.Errorf("the checkout was touched: %v", err)
+	}
+	r.restart()
+	if ws := r.svc.Workspace(); len(ws.Projects) != 1 || len(ws.Conversations) != 1 || ws.Conversations[0].ID != kept.ID {
+		t.Errorf("after restart = %+v", ws)
 	}
 }

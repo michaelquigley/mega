@@ -164,6 +164,14 @@ func (s *Server) updateConversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, r, http.StatusOK, newConversationView(conv))
 }
 
+func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
+	if err := s.svc.RemoveConversation(r.PathValue("id")); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) getEvents(w http.ResponseWriter, r *http.Request) {
 	var since int64
 	if raw := r.URL.Query().Get("since"); raw != "" {

@@ -1,0 +1,13 @@
+building:
+  - markdown.md
+horizon:
+  - ui-test-runner.md
+researching:
+  - auto-mode-in-claude-code.md
+  - typography.md
+  - favicon.md
+  - dfw-daemon-mode.md
+  - empty-never-means-unreachable.md
+evaluating:
+  - scroll-to-latest.md
+  - remove-conversation.md

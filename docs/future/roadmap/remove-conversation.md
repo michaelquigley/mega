@@ -1,6 +1,6 @@
 ---
 title: Remove a conversation from the workspace
-state: inbox
+state: evaluating
 created: 2026-11-09
 tags: [ui, workspace]
 ---

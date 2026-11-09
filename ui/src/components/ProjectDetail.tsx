@@ -16,6 +16,9 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
   const [name, setName] = useState(project.name)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
+  // conversations whose runtime is in any state other than none; the service
+  // refuses the removal while any remains.
+  const unsettled = conversations.filter((conversation) => conversation.state !== 'none')
 
   const attempt = async (action: () => Promise<unknown>) => {
     setError(null)
@@ -87,8 +90,21 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
       <section className="danger">
         {confirming ? (
           <>
-            <p>Remove this project from the workspace? The checkout and native histories stay untouched.</p>
-            <button type="button" onClick={() => void attempt(() => removeProject(project.id))}>
+            <p>
+              Roundhouse forgets this project and its conversations: its own copy of their history and their
+              reading positions are deleted. The checkout and the native sessions stay untouched, and the sessions
+              can be adopted again if the checkout is registered again.
+            </p>
+            {unsettled.length > 0 && (
+              <p className="muted">
+                Release or resume first: {unsettled.map((conversation) => conversation.name).join(', ')}.
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={unsettled.length > 0}
+              onClick={() => void attempt(() => removeProject(project.id))}
+            >
               Remove
             </button>{' '}
             <button type="button" onClick={() => setConfirming(false)}>

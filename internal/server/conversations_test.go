@@ -225,3 +225,36 @@ func TestAttentionAndReadOnTheWire(t *testing.T) {
 		t.Errorf("negative read: %d", status)
 	}
 }
+
+func TestRemoveConversationOnTheWire(t *testing.T) {
+	f := start(t)
+	id, rt := f.startConversation(t)
+	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID()}})
+	path := "/api/conversations/" + id
+	if status, body := f.do(t, http.MethodDelete, path, ""); status != http.StatusConflict || body["code"] != "conflict" {
+		t.Errorf("remove with a runtime: %d %v", status, body)
+	}
+	if status, _ := f.do(t, http.MethodPost, path+"/release", ""); status != http.StatusAccepted {
+		t.Fatalf("release: %d", status)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for f.conversation(t, id)["state"] != "none" {
+		if time.Now().After(deadline) {
+			t.Fatal("the runtime never stopped")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if status, body := f.do(t, http.MethodDelete, path, ""); status != http.StatusNoContent {
+		t.Fatalf("remove: %d %v", status, body)
+	}
+	_, workspace := f.do(t, http.MethodGet, "/api/workspace", "")
+	if convs, _ := workspace["conversations"].([]any); len(convs) != 0 {
+		t.Errorf("conversations after removal = %v", convs)
+	}
+	if projects, _ := workspace["projects"].([]any); len(projects) != 1 {
+		t.Errorf("projects after removal = %v", projects)
+	}
+	if status, body := f.do(t, http.MethodDelete, path, ""); status != http.StatusNotFound || body["code"] != "not_found" {
+		t.Errorf("second removal: %d %v", status, body)
+	}
+}

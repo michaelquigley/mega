@@ -51,6 +51,8 @@ export const startConversation = (projectId: string, harness: string, name: stri
 export const updateConversation = (id: string, name: string, label: string) =>
   request<Conversation>('PATCH', conversationPath(id), { name, label })
 
+export const removeConversation = (id: string) => request<void>('DELETE', conversationPath(id))
+
 export const getEvents = (id: string, since: number) =>
   request<{ events: ConversationEvent[] }>('GET', `${conversationPath(id)}/events?since=${since}`)
 

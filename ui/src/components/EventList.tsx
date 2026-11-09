@@ -1,4 +1,5 @@
 import type { ConversationEvent, PendingRequest } from '../types'
+import { Markdown } from './Markdown'
 
 interface EventListProps {
   events: ConversationEvent[]
@@ -47,14 +48,14 @@ export function EventList({ events, pending, turnActive, stale, showNative }: Ev
             return (
               <div key={event.seq} className="message user">
                 <span className="who">{event.origin === 'native' ? 'You, outside Roundhouse' : 'You'}</span>
-                {event.text}
+                <Markdown text={event.text ?? ''} />
               </div>
             )
           case 'assistant':
             return (
               <div key={event.seq} className="message assistant">
                 {event.origin === 'native' && <span className="who">From outside Roundhouse</span>}
-                {event.text}
+                <Markdown text={event.text ?? ''} />
               </div>
             )
           case 'tool_use': {

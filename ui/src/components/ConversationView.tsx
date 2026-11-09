@@ -1,14 +1,17 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import {
   interruptConversation,
   releaseConversation,
+  removeConversation,
   resumeConversation,
   sendPrompt,
   updateConversation,
 } from '../api'
-import type { ConversationLog } from '../log'
+import { useLatest } from '../latest'
+import { loadedThrough, type ConversationLog } from '../log'
 import type { Conversation, Project } from '../types'
 import { EventList } from './EventList'
+import { Markdown } from './Markdown'
 import { RequestCard } from './RequestCard'
 
 interface ConversationViewProps {
@@ -16,6 +19,7 @@ interface ConversationViewProps {
   project: Project
   log: ConversationLog | null
   stale: boolean
+  onRemoved: () => void
 }
 
 // drafts stay in the browser, per conversation, and never reach the service.
@@ -30,26 +34,19 @@ const stateLabels: Record<Conversation['state'], string> = {
   unsupervised: 'Supervision lost',
 }
 
-export function ConversationView({ conversation, project, log, stale }: ConversationViewProps) {
+export function ConversationView({ conversation, project, log, stale, onRemoved }: ConversationViewProps) {
   const [draft, setDraft] = useState(() => drafts.get(conversation.id) ?? '')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [showNative, setShowNative] = useState(false)
-  const endRef = useRef<HTMLDivElement>(null)
-  const scrollerRef = useRef<HTMLDivElement>(null)
+  const articleRef = useRef<HTMLElement>(null)
 
-  const eventCount = log?.events.length ?? 0
+  // history counts as loaded on the same gate the reading position uses: the
+  // unbroken run from the first event reaches the newest one held.
   const delta = log?.delta ?? ''
-  useEffect(() => {
-    const scroller = scrollerRef.current?.closest('.main')
-    if (!scroller) {
-      return
-    }
-    const nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 200
-    if (nearBottom) {
-      endRef.current?.scrollIntoView({ block: 'end' })
-    }
-  }, [eventCount, delta])
+  const loaded = log !== null && loadedThrough(log.events) === (log.events.at(-1)?.seq ?? 0)
+  const activity = `${log?.events.at(-1)?.seq ?? 0}:${delta.length}:${conversation.pending.map((request) => request.id).join(',')}`
+  const { newer, toLatest } = useLatest(articleRef, loaded, activity)
 
   const attempt = async (action: () => Promise<unknown>) => {
     setError(null)
@@ -95,7 +92,7 @@ export function ConversationView({ conversation, project, log, stale }: Conversa
       : null
 
   return (
-    <article className="conversation" ref={scrollerRef}>
+    <article className="conversation" ref={articleRef}>
       <header className="conversation-head">
         <div className="title-row">
           <h1>{conversation.name}</h1>
@@ -122,6 +119,32 @@ export function ConversationView({ conversation, project, log, stale }: Conversa
           <summary>Name and label</summary>
           <RenameForm conversation={conversation} onSave={(name, label) => attempt(() => updateConversation(conversation.id, name, label))} />
         </details>
+        <details className="edit">
+          <summary>Remove from workspace</summary>
+          <div className="remove">
+            <p>
+              Roundhouse forgets this conversation: its own copy of the history and its reading position are
+              deleted. The checkout and the native session stay untouched, and the session can be adopted again
+              from the project.
+            </p>
+            {state === 'unsupervised' && <p className="muted">Resume it first; its runtime may still be working.</p>}
+            {state !== 'none' && state !== 'unsupervised' && <p className="muted">Release its runtime first.</p>}
+            <button
+              type="button"
+              disabled={busy || state !== 'none'}
+              onClick={() =>
+                void attempt(() => removeConversation(conversation.id)).then((removed) => {
+                  if (removed) {
+                    drafts.delete(conversation.id)
+                    onRemoved()
+                  }
+                })
+              }
+            >
+              Remove
+            </button>
+          </div>
+        </details>
       </header>
 
       {state === 'unsupervised' && (
@@ -139,7 +162,11 @@ export function ConversationView({ conversation, project, log, stale }: Conversa
       )}
 
       <EventList events={log?.events ?? []} pending={pending} turnActive={active} stale={stale} showNative={showNative} />
-      {delta && <p className="message assistant streaming">{delta}</p>}
+      {delta && (
+        <div className="message assistant streaming">
+          <Markdown text={delta} />
+        </div>
+      )}
       {log === null && <p className="muted">Loading history…</p>}
 
       {pending.map((request) => (
@@ -199,7 +226,13 @@ export function ConversationView({ conversation, project, log, stale }: Conversa
           </button>
         </div>
       </form>
-      <div ref={endRef} />
+      {newer && (
+        <div className="newer">
+          <button type="button" onClick={toLatest}>
+            Newer activity below
+          </button>
+        </div>
+      )}
     </article>
   )
 }
