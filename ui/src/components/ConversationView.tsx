@@ -17,7 +17,6 @@ import { loadedThrough, type ConversationLog } from '../log'
 import type { Conversation, Project } from '../types'
 import { ActivityLine } from './ActivityLine'
 import { EventList } from './EventList'
-import { Markdown } from './Markdown'
 import { ModelPicker } from './ModelPicker'
 import { RequestCard } from './RequestCard'
 
@@ -221,12 +220,7 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
         </p>
       )}
 
-      <EventList events={log?.events ?? []} pending={pending} turnActive={active} stale={stale} showNative={showNative} />
-      {delta && (
-        <div className="message assistant streaming">
-          <Markdown text={delta} />
-        </div>
-      )}
+      <EventList events={log?.events ?? []} pending={pending} turnActive={active} stale={stale} showNative={showNative} delta={delta} />
       {log === null && <p className="muted">Loading history…</p>}
 
       {pending.map((request) => (
@@ -281,7 +275,8 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
           }}
         />
         <div className="actions">
-          {blocked && <span className="muted">{blocked}</span>}
+          {/* while a turn runs, the activity line above already says so. */}
+          {blocked && !active && <span className="muted">{blocked}</span>}
           <button type="submit" disabled={busy || !!blocked || draft.trim() === ''}>
             Send
           </button>

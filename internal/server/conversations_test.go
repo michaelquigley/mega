@@ -362,6 +362,20 @@ func TestTurnStartedAtOnTheWire(t *testing.T) {
 	if parsed, err := time.Parse(time.RFC3339Nano, at); err != nil || time.Since(parsed) > time.Minute {
 		t.Errorf("during the turn: turn_started_at %v (%v)", got["turn_started_at"], err)
 	}
+	// a pending request carries the time it was recorded, after the turn's start.
+	rt.Ask(model.RequestPermission, map[string]any{"tool": "Bash"})
+	got = f.conversation(t, id)
+	pending, _ := got["pending"].([]any)
+	if len(pending) != 1 {
+		t.Fatalf("pending = %v", got["pending"])
+	}
+	raisedRaw, _ := pending[0].(map[string]any)["at"].(string)
+	raised, err := time.Parse(time.RFC3339Nano, raisedRaw)
+	started, _ := time.Parse(time.RFC3339Nano, at)
+	if err != nil || raised.Before(started) {
+		t.Errorf("pending at %q (%v), turn started %q", raisedRaw, err, at)
+	}
+	rt.Settle(pending[0].(map[string]any)["id"].(string), model.OutcomeAborted)
 	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
 	if got := f.conversation(t, id); got["turn_started_at"] != nil {
 		t.Errorf("after the turn: turn_started_at %v", got["turn_started_at"])

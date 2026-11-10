@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"git.hq.quigley.com/research/roundhouse/internal/harness"
 	"git.hq.quigley.com/research/roundhouse/internal/model"
 )
 
@@ -65,4 +66,36 @@ func (r *rig) registryLacks(t *testing.T, word string) bool {
 		t.Fatal(err)
 	}
 	return !strings.Contains(strings.ToLower(string(data)), word)
+}
+
+// each pending request carries the time it was recorded, its request event's
+// own time, which is when its wait began; the turn's start is earlier.
+func TestPendingRequestCarriesItsRecordedTime(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	startedIn(rt, "default")
+	turnStart := r.view(conv.ID).TurnStartedAt
+	time.Sleep(20 * time.Millisecond)
+	id := rt.Ask(model.RequestPermission, map[string]any{"tool": "Bash"})
+	view := r.view(conv.ID)
+	at := view.PendingAt[id]
+	var recorded time.Time
+	for _, ev := range r.events(conv.ID) {
+		if ev.Kind == model.EventRequest && ev.Req != nil && ev.Req.ID == id {
+			recorded = ev.At
+		}
+	}
+	if at.IsZero() || !at.Equal(recorded) || !at.After(turnStart) {
+		t.Errorf("pending at %v, request event at %v, turn started %v", at, recorded, turnStart)
+	}
+	if err := r.svc.Answer(conv.ID, id, harness.Answer{Decision: harness.DecisionAllow}); err != nil {
+		t.Fatal(err)
+	}
+	if view := r.view(conv.ID); len(view.PendingAt) != 0 {
+		t.Errorf("an answered request keeps a time: %v", view.PendingAt)
+	}
+	if !r.registryLacks(t, strings.ToLower(id)) {
+		t.Error("the registry stores the request")
+	}
 }

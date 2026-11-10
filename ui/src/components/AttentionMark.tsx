@@ -53,16 +53,26 @@ export function ProjectMark({ conversations, stale }: { conversations: Conversat
   return <Mark attention={attention} title={title} stale={stale} />
 }
 
-// Elapsed is how long a conversation's turn in flight has run, beside its
-// name; nothing when no turn is in flight.
+// Elapsed is a time beside a conversation's name: on one waiting for the
+// operator, how long its oldest pending request has waited; otherwise how
+// long its turn in flight has run; nothing when neither applies.
 export function Elapsed({ conversation }: { conversation: Conversation }) {
   const clock = useNow()
-  const elapsed = elapsedSince(conversation.turn_started_at, clock)
+  // the oldest by parsed time: the service's timestamps trim trailing zeros,
+  // so their text does not sort.
+  let raised: string | undefined
+  for (const request of conversation.pending) {
+    if (request.at && (!raised || Date.parse(request.at) < Date.parse(raised))) {
+      raised = request.at
+    }
+  }
+  const waiting = conversation.pending.length > 0
+  const elapsed = waiting ? elapsedSince(raised, clock) : elapsedSince(conversation.turn_started_at, clock)
   if (elapsed === null) {
     return null
   }
   return (
-    <span className="elapsed" title="How long the current turn has run">
+    <span className="elapsed" title={waiting ? 'How long the request has waited for you' : 'How long the current turn has run'}>
       {shortElapsed(elapsed)}
     </span>
   )

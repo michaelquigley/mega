@@ -549,10 +549,12 @@ dialog label {
   margin-top: 6px;
 }
 
+/* blocks of the conversation stand about 16px apart; rows inside an action
+   group sit closer. */
 .events {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
 }
 
 /* message prose: the serif at the body size, with room between lines. */
@@ -563,10 +565,41 @@ dialog label {
   white-space: pre-wrap;
 }
 
-.message.user {
-  background: var(--selected);
+/* the two speakers are told apart by tone, not borders: the operator's
+   prompts on the selection tint, the agent's replies, streaming or landed, on
+   the panel tone, with the same radius and padding. */
+.message.user,
+.message.assistant {
   border-radius: 6px;
   padding: 8px 12px;
+}
+
+.message.user {
+  background: var(--selected);
+}
+
+.message.assistant {
+  background: var(--panel);
+}
+
+/* inside a message block, code and tables are set in: the page background
+   with the existing hairline, so they do not vanish on the block's tone. */
+.message pre,
+.message .code-head,
+.message .markdown th,
+.message .markdown :not(pre) > code {
+  background: var(--bg);
+}
+
+/* a run of actions between two pieces of speech is one quiet, indented
+   passage: a hairline down its left edge, no background, rows close. */
+.action-group {
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 20px;
+  padding-left: 10px;
 }
 
 /* rendered markdown inside a message: whitespace is the renderer's, headings

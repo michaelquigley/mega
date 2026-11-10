@@ -20,6 +20,8 @@ export interface PendingRequest {
   id: string
   kind: 'permission' | 'question'
   payload: RequestPayload | null
+  // when the request was recorded, which is when its wait began.
+  at?: string
 }
 
 // plain data the adapter builds for the operator; harness-specific but not protocol.

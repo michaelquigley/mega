@@ -17,6 +17,9 @@
 //   ask              a permission request; the turn ends once it is answered
 //   tool MS          a Bash call to `go test ./...` that runs for MS, then
 //                    its result and one assistant message, "done"
+//   busy MS          a busy turn: a sentence, three tool calls of MS each, a
+//                    reply with a fenced code block, then a permission
+//                    request; the turn ends once it is answered
 //   echo             one assistant message: the lines after the first
 //   stream MS N      the lines after the first, streamed N characters every
 //                    MS, then landed as one assistant message
@@ -118,6 +121,25 @@ const delta = (text) =>
   })
 const end = (subtype = 'success') =>
   keep({ type: 'result', subtype, is_error: subtype !== 'success', uuid: randomUUID(), session_id: session })
+// toolCall records a tool call, waits ms as if it ran, then records its result.
+async function toolCall(name, input, ms) {
+  const id = 'tu-' + randomUUID().slice(0, 8)
+  keep({
+    type: 'assistant',
+    uuid: randomUUID(),
+    session_id: session,
+    parent_tool_use_id: null,
+    message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
+  })
+  await sleep(ms)
+  keep({
+    type: 'user',
+    uuid: randomUUID(),
+    session_id: session,
+    parent_tool_use_id: null,
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] },
+  })
+}
 const filler = (i) =>
   `Message ${i}. ` + 'This line stands in for a paragraph of agent output, long enough to wrap. '.repeat(3)
 
@@ -157,24 +179,22 @@ async function turn(text) {
     waiting = 'req-' + randomUUID().slice(0, 8)
     out({ type: 'request', id: waiting, kind: 'permission', tool: 'Bash', input: { command: 'echo fake' }, toolUseId: 'tu-' + waiting })
   } else if (verb === 'tool') {
-    const id = 'tu-' + randomUUID().slice(0, 8)
-    keep({
-      type: 'assistant',
-      uuid: randomUUID(),
-      session_id: session,
-      parent_tool_use_id: null,
-      message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'go test ./...' } }] },
-    })
-    await sleep(Number(a) || 1000)
-    keep({
-      type: 'user',
-      uuid: randomUUID(),
-      session_id: session,
-      parent_tool_use_id: null,
-      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] },
-    })
+    await toolCall('Bash', { command: 'go test ./...' }, Number(a) || 1000)
     say('done')
     end()
+  } else if (verb === 'busy') {
+    const ms = Number(a) || 1000
+    say('Looking at the failing test first, then the handler it exercises.')
+    await toolCall('Bash', { command: 'go test ./internal/service/...' }, ms)
+    await toolCall('Read', { file_path: 'internal/service/live.go' }, ms)
+    await toolCall('Grep', { pattern: 'turnStartedAt' }, ms)
+    say(
+      'The turn clears its start time in one place. The fix is to clear it on exit too:\n\n' +
+        '```go\nfunc (l *live) endTurn() {\n\tl.turnActive, l.turnStartedAt = false, time.Time{}\n}\n```\n\n' +
+        'With that, `turnStartedAt` is never left behind.',
+    )
+    waiting = 'req-' + randomUUID().slice(0, 8)
+    out({ type: 'request', id: waiting, kind: 'permission', tool: 'Bash', input: { command: 'go test ./...' }, toolUseId: 'tu-' + waiting })
   } else if (verb === 'echo') {
     say(body)
     end()

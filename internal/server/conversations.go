@@ -55,6 +55,8 @@ type requestView struct {
 	ID      string
 	Kind    string
 	Payload any `dd:",+opaque,+nullable"`
+	// At is when the request was recorded: its request event's own time.
+	At time.Time `dd:",+omitempty"`
 }
 
 func newConversationView(conv service.ConversationView) *conversationView {
@@ -87,7 +89,7 @@ func newConversationView(conv service.ConversationView) *conversationView {
 		view.Effort = conv.Facts.Effort
 	}
 	for _, req := range conv.Pending {
-		view.Pending = append(view.Pending, &requestView{ID: req.ID, Kind: req.Kind, Payload: req.Payload})
+		view.Pending = append(view.Pending, &requestView{ID: req.ID, Kind: req.Kind, Payload: req.Payload, At: conv.PendingAt[req.ID]})
 	}
 	return view
 }

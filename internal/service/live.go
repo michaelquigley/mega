@@ -34,8 +34,11 @@ type ConversationView struct {
 	// TurnStartedAt is when the turn in flight began, from memory; zero when
 	// no turn is active.
 	TurnStartedAt time.Time
-	Facts      *model.RuntimeFacts
-	Pending    []model.Request
+	// PendingAt is when each pending request was recorded, by request id: its
+	// request event's own time, held in memory beside the pending set.
+	PendingAt map[string]time.Time
+	Facts     *model.RuntimeFacts
+	Pending   []model.Request
 
 	// Attention is computed from the facts above every time it is read, and
 	// AttentionAt is when the fact behind it happened: the oldest pending
@@ -83,9 +86,9 @@ type live struct {
 	// turnStartedAt is when the turn in flight began; zero when none is. it
 	// lives only here, beside turnActive, and is never stored.
 	turnStartedAt time.Time
-	facts      *model.RuntimeFacts
-	pending    []*model.Request
-	pendingAt  map[string]time.Time // when each pending request was recorded
+	facts         *model.RuntimeFacts
+	pending       []*model.Request
+	pendingAt     map[string]time.Time // when each pending request was recorded
 
 	// fault is whether the last runtime ended badly: an error, an exit during a
 	// turn, or a launch that did not start. a runtime that starts or stops
@@ -261,8 +264,10 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 	view.Facts = l.facts
 	view.ModelNext, view.EffortNext = l.nextModel, l.nextEffort
 	view.Pending = make([]model.Request, 0, len(l.pending))
+	view.PendingAt = make(map[string]time.Time, len(l.pending))
 	for _, req := range l.pending {
 		view.Pending = append(view.Pending, *req)
+		view.PendingAt[req.ID] = l.pendingAt[req.ID]
 	}
 	view.Attention, view.AttentionAt = l.attention(conv)
 	return view
