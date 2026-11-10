@@ -20,6 +20,11 @@
 //   tool MS          a Bash call to `go test ./...` that runs for MS, then
 //                    its result and one assistant message, "done"
 //   output N         a Bash call whose result is N numbered lines, then "done"
+//   background N MS  N Bash calls run in the background (job i lasts i*MS),
+//                    then the turn ends; as each job finishes, the frames
+//                    claude code 2.1.318 sends (task_updated,
+//                    task_notification, background_tasks_changed with what is
+//                    left) and a turn nobody prompted, which says so
 //   busy MS          a busy turn: a sentence, three tool calls of MS each, a
 //                    reply with a fenced code block, then a permission
 //                    request; the turn ends once it is answered
@@ -199,6 +204,33 @@ async function turn(text) {
     const lines = Array.from({ length: Number(a) || 100 }, (_, i) => `line ${i + 1} of the output`)
     await toolCall('Bash', { command: 'seq 1 100' }, 200, lines.join('\n'))
     say('done')
+    end()
+  } else if (verb === 'background') {
+    const count = Number(a) || 1
+    const ms = Number(b) || 5000
+    const running = []
+    const snapshot = () =>
+      out({ type: 'event', msg: { type: 'system', subtype: 'background_tasks_changed', session_id: session, tasks: running.map((t) => ({ task_id: t.id, run_id: t.run, task_type: 'local_bash', description: t.description })) } })
+    for (let i = 1; i <= count; i++) {
+      const tool = 'tu-' + randomUUID().slice(0, 8)
+      const job = { id: 'b' + randomUUID().slice(0, 8), run: randomUUID().slice(0, 8), description: `Background job ${i}`, tool }
+      keep({ type: 'assistant', uuid: randomUUID(), session_id: session, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id: tool, name: 'Bash', input: { command: `sleep ${(i * ms) / 1000}`, description: job.description, run_in_background: true } }] } })
+      running.push(job)
+      snapshot()
+      out({ type: 'event', msg: { type: 'system', subtype: 'task_started', session_id: session, task_id: job.id, run_id: job.run, tool_use_id: tool, description: job.description, is_backgrounded: true, task_type: 'local_bash' } })
+      keep({ type: 'user', uuid: randomUUID(), session_id: session, parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: tool, content: `Command running in background with ID: ${job.id}.` }] } })
+      setTimeout(() => {
+        running.splice(running.indexOf(job), 1)
+        out({ type: 'event', msg: { type: 'system', subtype: 'task_updated', session_id: session, task_id: job.id, run_id: job.run, patch: { status: 'completed', end_time: Date.now() } } })
+        out({ type: 'event', msg: { type: 'system', subtype: 'task_notification', session_id: session, task_id: job.id, run_id: job.run, tool_use_id: tool, status: 'completed', summary: `Background command "${job.description}" completed (exit code 0)` } })
+        snapshot()
+        // the completion wakes a turn nobody prompted.
+        init()
+        say(`${job.description} finished.`)
+        end()
+      }, i * ms)
+    }
+    say(`Started ${count} background ${count === 1 ? 'job' : 'jobs'}.`)
     end()
   } else if (verb === 'busy') {
     const ms = Number(a) || 1000

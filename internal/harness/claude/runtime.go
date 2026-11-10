@@ -94,21 +94,24 @@ type runtime struct {
 	stdin    io.WriteCloser
 	sink     harness.Sink
 
-	mu          sync.Mutex
-	requests    map[string]string      // service request id -> sdk requestId
-	byNative    map[string]string      // sdk requestId -> service request id
-	answers     map[string]chan error  // sdk requestId -> the answer waiting for the shim's verdict
-	modes       map[string]*modeSwitch // mode switch id -> the switch waiting for the shim's reply
-	nextMode    int
-	inherited   bool   // no permission mode was passed; the operator's settings chose it
-	reqModel    string // the model last passed or confirmed; empty if none was chosen
-	reqEffort   string // the effort last passed or confirmed; empty if none was chosen
-	liveModel   string // the model as system/init last reported it
-	mode        string // the permission mode as last reported or confirmed
-	started     bool   // the first init has been reported
-	interrupted bool   // an interrupt was sent during the current turn
-	gone        bool   // the shim's output has ended
-	failure     string // the shim's last error frame
+	mu        sync.Mutex
+	requests  map[string]string      // service request id -> sdk requestId
+	byNative  map[string]string      // sdk requestId -> service request id
+	answers   map[string]chan error  // sdk requestId -> the answer waiting for the shim's verdict
+	modes     map[string]*modeSwitch // mode switch id -> the switch waiting for the shim's reply
+	nextMode  int
+	inherited bool   // no permission mode was passed; the operator's settings chose it
+	reqModel  string // the model last passed or confirmed; empty if none was chosen
+	reqEffort string // the effort last passed or confirmed; empty if none was chosen
+	liveModel string // the model as system/init last reported it
+	// backgroundSeen is when each background task still running was first
+	// seen, by task id.
+	backgroundSeen map[string]time.Time
+	mode           string // the permission mode as last reported or confirmed
+	started        bool   // the first init has been reported
+	interrupted    bool   // an interrupt was sent during the current turn
+	gone           bool   // the shim's output has ended
+	failure        string // the shim's last error frame
 }
 
 // errExited fails an answer whose runtime ended before the shim confirmed it.
@@ -447,6 +450,11 @@ func (r *runtime) event(raw map[string]any) {
 		dl.Warnf("claude shim for '%s': %v", r.nativeID, err)
 		return
 	}
+	if msg.Type == "system" && msg.Subtype == "background_tasks_changed" {
+		// the whole current list of background work; the native event is
+		// still recorded below, as before.
+		r.backgroundChanged(raw)
+	}
 	if msg.Type == "stream_event" {
 		if text := delta(msg); text != "" {
 			r.sink.Delta(text)
@@ -558,4 +566,38 @@ func logStderr(nativeID string, stderr io.Reader) {
 			dl.Debugf("claude '%s': %s", nativeID, line)
 		}
 	}
+}
+
+// backgroundChanged reports a background_tasks_changed snapshot to the sink as
+// the whole list. each snapshot carries every task still running (claude code
+// 2.1.318: one on every change, down to an empty list; capability report,
+// 2026-11-10). tasks carry no start time, so a task's start is when the
+// adapter first saw it, kept across snapshots.
+func (r *runtime) backgroundChanged(raw map[string]any) {
+	tasks, _ := raw["tasks"].([]any)
+	now := time.Now().UTC()
+	r.mu.Lock()
+	seen := make(map[string]time.Time, len(tasks))
+	jobs := make([]model.BackgroundJob, 0, len(tasks))
+	for _, entry := range tasks {
+		task, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := task["task_id"].(string)
+		if id == "" {
+			continue
+		}
+		description, _ := task["description"].(string)
+		kind, _ := task["task_type"].(string)
+		started, ok := r.backgroundSeen[id]
+		if !ok {
+			started = now
+		}
+		seen[id] = started
+		jobs = append(jobs, model.BackgroundJob{ID: id, Description: description, Kind: kind, StartedAt: started})
+	}
+	r.backgroundSeen = seen
+	r.mu.Unlock()
+	r.sink.Background(jobs)
 }

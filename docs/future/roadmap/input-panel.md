@@ -1,8 +1,8 @@
 ---
-title: input panel as the control cluster
+title: input panel
 state: evaluating
 created: 2026-11-10
-tags: [enhancement, ui, operator-input-panel, conversation-view]
+tags: [enhancement]
 ---
 
 Third slice of the look-and-feel cluster. The operator input panel becomes a first-class component where the conversation's controls cluster, at the bottom, where the action is. Decided with Michael on 2026-11-10.

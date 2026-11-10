@@ -392,6 +392,9 @@ func (r *Runtime) HoldOnClose() {
 }
 
 // Emit delivers an event as the harness would.
+// Background reports the runtime's background jobs, as an adapter would.
+func (r *Runtime) Background(jobs []model.BackgroundJob) { r.sink.Background(jobs) }
+
 func (r *Runtime) Emit(ev *model.Event) {
 	if ev.Origin == "" {
 		ev.Origin = model.OriginManaged

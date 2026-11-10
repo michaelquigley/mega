@@ -133,6 +133,11 @@ type Sink interface {
 	// example by aborting it on interrupt.
 	Resolved(requestID, outcome string)
 
+	// Background reports the work the runtime keeps running outside a turn,
+	// whole: each call replaces the last, and an empty list means none. it is
+	// a fact for display, never recorded.
+	Background(jobs []model.BackgroundJob)
+
 	// Exited reports that the runtime process ended. err is nil for a clean
 	// exit. it is the last call a sink receives.
 	Exited(err error)

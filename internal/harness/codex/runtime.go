@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,17 +61,18 @@ type runtime struct {
 	mu          sync.Mutex
 	threadID    string
 	activeTurn  string
-	requests    map[string]*serverRequest // service request id -> server request
-	byNative    map[string]string         // server request id -> service request id
-	questions   map[string]*question      // service request id -> synthetic question
-	fileChanges map[string][]fileChange   // item id -> changes, for approval payloads
-	completed   map[string]bool           // turns that completed, for answers racing their end
-	interrupted map[string]bool           // turns the operator interrupted; no question of theirs may wait
-	stops       int                       // interrupts and closes so far; an answer started before one never starts a turn
-	started     map[int]proc              // processes seen under the app-server, for the exit check
-	mcpCalls    []mcpCall                 // MCP tool calls in flight, oldest first, to name the tool an approval is for
-	cwd         string                    // the checkout, for reading what inherit means
-	model       string                    // the operator's choice, sent on every turn/start; empty inherits the config's
+	requests    map[string]*serverRequest  // service request id -> server request
+	byNative    map[string]string          // server request id -> service request id
+	questions   map[string]*question       // service request id -> synthetic question
+	fileChanges map[string][]fileChange    // item id -> changes, for approval payloads
+	completed   map[string]bool            // turns that completed, for answers racing their end
+	interrupted map[string]bool            // turns the operator interrupted; no question of theirs may wait
+	stops       int                        // interrupts and closes so far; an answer started before one never starts a turn
+	started     map[int]proc               // processes seen under the app-server, for the exit check
+	mcpCalls    []mcpCall                  // MCP tool calls in flight, oldest first, to name the tool an approval is for
+	commands    map[string]*runningCommand // shell commands started and not yet completed, by item id
+	cwd         string                     // the checkout, for reading what inherit means
+	model       string                     // the operator's choice, sent on every turn/start; empty inherits the config's
 	effort      string
 	liveModel   string // the model and effort as codex last reported them
 	liveEffort  string
@@ -82,6 +85,7 @@ func newRuntime(sink harness.Sink) *runtime {
 		byNative:    make(map[string]string),
 		questions:   make(map[string]*question),
 		fileChanges: make(map[string][]fileChange),
+		commands:    make(map[string]*runningCommand),
 		completed:   make(map[string]bool),
 		interrupted: make(map[string]bool),
 		started:     make(map[int]proc),
@@ -364,6 +368,8 @@ func (r *runtime) notify(method string, params map[string]any) {
 			if it, err := bindItem(n.Item); err == nil {
 				r.mu.Lock()
 				switch it.Type {
+				case "commandExecution":
+					r.commands[it.ID] = &runningCommand{turn: n.TurnID, command: shellCommand(it.Command), started: time.Now().UTC()}
 				case "fileChange":
 					r.fileChanges[it.ID] = it.Changes
 				case "mcpToolCall":
@@ -441,6 +447,18 @@ func (r *runtime) turnCompleted(params map[string]any) {
 	if r.activeTurn == n.Turn.ID {
 		r.activeTurn = ""
 	}
+	// a command the turn started and that is still running outlives it: a
+	// terminal session codex keeps (unified exec), now background work.
+	moved := false
+	for _, c := range r.commands {
+		if c.turn == n.Turn.ID && !c.background {
+			c.background, moved = true, true
+		}
+	}
+	var jobs []model.BackgroundJob
+	if moved {
+		jobs = r.backgroundLocked()
+	}
 	if completed {
 		r.completed[n.Turn.ID] = true
 		for _, q := range r.questions {
@@ -455,12 +473,75 @@ func (r *runtime) turnCompleted(params map[string]any) {
 		r.sink.Resolved(id, model.OutcomeAborted)
 	}
 	r.sink.Event(&model.Event{Kind: model.EventTurnEnd, Origin: model.OriginManaged, Status: turnStatus(n.Turn.Status), Text: n.Turn.Status, Raw: params})
+	if moved {
+		r.sink.Background(jobs)
+	}
 }
+
+// runningCommand is a shell command codex started and has not reported
+// completed; background once the turn that started it has ended.
+type runningCommand struct {
+	turn       string
+	command    string
+	started    time.Time
+	background bool
+}
+
+// backgroundLocked is the background list, oldest first. callers hold r.mu.
+func (r *runtime) backgroundLocked() []model.BackgroundJob {
+	jobs := []model.BackgroundJob{}
+	for id, c := range r.commands {
+		if c.background {
+			jobs = append(jobs, model.BackgroundJob{ID: id, Description: c.command, Kind: "command", StartedAt: c.started})
+		}
+	}
+	slices.SortFunc(jobs, func(a, b model.BackgroundJob) int {
+		if c := a.StartedAt.Compare(b.StartedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return jobs
+}
+
+// shellCommand is the command a shell item ran, without the login-shell
+// wrapper codex puts around it ("/bin/bash -lc 'sleep 30'"), as codex's own
+// background-terminal list shows it.
+func shellCommand(command string) string {
+	if m := shellWrapper.FindStringSubmatch(command); m != nil {
+		if m[1] != "" {
+			return m[1]
+		}
+		return m[2]
+	}
+	return command
+}
+
+var shellWrapper = regexp.MustCompile(`^/bin/(?:ba|z)?sh -l?c (?:'(.*)'|"(.*)")$`)
 
 func (r *runtime) itemCompleted(params map[string]any) {
 	n := &itemNotification{}
 	if !bind(n, params) || n.Item == nil {
 		return
+	}
+	if id, _ := n.Item["id"].(string); id != "" {
+		r.mu.Lock()
+		c := r.commands[id]
+		delete(r.commands, id)
+		var jobs []model.BackgroundJob
+		if c != nil && c.background {
+			jobs = r.backgroundLocked()
+		}
+		r.mu.Unlock()
+		if c != nil && c.background {
+			// a background command finished after its turn ended: its call
+			// and result, after their turn.
+			for _, ev := range backgroundFinished(n.Item) {
+				r.sink.Event(ev)
+			}
+			r.sink.Background(jobs)
+			return
+		}
 	}
 	evs, err := mapItem(n.Item)
 	if err != nil {
@@ -594,4 +675,22 @@ func nativeKey(id any) string {
 		return fmt.Sprintf("%d", int64(f))
 	}
 	return fmt.Sprint(id)
+}
+
+// backgroundFinished is the record of a background command that completed
+// after its turn: the usual tool call and result, marked as after their turn,
+// so the service opens no turn for them and counts the result as unread at
+// once, the way claude's woken turn leaves its reply unread. they carry the
+// native identities a history import maps the same item to (mapItem), so a
+// resume recognizes them rather than recording the command again.
+func backgroundFinished(item map[string]any) []*model.Event {
+	evs, err := mapItem(item)
+	if err != nil {
+		return nil
+	}
+	for _, ev := range evs {
+		ev.Origin = model.OriginManaged
+		ev.AfterTurn = true
+	}
+	return evs
 }

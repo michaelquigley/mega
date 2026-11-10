@@ -1,8 +1,8 @@
 ---
 title: side panel structure
-state: building
+state: evaluating
 created: 2026-11-10
-tags: [enhancement, ui, side-panel]
+tags: [enhancement]
 ---
 
 Fourth slice of the look-and-feel cluster. The side panel becomes something Michael can arrange: projects that sort, fold and can be starred, and a panel that resizes and collapses to a rail without ever hiding that something needs him. Decided with Michael on 2026-11-10: stars live in the workspace, and the collapsed panel is a thin rail with marks.

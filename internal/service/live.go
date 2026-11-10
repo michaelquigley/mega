@@ -37,8 +37,11 @@ type ConversationView struct {
 	// PendingAt is when each pending request was recorded, by request id: its
 	// request event's own time, held in memory beside the pending set.
 	PendingAt map[string]time.Time
-	Facts     *model.RuntimeFacts
-	Pending   []model.Request
+	// Background is the work the runtime keeps running outside a turn, from
+	// memory; empty when none, or when there is no runtime to ask.
+	Background []model.BackgroundJob
+	Facts      *model.RuntimeFacts
+	Pending    []model.Request
 
 	// Attention is computed from the facts above every time it is read, and
 	// AttentionAt is when the fact behind it happened: the oldest pending
@@ -89,9 +92,12 @@ type live struct {
 	// turnStartedAt is when the turn in flight began; zero when none is. it
 	// lives only here, beside turnActive, and is never stored.
 	turnStartedAt time.Time
-	facts         *model.RuntimeFacts
-	pending       []*model.Request
-	pendingAt     map[string]time.Time // when each pending request was recorded
+	// background is the work the runtime keeps running outside a turn, as it
+	// last reported it; it goes with the runtime.
+	background []model.BackgroundJob
+	facts      *model.RuntimeFacts
+	pending    []*model.Request
+	pendingAt  map[string]time.Time // when each pending request was recorded
 
 	// fault is whether the last runtime ended badly: an error, an exit during a
 	// turn, or a launch that did not start. a runtime that starts or stops
@@ -265,6 +271,7 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 		view.TurnStartedAt = l.turnStartedAt
 	}
 	view.Facts = l.facts
+	view.Background = slices.Clone(l.background)
 	view.ModelNext, view.EffortNext = l.nextModel.value, l.nextEffort.value
 	view.ModelNextInherit = l.nextModel.set && l.nextModel.value == ""
 	view.EffortNextInherit = l.nextEffort.set && l.nextEffort.value == ""
@@ -447,8 +454,9 @@ func (k *sink) Event(ev *model.Event) {
 	switch ev.Kind {
 	case model.EventUser, model.EventAssistant, model.EventToolUse, model.EventToolResult:
 		// a user message the runtime reports opens a turn too, such as an
-		// answer that starts the next turn.
-		if !l.turnActive {
+		// answer that starts the next turn. output the adapter marks as after
+		// its turn opens none: no turn is coming to end it.
+		if !l.turnActive && !ev.AfterTurn {
 			l.beginTurn(ev.At)
 			s.changed()
 		}
@@ -462,13 +470,21 @@ func (k *sink) Event(ev *model.Event) {
 		s.endTurnLocked(l)
 		s.changed()
 	}
-	// agent output counts toward unread only within a turn, and only once that
-	// turn ends. native events never count: they are the harness's own
-	// bookkeeping (init, status, lifecycle), and bookkeeping never creates
-	// attention.
+	// agent output counts toward unread within a turn, once that turn ends;
+	// output the adapter marks as after its turn (a codex background command
+	// finishing) counts at once, its turn having ended already. native events
+	// never count: they are the harness's own bookkeeping (init, status,
+	// lifecycle), and bookkeeping never creates attention.
 	switch ev.Kind {
 	case model.EventAssistant, model.EventToolUse, model.EventToolResult:
-		if l.turnActive && ev.Seq > 0 {
+		switch {
+		case ev.AfterTurn && ev.Seq > 0 && !l.turnActive:
+			// output of a turn that has already ended: unread at once, as a
+			// turn's end would make it.
+			if err := s.markUnreadLocked(l, ev.Seq, ev.At); err != nil {
+				dl.Errorf("recording the output of '%s': %v", l.id, err)
+			}
+		case l.turnActive && ev.Seq > 0:
 			l.turnOutput, l.turnOutputAt = ev.Seq, ev.At
 		}
 	}
@@ -511,6 +527,20 @@ func (k *sink) started(ev *model.Event) {
 	if err := s.transition(l, ev, StateRunning, func() { l.facts = facts }); err != nil {
 		dl.Errorf("%v", err)
 	}
+}
+
+// Background replaces the runtime's list of background jobs. it is held in
+// memory beside turn_active, never recorded, and shown as it changes; it is
+// not attention, so it never puts a conversation in the needs-you list.
+func (k *sink) Background(jobs []model.BackgroundJob) {
+	s := k.s
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !k.current() {
+		return
+	}
+	k.l.background = slices.Clone(jobs)
+	s.changed()
 }
 
 func (k *sink) Delta(text string) {
@@ -623,7 +653,7 @@ func (k *sink) Exited(err error) {
 		return
 	}
 	if err := s.transition(l, ev, "", func() {
-		l.turnActive, l.turnStartedAt, l.facts = false, time.Time{}, nil
+		l.turnActive, l.turnStartedAt, l.facts, l.background = false, time.Time{}, nil, nil
 		// a change asked of this runtime dies with it; the next launch
 		// passes the stored choice.
 		l.nextModel, l.nextEffort, l.nextSent = pendingSetting{}, pendingSetting{}, false

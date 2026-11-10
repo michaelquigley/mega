@@ -96,6 +96,7 @@ export function InputPanel(props: InputPanelProps) {
   }, [menu])
 
   const { state, turn_active: active, pending } = conversation
+  const background = conversation.background ?? []
   const hasRuntime = state === 'running' || state === 'stopping'
   const blocked = state === 'unsupervised' || state === 'starting' || state === 'stopping' || state === 'resuming' || active
   const activity = describeActivity(conversation, log, stale)
@@ -366,6 +367,25 @@ export function InputPanel(props: InputPanelProps) {
             Release stops the runtime and frees the session, so you can continue in a terminal.
             {(active || pending.length > 0) && ' The turn in flight is interrupted first.'}
           </p>
+          {background.length > 0 && (
+            <div className="release-background">
+              <p>
+                {background.length === 1 ? '1 background job is' : `${background.length} background jobs are`} running:
+              </p>
+              <ul>
+                {background.map((job) => (
+                  <li key={job.id}>
+                    <code>{job.description}</code>
+                  </li>
+                ))}
+              </ul>
+              <p>
+                {conversation.harness === 'claude'
+                  ? 'Claude waits for them before it stops, and when they finish it takes one more turn on its own, so the release lasts until then.'
+                  : 'Codex is not asked to wait for them. Any still running when it exits are reported in the history.'}
+              </p>
+            </div>
+          )}
           {terminal ? (
             <div className="command">
               <code>{terminal}</code>

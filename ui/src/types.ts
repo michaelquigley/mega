@@ -66,6 +66,16 @@ export interface Question {
   multiSelect?: boolean
 }
 
+// one piece of work a runtime keeps running outside a turn: a backgrounded
+// command or subagent (claude), or a command left running as a terminal
+// session (codex). started_at is when roundhouse first saw it.
+export interface BackgroundJob {
+  id: string
+  description: string
+  kind: string
+  started_at?: string
+}
+
 export interface Conversation {
   id: string
   project_id: string
@@ -105,6 +115,9 @@ export interface Conversation {
   model_next_inherit?: boolean
   effort_next_inherit?: boolean
   pending: PendingRequest[]
+  // the runtime's background jobs; absent when none, or when there is no
+  // runtime to ask (unknown, for an unsupervised conversation).
+  background?: BackgroundJob[]
 }
 
 // one model a harness offers, and the effort levels it takes (none for a

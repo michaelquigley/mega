@@ -2,7 +2,7 @@
 title: model and effort selection
 state: evaluating
 created: 2026-11-10
-tags: [conversation-view, claude, codex]
+tags: [feature]
 ---
 
 Launching picks a harness; it also needs to pick the model and the effort level, and a running conversation needs to be able to change both, the way the terminals allow. Michael asked for this on 2026-11-10.

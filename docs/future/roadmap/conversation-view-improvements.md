@@ -1,8 +1,8 @@
 ---
 title: conversation view improvements
-state: building
+state: evaluating
 created: 2026-11-09
-tags: [enhancement]
+tags: [epic]
 ---
 
 Small look-and-feel items noticed during the polish batches, to pick up together on the next conversation-view pass.

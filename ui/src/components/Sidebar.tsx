@@ -5,7 +5,7 @@ import { select, type Selection } from '../selection'
 import { streamLabels, type StreamState } from '../stream'
 import { treeGroups } from '../tree'
 import type { Conversation, Project } from '../types'
-import { AttentionMark, Elapsed, ProjectMark } from './AttentionMark'
+import { AttentionMark, BackgroundLabel, Elapsed, ProjectMark } from './AttentionMark'
 import { IconButton } from './Icon'
 
 interface SidebarProps {
@@ -105,6 +105,7 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
                   <AttentionMark conversation={conversation} stale={stale} />
                   <span className="tree-label">{conversation.name}</span>
                   <Elapsed conversation={conversation} />
+                  <BackgroundLabel conversation={conversation} />
                   {conversation.label && <span className="tag">{conversation.label}</span>}
                 </button>
               </li>
@@ -139,6 +140,7 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
                   <AttentionMark conversation={conversation} stale={stale} />
                   <span className="tree-label">{conversation.name}</span>
                   <Elapsed conversation={conversation} />
+                  <BackgroundLabel conversation={conversation} />
                   <span className="muted waiting-project">{projectNames.get(conversation.project_id)}</span>
                 </button>
               </li>

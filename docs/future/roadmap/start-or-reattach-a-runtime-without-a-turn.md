@@ -2,7 +2,7 @@
 title: start or reattach a runtime without a turn
 state: researching
 created: 2026-11-09
-tags: [runtime, claude, codex]
+tags: [feature, spike]
 ---
 
 Every launch in the first slice rides on a prompt, so after a restart a long-lived conversation is cold until Michael spends a turn on it. He asked for a way to start, or reattach, a runtime without burning a turn. The spec already says reopening a conversation need not start a process, let alone a model turn; this is the explicit operator gesture that starts the process and nothing else.

@@ -381,3 +381,31 @@ func TestTurnStartedAtOnTheWire(t *testing.T) {
 		t.Errorf("after the turn: turn_started_at %v", got["turn_started_at"])
 	}
 }
+
+func TestBackgroundOnTheWire(t *testing.T) {
+	f := start(t)
+	_, project := f.do(t, http.MethodPost, "/api/projects", createBody("p", f.checkout))
+	_, conv := f.do(t, http.MethodPost, "/api/projects/"+project["id"].(string)+"/conversations", jsonBody(map[string]string{"harness": "claude", "prompt": "one"}))
+	id := conv["id"].(string)
+	rt := f.fake.Last()
+	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID()}})
+	if got := f.conversation(t, id); got["background"] != nil {
+		t.Fatalf("no jobs, yet background = %v", got["background"])
+	}
+	started := time.Now().UTC().Truncate(time.Second)
+	rt.Background([]model.BackgroundJob{{ID: "b1", Description: "npm test", Kind: "local_bash", StartedAt: started}})
+	got := f.conversation(t, id)
+	list, _ := got["background"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("background = %v", got["background"])
+	}
+	job := list[0].(map[string]any)
+	at, err := time.Parse(time.RFC3339Nano, job["started_at"].(string))
+	if job["id"] != "b1" || job["description"] != "npm test" || job["kind"] != "local_bash" || err != nil || !at.Equal(started) {
+		t.Errorf("job = %v (%v)", job, err)
+	}
+	rt.Background(nil)
+	if got := f.conversation(t, id); got["background"] != nil {
+		t.Errorf("after the list emptied: %v", got["background"])
+	}
+}

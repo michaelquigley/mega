@@ -2,7 +2,7 @@
 title: Meta user messages are not prompts
 state: evaluating
 created: 2026-11-10
-tags: [claude, adapter, import, fix]
+tags: [defect]
 ---
 
 After a restart, a resume import showed a block labelled "You, outside Roundhouse" that Michael never wrote: a web-fetch subagent's hand-back report. Seen 2026-11-10 in his implementer conversation.

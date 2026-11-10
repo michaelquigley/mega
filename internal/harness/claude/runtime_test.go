@@ -21,7 +21,13 @@ type recordingSink struct {
 	requests []string
 	payloads []any
 	resolved []string
-	next     int
+	// background holds every list reported, in order.
+	background [][]model.BackgroundJob
+	next       int
+}
+
+func (s *recordingSink) Background(jobs []model.BackgroundJob) {
+	s.background = append(s.background, jobs)
 }
 
 func (s *recordingSink) Event(ev *model.Event) { s.events = append(s.events, ev) }

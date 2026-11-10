@@ -12,17 +12,28 @@ const titles: Record<Attention, string> = {
 
 // Mark is the one shape vocabulary for attention: a square for a request, a
 // filled red dot for supervision lost, a red ring for an error, a filled dot
-// for unread, a rotating arc for working, a grey ring for idle. a stale mark
-// is only last known: dimmed, and never moving.
-function Mark({ attention, title, stale }: { attention: Attention; title: string; stale: boolean }) {
+// for unread, a rotating arc for working (muted when the work is only in the
+// background), a small grey dot for idle. a stale mark is only last known:
+// dimmed, and never moving.
+function Mark({ attention, title, stale, quiet = false }: { attention: Attention; title: string; stale: boolean; quiet?: boolean }) {
   const shown = stale ? `Last known: ${title.charAt(0).toLowerCase()}${title.slice(1)}` : title
-  return <span className={`mark mark-${attention}${stale ? ' mark-stale' : ''}`} title={shown} aria-label={shown} role="img" />
+  return <span className={`mark mark-${attention}${quiet ? ' mark-background' : ''}${stale ? ' mark-stale' : ''}`} title={shown} aria-label={shown} role="img" />
 }
+
+const jobs = (n: number) => `${n} background ${n === 1 ? 'job' : 'jobs'} running`
+
+// backgroundOnly is a conversation with nothing else to show but background
+// work: its attention is idle, and the harness keeps jobs running.
+const backgroundOnly = (c: Conversation) => c.attention === 'idle' && (c.background?.length ?? 0) > 0
 
 // AttentionMark shows what a conversation asks of the operator, as the
 // service computes it.
 export function AttentionMark({ conversation, stale }: { conversation: Conversation; stale: boolean }) {
   const attention = conversation.attention
+  if (backgroundOnly(conversation)) {
+    // otherwise idle, but not doing nothing: the working arc, muted.
+    return <Mark attention="running" quiet title={jobs(conversation.background!.length)} stale={stale} />
+  }
   let title = titles[attention]
   if (attention === 'request' && conversation.pending.length > 1) {
     title = `${conversation.pending.length} requests are waiting for your answer`
@@ -47,8 +58,10 @@ const projectTitles: Record<Attention, (n: number) => string> = {
 // conversations, derived from their confirmed attention, titled with how
 // many share it.
 export function ProjectMark({ conversations, stale }: { conversations: Conversation[]; stale: boolean }) {
-  const attention = projectOrder.find((state) => conversations.some((c) => c.attention === state)) ?? 'idle'
-  const count = conversations.filter((c) => c.attention === attention).length
+  // background work counts as running for the project's order.
+  const effective = (c: Conversation): Attention => (backgroundOnly(c) ? 'running' : c.attention)
+  const attention = projectOrder.find((state) => conversations.some((c) => effective(c) === state)) ?? 'idle'
+  const count = conversations.filter((c) => effective(c) === attention).length
   const title = conversations.length === 0 ? 'No conversations' : projectTitles[attention](count)
   return <Mark attention={attention} title={title} stale={stale} />
 }
@@ -81,4 +94,19 @@ export function Elapsed({ conversation }: { conversation: Conversation }) {
 // Spinner is the small working arc, for something live in flight.
 export function Spinner({ label }: { label: string }) {
   return <span className="spinner" role="img" aria-label={label} title={label} />
+}
+
+// BackgroundLabel is "2 bg" after a conversation's name, so background work
+// shows whatever its mark says; nothing when the mark is already the muted
+// arc for it, or when there is none.
+export function BackgroundLabel({ conversation }: { conversation: Conversation }) {
+  const n = conversation.background?.length ?? 0
+  if (n === 0 || backgroundOnly(conversation)) {
+    return null
+  }
+  return (
+    <span className="bg-label" title={jobs(n)} aria-label={jobs(n)}>
+      {n} bg
+    </span>
+  )
 }

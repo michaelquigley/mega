@@ -582,6 +582,13 @@ dialog label {
   width: 11px;
 }
 
+/* idle is the quietest mark: a small muted dot centred in the same 11px box,
+   so names stay aligned and it never reads as the full-size unread dot. */
+.mark-idle {
+  background: radial-gradient(circle, var(--muted) 0 2.5px, transparent 3px);
+  border: 0;
+}
+
 .mark-request {
   background: var(--notice-line);
   border-color: var(--notice-line);
@@ -897,8 +904,15 @@ dialog label {
   font-size: calc(12px * var(--fs));
 }
 
+/* the code block's copy is sized to its header line, smaller than the
+   message block's own copy controls, with room around its icon. */
 .code-head .copy {
-  padding: 1px 4px;
+  padding: 3px;
+}
+
+.code-head .copy .icon svg {
+  height: 12px;
+  width: 12px;
 }
 
 .code-block pre {
@@ -1386,4 +1400,46 @@ hr.turn {
   position: absolute;
   right: 6px;
   top: 6px;
+}
+
+/* background work: the working arc and spinner in the muted colour, for a
+   conversation whose only activity is jobs outside a turn. */
+.mark-running.mark-background,
+.activity-background .spinner {
+  border-color: color-mix(in srgb, var(--muted) 25%, transparent);
+  border-right-color: var(--muted);
+  border-top-color: var(--muted);
+}
+
+.mark-running.mark-background.mark-stale {
+  background: linear-gradient(90deg, var(--muted) 50%, transparent 50%);
+  border-color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark-running.mark-background,
+  .activity-background .spinner {
+    background: linear-gradient(90deg, var(--muted) 50%, transparent 50%);
+    border-color: var(--muted);
+  }
+}
+
+.activity-background {
+  color: var(--muted);
+}
+
+/* "2 bg" after a name whose mark says something else. */
+.bg-label {
+  color: var(--muted);
+  flex: none;
+  font: calc(12px * var(--fs)) var(--mono);
+}
+
+.release-background ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.release-background li {
+  list-style: disc;
 }

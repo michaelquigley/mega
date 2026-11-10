@@ -63,3 +63,7 @@ Fixture repository used: `/home/michael/Repos/q/research/roundhouse-fixtures/cla
 
 `models.mjs --cwd DIR --log logs/x.jsonl [--model M] [--effort E] [--idle-only]` starts a session with no prompt and times `supportedModels()` and `initializationResult()`. It then runs three marker turns: as launched, after `setModel('sonnet')`, and after `applyFlagSettings({effortLevel: 'low'})`. For each it records `system/init`'s model and effort, and any message that mentions effort. `--idle-only` instead closes without a prompt under a fresh session id, and reports whether a transcript or a `listSessions` entry was left.
 
+## Background jobs (2026-11-10)
+
+`background.mjs --cwd DIR --log logs/x.jsonl [--scenario bash|two|agent] [--linger SECONDS]` sends one prompt that backgrounds work. It answers tool permission only for the scenario's exact commands, then keeps reading after the turn's result for `--linger` seconds (90 by default) before closing input and timing the exit. `bash` backgrounds one Bash call, `two` backgrounds two at once, and `agent` backgrounds a subagent. A short `--linger` closes input while the job still runs.
+

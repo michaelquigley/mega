@@ -2,7 +2,7 @@
 title: codex discovery e2e reads its own thread
 state: researching
 created: 2026-11-10
-tags: [testing, codex]
+tags: [defect]
 ---
 
 `TestCodexDiscoveryAndHistory` reads whichever thread in the `codex-rt1` fixture is newest, so any probe or manual run that leaves a half-finished thread behind (an interrupted turn with no reply) makes it fail until a complete thread is newer. Seen during the MCP approval batch; noted in `docs/current` as a known fragility.

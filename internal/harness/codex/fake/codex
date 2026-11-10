@@ -9,6 +9,9 @@
 //                fails as codex reports it
 //   form         a typed form elicitation (a color enum and a note); the reply
 //                is the content it was answered with
+//   background MS  a command left running as a terminal session: its
+//                item/started, the reply, the turn's end, then its
+//                item/completed MS later, outside the turn (codex-cli 0.166.0)
 //   anything     a reply of "ok"
 // turn/interrupt resolves a pending elicitation and ends the turn interrupted.
 //
@@ -106,6 +109,13 @@ async function runTurn(turn, text) {
     })
     if (answer === null) return
     agent(turn, `elicitation answered: ${JSON.stringify(answer)}`)
+  } else if (verb === 'background') {
+    const item = { type: 'commandExecution', id: `exec-${id()}`, command: "/bin/bash -lc 'sleep 30 && echo BG-FAKE-DONE'", cwd: process.cwd(), processId: '4242', status: 'inProgress' }
+    notify('item/started', { threadId: threadID, turnId: turn, item })
+    agent(turn, 'BG-STARTED')
+    finish(turn)
+    setTimeout(() => notify('item/completed', { threadId: threadID, turnId: turn, item: { ...item, status: 'completed', exitCode: 0, aggregatedOutput: 'BG-FAKE-DONE\n' } }), Number(rest[0]) || 5000)
+    return
   } else {
     agent(turn, 'ok')
   }

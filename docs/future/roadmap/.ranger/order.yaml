@@ -1,21 +1,23 @@
 building:
-  - side-panel-structure.md
-  - operator-input-panel.md
-  - conversation-view-improvements.md
-  - side-panel-improvements.md
+  - background-jobs.md
 horizon:
   - ui-test-runner.md
 researching:
-  - background-jobs.md
   - operator-panel-expansion-behavior.md
-  - codex-can-return-to-inherit-while-running.md
+  - a-failed-load-never-renders-as-an-empty-workspace.md
+  - path-search-in-the-input-panel.md
+  - start-or-reattach-a-runtime-without-a-turn.md
   - idle-lock.md
+  - roundhouse-mega.md
   - favicon.md
   - dfw-daemon-mode.md
-  - a-failed-load-never-renders-as-an-empty-workspace.md
   - codex-discovery-e2e-reads-its-own-thread.md
-  - start-or-reattach-a-runtime-without-a-turn.md
 evaluating:
+  - side-panel-structure.md
+  - codex-can-return-to-inherit-while-running.md
+  - side-panel-improvements.md
+  - operator-input-panel.md
+  - conversation-view-improvements.md
   - copy-per-block.md
   - working-indicators.md
   - input-panel.md

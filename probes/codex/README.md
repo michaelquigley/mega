@@ -60,3 +60,7 @@ See `NOTES.md` for the first investigation and `NOTES-followup.md` for the recon
 - `node probe.mjs models --cwd DIR [--include-hidden]` runs `model/list` and `config/read {cwd}` on a thread-less app-server and prints the catalog with the checkout's effective `model` and `model_reasoning_effort`.
 - A turns-file item may carry `"turn_json"`, merged into that turn's `turn/start` only. The scenarios are `effort-override.json` and `model-override.json`, the latter with `--start-json '{"model":"gpt-6-luna"}'`.
 
+## Background terminals (2026-11-10)
+
+`node background.mjs --cwd DIR --log logs/x.jsonl [--poll-seconds 50] [--session]` runs one turn that asks for a command that outlives it. It then polls `thread/backgroundTerminals/list` every two seconds after `turn/completed`, recording every frame. Without `--session` the model is left to background the command its own way (it detached it with `nohup`). With `--session` it is asked to run it directly with a short yield, so it stays a unified-exec terminal session. Approvals are accepted only for the exact command.
+

@@ -1,8 +1,8 @@
 ---
 title: side panel improvements
-state: building
+state: evaluating
 created: 2026-11-09
-tags: [enhancement]
+tags: [epic]
 ---
 
 the side panel needs to:

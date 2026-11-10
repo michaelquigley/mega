@@ -2,7 +2,7 @@
 title: copy per block
 state: evaluating
 created: 2026-11-10
-tags: [enhancement, ui, conversation-view]
+tags: [enhancement]
 ---
 
 Fifth slice of the look-and-feel cluster: each block in the conversation can be copied with one click, as markdown or as plain text, plus the small leftovers on the same surface.

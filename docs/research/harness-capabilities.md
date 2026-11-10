@@ -516,6 +516,35 @@ Claude Code 2.1.318, Agent SDK 0.3.318, seen in an operator conversation and in 
 - A later `turn/start` without overrides produced no update and kept the override, as documented ("this turn and subsequent turns") `[observed]`.
 - The override also survives `thread/resume` `[observed]`. Resuming the overridden thread (`01a1c625-07ca-74c0-a31b-38df6ad16fd3`) with no model or effort reported `gpt-6-astra` at `low`, not the config's `high` (`logs/resume-after-override.*`). Once a thread has had an override, passing nothing keeps that override; only sending the config's values explicitly returns to them `[inference]`.
 
+## Follow-up (2026-11-10): background jobs
+
+Work an agent keeps running after its turn ends: what each harness reports about it on the stream roundhouse reads.
+
+### Claude Code 2.1.318, Agent SDK 0.3.318
+
+`probes/claude/background.mjs`, on `claude-rt1`. Logs are `probes/claude/logs/background-{bash,two,agent,close}.*`. The scenarios were one backgrounded Bash call, two at once, one backgrounded subagent, and one Bash call with input closed while it ran.
+
+- `system/background_tasks_changed` is emitted on every change, each a whole snapshot of what is still running, down to an empty list `[observed]`. With two jobs the snapshots were `[A]`, `[A, B]`, `[B]`, `[]`.
+- Each task is `{task_id, run_id, task_type, description}`, and a subagent adds `subagent_type` `[observed]`. No task, snapshot or `task_started` frame carries a start time. `task_updated`'s `patch.end_time` is the only time, and only at the end.
+- A backgrounded Bash call has `task_type: local_bash`, with the call's `description` as its description `[observed]`. Its tool result returns at once ("Command running in background with ID: …").
+- A backgrounded subagent appears as a task with `task_type: local_agent` and `subagent_type: general-purpose` `[observed]`. Its reply reaches the stream as an `assistant` message with `parent_tool_use_id` set, between turns.
+- When a job finishes after the turn ended, the stream sends `task_updated` (`patch.status: completed`), `task_notification` (`status`, `summary`, `output_file`), then the new `background_tasks_changed` snapshot `[observed]`.
+- That completion then wakes the agent: a fresh `system/init`, an assistant reply and a `result` follow, a turn nobody prompted `[observed]`. No `user` message comes on the stream. Each job's completion woke its own turn.
+- Closing input while a job runs does not end the session promptly `[observed]`. The CLI waited for the job to finish (about 12 s), the completion woke one more full turn (here a `Read` and a reply), and only then did the process exit. A release with background jobs therefore lasts until they finish and the agent has taken that turn.
+
+### codex-cli 0.166.0
+
+`probes/codex/background.mjs`, on `codex-rt1`. Logs are `probes/codex/logs/background{,-session}.*`. The generated `--experimental` schema bundle was searched for anything about background work.
+
+- Codex has background terminals: commands kept running as unified-exec terminal sessions (`unified_exec` is `stable`, on). The request `thread/backgroundTerminals/list {threadId}` returns `{command, cwd, itemId, processId, osPid?, cpuPercent?, rssKb?}` per terminal, with `terminate` and `clean` beside it. No server notification announces a change.
+- Asked only to run a command "in the background", the model detached it with `nohup … &` inside a one-off shell call `[observed]`. That call completed at once, the background-terminal list stayed empty, and nothing reported the detached process. Work detached that way is invisible to the app-server.
+- Asked to run the command directly with a short yield, so it keeps running as a terminal session, the stream showed the following `[observed]`:
+  - `item/started` (`commandExecution`, `status: inProgress`, a `processId`), then the reply and `turn/completed`, with no `item/completed` for the command;
+  - `thread/backgroundTerminals/list` held the command (`sleep 30 && echo BG-CODEX-DONE`, without the `/bin/bash -lc` wrapper) until it exited;
+  - `item/completed` for it arrived about 27 s after the turn's end, outside any turn, and the list then emptied;
+  - nothing woke a new turn.
+- So on the stream, a command whose `item/started` has no `item/completed` by its turn's `turn/completed` is background work until that `item/completed` arrives `[observed]`. Roundhouse derives the Codex background list from that, with no polling. Before this batch the adapter mapped that late `item/completed` to tool events, which made the service open a turn that never ended; it is now recorded as the command's call and result, opening no turn, its result unread at once, under the identities a history import gives the same item.
+
 ## Recommendations
 
 - Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. Roundhouse should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.

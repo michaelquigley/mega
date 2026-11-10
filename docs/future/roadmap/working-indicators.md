@@ -2,7 +2,7 @@
 title: working indicators
 state: evaluating
 created: 2026-11-10
-tags: [enhancement, ui, side-panel, conversation-view]
+tags: [enhancement]
 ---
 
 First slice of the look-and-feel cluster (side panel, conversation view, operator input panel). Michael cannot see at a glance what is working: the sidebar's running mark is an 8px ring fading between full and a third opacity, projects show no state, and in the conversation view "working" is a small header label, a muted " running" on tool lines and the reply box placeholder, with nothing at the bottom where he is looking.

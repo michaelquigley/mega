@@ -52,7 +52,19 @@ type conversationView struct {
 	// field to inherit (codex only).
 	ModelNextInherit  bool `dd:",+omitempty"`
 	EffortNextInherit bool `dd:",+omitempty"`
-	Pending           []*requestView
+	// Background is the work the runtime keeps running outside a turn;
+	// absent when none.
+	Background []*backgroundView `dd:",+omitempty"`
+	Pending    []*requestView
+}
+
+// backgroundView is one background job: the harness's id for it, what it is,
+// its kind, and when the adapter first saw it.
+type backgroundView struct {
+	ID          string
+	Description string
+	Kind        string
+	StartedAt   time.Time `dd:",+omitempty"`
 }
 
 type requestView struct {
@@ -93,6 +105,9 @@ func newConversationView(conv service.ConversationView) *conversationView {
 		view.Model, view.Version, view.PermissionMode = conv.Facts.Model, conv.Facts.Version, conv.Facts.PermissionMode
 		view.PermissionModeInherited = conv.Facts.ModeInherited
 		view.Effort = conv.Facts.Effort
+	}
+	for _, job := range conv.Background {
+		view.Background = append(view.Background, &backgroundView{ID: job.ID, Description: job.Description, Kind: job.Kind, StartedAt: job.StartedAt})
 	}
 	for _, req := range conv.Pending {
 		view.Pending = append(view.Pending, &requestView{ID: req.ID, Kind: req.Kind, Payload: req.Payload, At: conv.PendingAt[req.ID]})

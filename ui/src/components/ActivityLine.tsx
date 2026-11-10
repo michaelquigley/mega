@@ -1,5 +1,5 @@
-import { describeActivity, transitions } from '../activity'
-import { elapsedSince, longElapsed, useNow } from '../clock'
+import { describeActivity } from '../activity'
+import { elapsedSince, longElapsed, shortElapsed, useNow } from '../clock'
 import type { ConversationLog } from '../log'
 import type { Conversation } from '../types'
 import { Spinner } from './AttentionMark'
@@ -16,11 +16,8 @@ export function ActivityLine({ conversation, log, stale }: { conversation: Conve
   if (!activity) {
     return null
   }
-  let elapsed: string | null = null
-  if (conversation.turn_active && conversation.pending.length === 0 && !transitions[conversation.state] && conversation.state !== 'unsupervised') {
-    const since = elapsedSince(conversation.turn_started_at, clock)
-    elapsed = since === null ? null : longElapsed(since)
-  }
+  const since = elapsedSince(activity.since, clock)
+  const elapsed = since === null ? null : activity.format === 'short' ? shortElapsed(since) : longElapsed(since)
   // the elapsed time ticks every second, so it stays out of what a screen
   // reader announces.
   return (
@@ -29,6 +26,7 @@ export function ActivityLine({ conversation, log, stale }: { conversation: Conve
       <span className="activity-text">
         <span role="status">{activity.text}</span>
         {elapsed && <span aria-hidden="true"> · {elapsed}</span>}
+        {activity.suffix && <span> · {activity.suffix}</span>}
       </span>
     </div>
   )

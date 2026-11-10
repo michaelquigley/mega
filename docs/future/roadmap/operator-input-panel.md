@@ -1,8 +1,8 @@
 ---
 title: operator input panel
-state: building
+state: evaluating
 created: 2026-11-09
-tags: [enhancement]
+tags: [epic]
 ---
 
 the operator input panel needs to:
@@ -12,6 +12,6 @@ the operator input panel needs to:
 - ~~eliminate the stray text at the bottom about continuing in a terminal (we can probably just make a modal that pops up as a confirmation to release, which contains these details)~~ (moved to the `input-panel` card)
 - ~~have the controls for approval right above the panel~~ (moved to the `input-panel` card)
 - ~~name and label and remove and the other controls need to be readily accessible from the panel and the bottom of the conversation (the bottom is where the action is)~~ (moved to the `input-panel` card)
-- needs to support `@` for searching for paths
+- ~~needs to support `@` for searching for paths~~ (moved to the `path-search-in-the-input-panel` card)
 
 generally we need to treat the operator input panel as more of a first class ui component, where all of the conversation controls cluster. 
