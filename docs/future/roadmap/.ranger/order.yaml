@@ -1,13 +1,17 @@
 building:
-  - markdown.md
+  - no-clipped-messages.md
 horizon:
   - ui-test-runner.md
 researching:
   - auto-mode-in-claude-code.md
+  - working-spinner.md
   - typography.md
+  - paths.md
   - favicon.md
   - dfw-daemon-mode.md
   - empty-never-means-unreachable.md
+  - conversation-view-nits.md
 evaluating:
+  - markdown.md
   - scroll-to-latest.md
   - remove-conversation.md

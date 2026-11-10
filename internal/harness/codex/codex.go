@@ -152,7 +152,7 @@ func (h *Harness) Discover(ctx context.Context, cwd string) ([]harness.Session, 
 		}
 		sessions = append(sessions, harness.Session{
 			NativeID:  t.ID,
-			Preview:   clip(t.Preview),
+			Preview:   t.Preview,
 			CreatedAt: seconds(t.CreatedAt),
 			UpdatedAt: seconds(t.UpdatedAt),
 		})

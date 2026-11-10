@@ -11,8 +11,8 @@ import (
 	"git.hq.quigley.com/research/roundhouse/internal/model"
 )
 
-// maxText bounds the text an event carries; the full message stays in Raw.
-const maxText = 4000
+// maxTitle bounds a tool-use summary line, in bytes.
+const maxTitle = 200
 
 // sdkMessage is the subset of an agent sdk message (and of a stored session
 // message, which shares the user and assistant shapes) the adapter reads.
@@ -75,7 +75,7 @@ func mapMessage(raw map[string]any) ([]*model.Event, error) {
 		return mapBlocks(msg, raw, assistantBlock)
 	case msg.Type == "user" && msg.ParentToolUseID == "":
 		if text, ok := msg.Message.text(); ok {
-			return []*model.Event{{Kind: model.EventUser, Text: clip(text), NativeID: msg.UUID, Raw: raw}}, nil
+			return []*model.Event{{Kind: model.EventUser, Text: text, NativeID: msg.UUID, Raw: raw}}, nil
 		}
 		return mapBlocks(msg, raw, userBlock)
 	case msg.Type == "result":
@@ -123,9 +123,9 @@ func mapBlocks(msg *sdkMessage, raw map[string]any, mapBlock func(*sdkBlock) *mo
 func assistantBlock(block *sdkBlock) *model.Event {
 	switch block.Type {
 	case "text":
-		return &model.Event{Kind: model.EventAssistant, Text: clip(block.Text)}
+		return &model.Event{Kind: model.EventAssistant, Text: block.Text}
 	case "tool_use":
-		return &model.Event{Kind: model.EventToolUse, Tool: block.Name, ToolUseID: block.ID, Text: clip(strings.TrimSpace(block.Name + " " + summarize(block.Input)))}
+		return &model.Event{Kind: model.EventToolUse, Tool: block.Name, ToolUseID: block.ID, Text: title(strings.TrimSpace(block.Name + " " + summarize(block.Input)))}
 	default:
 		return &model.Event{Kind: model.EventNative, Text: "assistant/" + block.Type}
 	}
@@ -133,9 +133,9 @@ func assistantBlock(block *sdkBlock) *model.Event {
 
 func userBlock(block *sdkBlock) *model.Event {
 	if block.Type != "tool_result" {
-		return &model.Event{Kind: model.EventNative, Text: clip("user/" + block.Type + " " + block.Text)}
+		return &model.Event{Kind: model.EventNative, Text: "user/" + block.Type + " " + block.Text}
 	}
-	ev := &model.Event{Kind: model.EventToolResult, ToolUseID: block.ToolUseID, Text: clip(resultText(block.Content))}
+	ev := &model.Event{Kind: model.EventToolResult, ToolUseID: block.ToolUseID, Text: resultText(block.Content)}
 	if block.IsError {
 		ev.Status = model.TurnError
 	}
@@ -236,11 +236,14 @@ func summarize(input any) string {
 	return strings.Join(parts, " ")
 }
 
-func clip(s string) string {
-	if len(s) <= maxText {
+// title bounds a tool-use summary line, which the view shows as one line and
+// which is a title by design; the full call stays in Raw. message text and
+// tool results are never bounded.
+func title(s string) string {
+	if len(s) <= maxTitle {
 		return s
 	}
-	cut := maxText
+	cut := maxTitle
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}

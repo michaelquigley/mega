@@ -10,8 +10,8 @@ import (
 	"git.hq.quigley.com/research/roundhouse/internal/model"
 )
 
-// maxText bounds the text an event carries; the full item stays in Raw.
-const maxText = 4000
+// maxTitle bounds a tool-use summary line, in bytes.
+const maxTitle = 200
 
 func bindItem(raw map[string]any) (*item, error) {
 	it := &item{}
@@ -36,11 +36,11 @@ func mapItem(raw map[string]any) ([]*model.Event, error) {
 		if it.ClientID != "" {
 			id = it.ClientID
 		}
-		return []*model.Event{{Kind: model.EventUser, Text: clip(contentText(it.Content)), NativeID: id, Raw: raw}}, nil
+		return []*model.Event{{Kind: model.EventUser, Text: contentText(it.Content), NativeID: id, Raw: raw}}, nil
 	case "agentMessage":
-		return []*model.Event{{Kind: model.EventAssistant, Text: clip(it.Text), NativeID: it.ID, Raw: raw}}, nil
+		return []*model.Event{{Kind: model.EventAssistant, Text: it.Text, NativeID: it.ID, Raw: raw}}, nil
 	case "commandExecution":
-		result := &model.Event{Kind: model.EventToolResult, ToolUseID: it.ID, Text: clip(it.AggregatedOutput), NativeID: it.ID + "/result"}
+		result := &model.Event{Kind: model.EventToolResult, ToolUseID: it.ID, Text: it.AggregatedOutput, NativeID: it.ID + "/result"}
 		if it.Status != "completed" || (it.ExitCode != nil && *it.ExitCode != 0) {
 			result.Status = model.TurnError
 			if result.Text == "" {
@@ -48,7 +48,7 @@ func mapItem(raw map[string]any) ([]*model.Event, error) {
 			}
 		}
 		return []*model.Event{
-			{Kind: model.EventToolUse, Tool: "shell", ToolUseID: it.ID, Text: clip("shell " + it.Command), NativeID: it.ID, Raw: raw},
+			{Kind: model.EventToolUse, Tool: "shell", ToolUseID: it.ID, Text: title("shell " + it.Command), NativeID: it.ID, Raw: raw},
 			result,
 		}, nil
 	case "fileChange":
@@ -58,13 +58,13 @@ func mapItem(raw map[string]any) ([]*model.Event, error) {
 			paths = append(paths, change.Path)
 			diffs = append(diffs, change.Diff)
 		}
-		result := &model.Event{Kind: model.EventToolResult, ToolUseID: it.ID, Text: clip(strings.Join(diffs, "\n")), NativeID: it.ID + "/result"}
+		result := &model.Event{Kind: model.EventToolResult, ToolUseID: it.ID, Text: strings.Join(diffs, "\n"), NativeID: it.ID + "/result"}
 		if it.Status != "completed" {
 			result.Status = model.TurnError
 			result.Text = it.Status
 		}
 		return []*model.Event{
-			{Kind: model.EventToolUse, Tool: "edit", ToolUseID: it.ID, Text: clip("edit " + strings.Join(paths, ", ")), NativeID: it.ID, Raw: raw},
+			{Kind: model.EventToolUse, Tool: "edit", ToolUseID: it.ID, Text: title("edit " + strings.Join(paths, ", ")), NativeID: it.ID, Raw: raw},
 			result,
 		}, nil
 	case "mcpToolCall":
@@ -74,11 +74,11 @@ func mapItem(raw map[string]any) ([]*model.Event, error) {
 		}
 		tool := it.Server + "." + it.Tool
 		return []*model.Event{
-			{Kind: model.EventToolUse, Tool: tool, ToolUseID: it.ID, Text: clip(tool), NativeID: it.ID, Raw: raw},
+			{Kind: model.EventToolUse, Tool: tool, ToolUseID: it.ID, Text: title(tool), NativeID: it.ID, Raw: raw},
 			result,
 		}, nil
 	case "webSearch":
-		return []*model.Event{{Kind: model.EventToolUse, Tool: "web search", ToolUseID: it.ID, Text: clip("web search " + it.Query), NativeID: it.ID, Raw: raw}}, nil
+		return []*model.Event{{Kind: model.EventToolUse, Tool: "web search", ToolUseID: it.ID, Text: title("web search " + it.Query), NativeID: it.ID, Raw: raw}}, nil
 	default:
 		return []*model.Event{{Kind: model.EventNative, Text: it.Type, NativeID: it.ID, Raw: raw}}, nil
 	}
@@ -139,11 +139,14 @@ func turnStatus(status string) string {
 	}
 }
 
-func clip(s string) string {
-	if len(s) <= maxText {
+// title bounds a tool-use summary line, which the view shows as one line and
+// which is a title by design; the full call stays in Raw. message text and
+// tool results are never bounded.
+func title(s string) string {
+	if len(s) <= maxTitle {
 		return s
 	}
-	cut := maxText
+	cut := maxTitle
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}

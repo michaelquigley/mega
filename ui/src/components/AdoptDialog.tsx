@@ -94,7 +94,7 @@ export function AdoptDialog({ projectId, onClose, onAdopted }: AdoptDialogProps)
                   onChange={() => setChosen(session.native_id)}
                 />
                 <span>
-                  {session.preview || <em>no first prompt</em>}
+                  <span className="preview">{session.preview || <em>no first prompt</em>}</span>
                   <span className="muted">
                     {' '}
                     {session.updated_at ? new Date(session.updated_at).toLocaleString() : ''} · <code>{session.native_id}</code>

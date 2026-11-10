@@ -74,9 +74,16 @@ function textOf(node: HastNode): string {
   return (node.children ?? []).map(textOf).join('')
 }
 
+// a fenced block longer than this many lines shows only that many until the
+// reader asks for all of it.
+const collapsedLines = 40
+
 // CodeBlock is a fenced block: the language, if the fence named one, a copy
-// control, and the code in a monospace block. no highlighting.
+// control, and the code in a monospace block. no highlighting. a long block is
+// collapsed to its first lines by height alone, so the whole block stays in
+// the page, and copy always takes the whole source.
 function CodeBlock({ children, node }: { children?: ReactNode } & ExtraProps) {
+  const [expanded, setExpanded] = useState(false)
   const code = (node?.children ?? []).find((child) => child.type === 'element' && child.tagName === 'code') as
     | HastNode
     | undefined
@@ -85,13 +92,20 @@ function CodeBlock({ children, node }: { children?: ReactNode } & ExtraProps) {
     ? classes.map(String).find((name) => name.startsWith('language-'))?.slice('language-'.length)
     : undefined
   const source = code ? textOf(code).replace(/\n$/, '') : ''
+  const lines = source.split('\n').length
+  const long = lines > collapsedLines
   return (
     <div className="code-block">
       <div className="code-head">
         <span className="code-language">{language ?? ''}</span>
         <CopyButton text={source} />
       </div>
-      <pre>{children}</pre>
+      <pre className={long && !expanded ? 'collapsed' : undefined}>{children}</pre>
+      {long && (
+        <button type="button" className="code-toggle" onClick={() => setExpanded(!expanded)}>
+          {expanded ? `Show only the first ${collapsedLines} lines` : `Show all ${lines} lines`}
+        </button>
+      )}
     </div>
   )
 }

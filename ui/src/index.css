@@ -564,6 +564,26 @@ dialog label {
   word-break: normal;
 }
 
+/* forty lines of code below the top padding, with no bottom padding, so the
+   clip falls exactly between two lines; keep the count in step with
+   collapsedLines in Markdown.tsx. */
+.code-block pre.collapsed {
+  max-height: calc(40lh + 8px);
+  overflow-y: hidden;
+  padding-bottom: 0;
+}
+
+.code-toggle {
+  border: 0;
+  border-radius: 0 0 4px 4px;
+  border-top: 1px solid var(--line);
+  color: var(--accent);
+  display: block;
+  font-size: 12px;
+  text-align: left;
+  width: 100%;
+}
+
 .who {
   color: var(--muted);
   display: block;
@@ -707,6 +727,14 @@ hr.turn {
   max-height: 320px;
   overflow-y: auto;
   padding: 8px 10px;
+}
+
+/* a session's preview is its whole first prompt; three lines say enough to
+   pick it. */
+.sessions .preview {
+  display: block;
+  max-height: 3lh;
+  overflow: hidden;
 }
 
 .sessions code {
