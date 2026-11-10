@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@fontsource-variable/source-serif-4": "5.2.9",
+    "@material-design-icons/svg": "0.14.15",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "10.1.0",

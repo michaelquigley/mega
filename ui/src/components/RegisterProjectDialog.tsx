@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { createProject } from '../api'
 import type { Project } from '../types'
+import { IconButton } from './Icon'
 
 interface RegisterProjectDialogProps {
   onClose: () => void
@@ -33,7 +34,10 @@ export function RegisterProjectDialog({ onClose, onRegistered }: RegisterProject
   return (
     <dialog ref={dialogRef} onClose={onClose}>
       <form onSubmit={(event) => void onSubmit(event)}>
-        <h2>Register a project</h2>
+        <div className="dialog-head">
+          <h2>Register a project</h2>
+          <IconButton icon="close" label="Cancel" onClick={onClose} />
+        </div>
         <label>
           Checkout
           <input
@@ -54,12 +58,7 @@ export function RegisterProjectDialog({ onClose, onRegistered }: RegisterProject
         </label>
         {error && <p className="error">{error}</p>}
         <div className="actions">
-          <button type="button" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" disabled={submitting}>
-            Register
-          </button>
+          <IconButton type="submit" icon="create_new_folder" label="Register" disabled={submitting} />
         </div>
       </form>
     </dialog>

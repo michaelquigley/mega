@@ -2,6 +2,7 @@ import { select, type Selection } from '../selection'
 import type { StreamState } from '../stream'
 import type { Conversation, Project } from '../types'
 import { AttentionMark, Elapsed, ProjectMark } from './AttentionMark'
+import { IconButton } from './Icon'
 
 interface SidebarProps {
   projects: Project[]
@@ -59,9 +60,7 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
       <section className="projects">
         <div className="section-head">
           <h2>Projects</h2>
-          <button type="button" onClick={onRegister}>
-            Register
-          </button>
+          <IconButton icon="create_new_folder" label="Register a project" onClick={onRegister} />
         </div>
         {projects.length === 0 && <p className="muted">No projects yet.</p>}
         <ul>

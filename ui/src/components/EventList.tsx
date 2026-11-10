@@ -101,7 +101,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
         const what = event.req?.kind === 'question' ? 'Question' : `Approval for ${payload?.tool ?? 'a tool'}`
         let status = 'not pending'
         if (pendingIds.has(id)) {
-          status = 'waiting for you below'
+          status = 'waiting for you'
         } else if (outcome) {
           status = outcomeLabels[outcome] ?? outcome
         }

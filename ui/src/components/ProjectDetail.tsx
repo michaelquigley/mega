@@ -3,6 +3,7 @@ import { select } from '../selection'
 import { removeProject, renameProject } from '../api'
 import type { Conversation, Project } from '../types'
 import { AttentionMark } from './AttentionMark'
+import { IconButton } from './Icon'
 
 interface ProjectDetailProps {
   project: Project
@@ -52,12 +53,8 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
         <div className="section-head">
           <h2>Conversations</h2>
           <span className="section-actions">
-            <button type="button" onClick={onAdopt}>
-              Adopt a session
-            </button>
-            <button type="button" onClick={onLaunch}>
-              New conversation
-            </button>
+            <IconButton icon="download" label="Adopt a session" onClick={onAdopt} />
+            <IconButton icon="add_comment" label="New conversation" onClick={onLaunch} />
           </span>
         </div>
         {conversations.length === 0 ? (
@@ -83,9 +80,7 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
       <form className="inline-form" onSubmit={onRename}>
         <label htmlFor="project-name">Name</label>
         <input id="project-name" value={name} onChange={(event) => setName(event.target.value)} />
-        <button type="submit" disabled={name.trim() === '' || name.trim() === project.name}>
-          Rename
-        </button>
+        <IconButton type="submit" icon="edit" label="Rename the project" word="Rename" disabled={name.trim() === '' || name.trim() === project.name} />
       </form>
       <section className="danger">
         {confirming ? (
@@ -100,21 +95,19 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
                 Release or resume first: {unsettled.map((conversation) => conversation.name).join(', ')}.
               </p>
             )}
-            <button
-              type="button"
-              disabled={unsettled.length > 0}
-              onClick={() => void attempt(() => removeProject(project.id))}
-            >
-              Remove
-            </button>{' '}
-            <button type="button" onClick={() => setConfirming(false)}>
-              Cancel
-            </button>
+            <span className="actions-row">
+              <IconButton
+                icon="delete"
+                label="Remove the project from the workspace"
+                word="Remove"
+                disabled={unsettled.length > 0}
+                onClick={() => void attempt(() => removeProject(project.id))}
+              />
+              <IconButton icon="close" label="Cancel" onClick={() => setConfirming(false)} />
+            </span>
           </>
         ) : (
-          <button type="button" onClick={() => setConfirming(true)}>
-            Remove from workspace
-          </button>
+          <IconButton icon="delete" label="Remove from workspace" word="Remove from workspace" onClick={() => setConfirming(true)} />
         )}
       </section>
     </article>

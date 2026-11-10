@@ -15,6 +15,8 @@
 //   burst N          N assistant messages at once
 //   drip N MS        N assistant messages MS apart, each streamed first
 //   ask              a permission request; the turn ends once it is answered
+//   ask2             two permission requests, 300ms apart; the turn ends once
+//                    both are answered
 //   tool MS          a Bash call to `go test ./...` that runs for MS, then
 //                    its result and one assistant message, "done"
 //   busy MS          a busy turn: a sentence, three tool calls of MS each, a
@@ -94,7 +96,14 @@ const fresh = arg('--session-id') !== undefined
 let mode = arg('--permission-mode') ?? 'default'
 let current = resolve(arg('--model') ?? 'default') ?? arg('--model')
 let first = null
-let waiting = null
+// the permission requests raised and not yet answered, by id.
+const waiting = new Set()
+// ask raises one permission request for a Bash command.
+const ask = (command) => {
+  const id = 'req-' + randomUUID().slice(0, 8)
+  waiting.add(id)
+  out({ type: 'request', id, kind: 'permission', tool: 'Bash', input: { command }, toolUseId: 'tu-' + id })
+}
 
 // keep records a message for later imports, then sends it.
 const keep = (msg) => {
@@ -176,8 +185,11 @@ async function turn(text) {
     }
     end()
   } else if (verb === 'ask') {
-    waiting = 'req-' + randomUUID().slice(0, 8)
-    out({ type: 'request', id: waiting, kind: 'permission', tool: 'Bash', input: { command: 'echo fake' }, toolUseId: 'tu-' + waiting })
+    ask('echo fake')
+  } else if (verb === 'ask2') {
+    ask('echo first')
+    await sleep(300)
+    ask('echo second')
   } else if (verb === 'tool') {
     await toolCall('Bash', { command: 'go test ./...' }, Number(a) || 1000)
     say('done')
@@ -193,8 +205,7 @@ async function turn(text) {
         '```go\nfunc (l *live) endTurn() {\n\tl.turnActive, l.turnStartedAt = false, time.Time{}\n}\n```\n\n' +
         'With that, `turnStartedAt` is never left behind.',
     )
-    waiting = 'req-' + randomUUID().slice(0, 8)
-    out({ type: 'request', id: waiting, kind: 'permission', tool: 'Bash', input: { command: 'go test ./...' }, toolUseId: 'tu-' + waiting })
+    ask('go test ./...')
   } else if (verb === 'echo') {
     say(body)
     end()
@@ -237,19 +248,20 @@ lines.on('line', (line) => {
   } else if (frame.type === 'set_effort') {
     out({ type: 'effort_set', id: frame.id, effort: frame.effort })
   } else if (frame.type === 'answer') {
-    if (frame.id !== waiting) {
+    if (!waiting.has(frame.id)) {
       out({ type: 'answer_rejected', id: frame.id })
       return
     }
-    waiting = null
+    waiting.delete(frame.id)
     out({ type: 'answer_accepted', id: frame.id })
     say(`Answered: ${frame.decision}`)
-    end()
+    // the turn ends once nothing is left waiting.
+    if (waiting.size === 0) end()
   } else if (frame.type === 'interrupt') {
-    if (waiting) {
-      out({ type: 'request_resolved', id: waiting, outcome: 'aborted' })
-      waiting = null
+    for (const id of waiting) {
+      out({ type: 'request_resolved', id, outcome: 'aborted' })
     }
+    waiting.clear()
     out({ type: 'interrupted', response: {} })
     end('error_during_execution')
   } else if (frame.type === 'close') {

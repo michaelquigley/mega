@@ -1,6 +1,7 @@
 import { memo, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { IconButton } from './Icon'
 
 // Markdown renders message text: assistant replies, the streaming delta, and
 // the operator's prompts, all through this one path so a reply looks the same
@@ -102,15 +103,18 @@ function CodeBlock({ children, node }: { children?: ReactNode } & ExtraProps) {
       </div>
       <pre className={long && !expanded ? 'collapsed' : undefined}>{children}</pre>
       {long && (
-        <button type="button" className="code-toggle" onClick={() => setExpanded(!expanded)}>
-          {expanded ? `Show only the first ${collapsedLines} lines` : `Show all ${lines} lines`}
-        </button>
+        <IconButton
+          className="code-toggle"
+          icon={expanded ? 'unfold_less' : 'unfold_more'}
+          label={expanded ? `Show only the first ${collapsedLines} lines` : `Show all ${lines} lines`}
+          onClick={() => setExpanded(!expanded)}
+        />
       )}
     </div>
   )
 }
 
-function CopyButton({ text }: { text: string }) {
+export function CopyButton({ text }: { text: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const copy = async () => {
     try {
@@ -122,8 +126,11 @@ function CopyButton({ text }: { text: string }) {
     window.setTimeout(() => setState('idle'), 1500)
   }
   return (
-    <button type="button" className="copy" onClick={() => void copy()}>
-      {state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy'}
-    </button>
+    <IconButton
+      className="copy"
+      icon={state === 'copied' ? 'check' : state === 'failed' ? 'error_outline' : 'content_copy'}
+      label={state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy'}
+      onClick={() => void copy()}
+    />
   )
 }

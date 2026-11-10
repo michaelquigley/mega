@@ -360,10 +360,26 @@ dialog::backdrop {
   background: rgb(0 0 0 / 35%);
 }
 
-dialog form {
+dialog form,
+.dialog-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.dialog-body p {
+  margin: 0;
+}
+
+/* a dialog's title, with its close control at the right. */
+.dialog-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.dialog-head h2 {
+  margin: 0;
 }
 
 dialog label {
@@ -504,6 +520,10 @@ dialog label {
   flex-direction: column;
   gap: 12px;
   max-width: 960px;
+  /* the conversation fills the column, so the input panel sits at its foot
+     even under a short history, and grows upwards: the control bar never
+     moves under the pointer when the reply box opens. */
+  min-height: 100%;
 }
 
 .conversation-head {
@@ -536,17 +556,6 @@ dialog label {
   font-size: calc(12px * var(--fs));
   margin: 2px 0 0;
   overflow-wrap: anywhere;
-}
-
-.edit summary {
-  color: var(--muted);
-  cursor: pointer;
-  font-size: calc(12px * var(--fs));
-  margin-top: 6px;
-}
-
-.edit form {
-  margin-top: 6px;
 }
 
 /* blocks of the conversation stand about 16px apart; rows inside an action
@@ -731,8 +740,7 @@ dialog label {
 }
 
 .code-head .copy {
-  font-size: calc(12px * var(--fs));
-  padding: 1px 8px;
+  padding: 1px 4px;
 }
 
 .code-block pre {
@@ -759,9 +767,7 @@ dialog label {
   border-radius: 0 0 4px 4px;
   border-top: 1px solid var(--line);
   color: var(--accent);
-  display: block;
-  font-size: calc(12px * var(--fs));
-  text-align: left;
+  justify-content: center;
   width: 100%;
 }
 
@@ -848,41 +854,6 @@ hr.turn {
   gap: 8px;
 }
 
-.controls {
-  align-items: center;
-  border-top: 1px solid var(--line);
-  display: flex;
-  gap: 8px;
-  padding-top: 10px;
-}
-
-.toggle {
-  align-items: center;
-  color: var(--muted);
-  display: flex;
-  font-size: calc(12px * var(--fs));
-  gap: 4px;
-  margin-left: auto;
-}
-
-.handoff {
-  font-size: calc(12px * var(--fs));
-  margin: 0;
-}
-
-.handoff code {
-  overflow-wrap: anywhere;
-}
-
-.reply {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.reply .actions {
-  align-items: center;
-}
 
 .mark-stale,
 .state.stale {
@@ -927,49 +898,6 @@ hr.turn {
   }
 }
 
-.remove {
-  margin-top: 6px;
-}
-
-.remove p {
-  margin: 0 0 8px;
-  max-width: 640px;
-}
-
-/* the newer-activity control rides the bottom of the main column without
-   taking space in the conversation: a zero-height sticky row whose button
-   overflows upwards. */
-.newer {
-  align-items: flex-end;
-  bottom: 12px;
-  display: flex;
-  height: 0;
-  justify-content: center;
-  position: sticky;
-}
-
-.newer button {
-  background: var(--bg);
-  border-color: var(--accent);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
-  color: var(--accent);
-}
-
-.mode-control {
-  align-items: center;
-  color: var(--muted);
-  display: flex;
-  flex-wrap: wrap;
-  font-size: calc(12px * var(--fs));
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.mode-control select {
-  font-size: calc(12px * var(--fs));
-  padding: 2px 6px;
-}
-
 .mcp-parameters {
   margin: 0;
 }
@@ -987,17 +915,6 @@ hr.turn {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.model-control label {
-  align-items: center;
-  display: flex;
-  gap: 6px;
-}
-
-.model-control button {
-  font-size: calc(12px * var(--fs));
-  padding: 2px 8px;
 }
 
 /* the activity line: what the conversation is doing now, just above the
@@ -1036,4 +953,225 @@ hr.turn {
 
 .activity-stale {
   color: var(--muted);
+}
+
+/* icons: material icons inlined as svg, in the text colour around them. */
+.icon {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.icon svg {
+  fill: currentColor;
+  height: 18px;
+  width: 18px;
+}
+
+.icon-button {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  justify-content: center;
+  padding: 4px 6px;
+}
+
+.icon-button.with-word {
+  padding: 4px 10px 4px 8px;
+}
+
+.actions-row {
+  display: inline-flex;
+  gap: 8px;
+}
+
+/* the input panel: the conversation's control cluster, pinned to the bottom
+   of the column, with the history scrolling behind it. */
+.panel-cluster {
+  background: var(--bg);
+  bottom: 0;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  position: sticky;
+  z-index: 1;
+}
+
+/* pending requests, docked above the reply box; several stack, oldest
+   first, and scroll among themselves if they would take the column. */
+.docked {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.reply {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.panel-cluster.expanded .reply {
+  border-color: var(--accent);
+}
+
+.reply textarea {
+  background: transparent;
+  border: 0;
+  border-radius: 6px 6px 0 0;
+  display: block;
+  outline: none;
+  overflow: hidden;
+  padding: 8px 12px;
+  resize: none;
+}
+
+.panel-cluster.expanded .reply textarea {
+  overflow-y: auto;
+}
+
+/* the drag handle on the reply box's top edge sets its remembered height. */
+.drag-handle {
+  cursor: ns-resize;
+  height: 10px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: -5px;
+  z-index: 1;
+}
+
+.drag-handle::after {
+  background: var(--line);
+  border-radius: 2px;
+  content: '';
+  height: 3px;
+  left: calc(50% - 16px);
+  position: absolute;
+  top: 3px;
+  width: 32px;
+}
+
+.drag-handle:hover::after,
+.drag-handle:focus-visible::after {
+  background: var(--accent);
+}
+
+.control-bar {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 4px 6px;
+}
+
+.bar-start,
+.bar-end {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bar-control,
+.bar-control label {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: calc(12px * var(--fs));
+  gap: 6px;
+}
+
+.bar-control select {
+  font-size: calc(12px * var(--fs));
+  max-width: 220px;
+  padding: 2px 6px;
+}
+
+.bar-control .icon-button {
+  font-size: calc(12px * var(--fs));
+  padding: 2px 6px;
+}
+
+/* the more menu opens upwards from the control bar. */
+.more {
+  position: relative;
+}
+
+.menu {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  bottom: calc(100% + 4px);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 4px;
+  position: absolute;
+  right: 0;
+  z-index: 2;
+}
+
+.menu-item {
+  align-items: center;
+  background: none;
+  border: 0;
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  text-align: left;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
+  background: var(--panel);
+}
+
+.menu-item .check {
+  margin-left: auto;
+}
+
+/* the exact resume command in the release confirmation, with its copy. */
+.command {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  display: flex;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+}
+
+.command code {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+/* the newer-activity control floats just above the cluster, centred. */
+.newer {
+  bottom: calc(100% + 8px);
+  display: flex;
+  justify-content: center;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+}
+
+.newer button {
+  background: var(--bg);
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+  color: var(--accent);
+  pointer-events: auto;
 }

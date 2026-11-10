@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { answerRequest, type Answer } from '../api'
 import type { FormField, PendingRequest, Question, RequestPayload } from '../types'
+import { IconButton } from './Icon'
 
 interface RequestCardProps {
   conversationId: string
@@ -72,12 +73,8 @@ function PermissionForm({ request, sending, onAnswer }: { request: PendingReques
       )}
       <div className="inline-form">
         <input placeholder="Reason, sent with a denial" value={message} onChange={(event) => setMessage(event.target.value)} />
-        <button type="button" disabled={sending} onClick={() => onAnswer({ decision: 'allow' })}>
-          Allow
-        </button>
-        <button type="button" disabled={sending} onClick={() => onAnswer({ decision: 'deny', message })}>
-          Deny
-        </button>
+        <IconButton icon="check" label="Allow" word="Allow" disabled={sending} onClick={() => onAnswer({ decision: 'allow' })} />
+        <IconButton icon="block" label="Deny" word="Deny" disabled={sending} onClick={() => onAnswer({ decision: 'deny', message })} />
       </div>
     </>
   )
@@ -111,17 +108,17 @@ function McpApproval({ payload, sending, onAnswer }: { payload: RequestPayload; 
         payload.input && Object.keys(payload.input).length > 0 && <pre>{JSON.stringify(payload.input, null, 2)}</pre>
       )}
       <div className="actions">
-        <button type="button" disabled={sending} onClick={() => onAnswer({ decision: 'allow' })}>
-          Allow
-        </button>
+        <IconButton icon="check" label="Allow" word="Allow" disabled={sending} onClick={() => onAnswer({ decision: 'allow' })} />
         {payload.allow_session && (
-          <button type="button" disabled={sending} onClick={() => onAnswer({ decision: 'allow_session' })}>
-            Allow this tool for the session
-          </button>
+          <IconButton
+            icon="done_all"
+            label="Allow this tool for the session"
+            word="Allow this tool for the session"
+            disabled={sending}
+            onClick={() => onAnswer({ decision: 'allow_session' })}
+          />
         )}
-        <button type="button" disabled={sending} onClick={() => onAnswer({ decision: 'deny' })}>
-          Deny
-        </button>
+        <IconButton icon="block" label="Deny" word="Deny" disabled={sending} onClick={() => onAnswer({ decision: 'deny' })} />
       </div>
     </>
   )
@@ -166,9 +163,7 @@ function FormQuestion({ payload, sending, onAnswer }: { payload: RequestPayload;
         <FormFieldInput key={field.name} field={field} value={values[field.name] ?? ''} onChange={(value) => set(field.name, value)} />
       ))}
       <div className="actions">
-        <button type="submit" disabled={sending || !complete}>
-          Answer
-        </button>
+        <IconButton type="submit" icon="reply" label="Answer" word="Answer" disabled={sending || !complete} />
       </div>
     </form>
   )
@@ -281,9 +276,7 @@ function QuestionForm({ questions, sending, onAnswer }: { questions: Question[];
         </fieldset>
       ))}
       <div className="actions">
-        <button type="submit" disabled={sending || !complete}>
-          Answer
-        </button>
+        <IconButton type="submit" icon="reply" label="Answer" word="Answer" disabled={sending || !complete} />
       </div>
     </form>
   )

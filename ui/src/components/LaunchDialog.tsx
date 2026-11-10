@@ -5,6 +5,7 @@ import { useModels } from '../models'
 import { permissionModes } from '../permissions'
 import type { Conversation } from '../types'
 import { ModelPicker } from './ModelPicker'
+import { IconButton } from './Icon'
 
 interface LaunchDialogProps {
   projectId: string
@@ -54,7 +55,10 @@ export function LaunchDialog({ projectId, inheritedMode, onClose, onLaunched }: 
   return (
     <dialog ref={dialogRef} onClose={onClose}>
       <form onSubmit={(event) => void onSubmit(event)}>
-        <h2>New conversation</h2>
+        <div className="dialog-head">
+          <h2>New conversation</h2>
+          <IconButton icon="close" label="Cancel" onClick={onClose} />
+        </div>
         <label>
           Harness
           <select
@@ -125,12 +129,7 @@ export function LaunchDialog({ projectId, inheritedMode, onClose, onLaunched }: 
         </p>
         {error && <p className="error">{error}</p>}
         <div className="actions">
-          <button type="button" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" disabled={submitting || prompt.trim() === ''}>
-            Launch
-          </button>
+          <IconButton type="submit" icon="rocket_launch" label="Launch" disabled={submitting || prompt.trim() === ''} />
         </div>
       </form>
     </dialog>

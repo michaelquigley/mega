@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { adoptSession, discoverSessions, type DiscoveredSession } from '../api'
 import { harnesses } from '../harnesses'
 import type { Conversation } from '../types'
+import { IconButton } from './Icon'
 
 interface AdoptDialogProps {
   projectId: string
@@ -61,7 +62,10 @@ export function AdoptDialog({ projectId, onClose, onAdopted }: AdoptDialogProps)
   return (
     <dialog ref={dialogRef} onClose={onClose}>
       <form onSubmit={(event) => void onSubmit(event)}>
-        <h2>Adopt a session</h2>
+        <div className="dialog-head">
+          <h2>Adopt a session</h2>
+          <IconButton icon="close" label="Cancel" onClick={onClose} />
+        </div>
         <label>
           Harness
           <select
@@ -118,12 +122,7 @@ export function AdoptDialog({ projectId, onClose, onAdopted }: AdoptDialogProps)
         </p>
         {error && <p className="error">{error}</p>}
         <div className="actions">
-          <button type="button" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" disabled={submitting || !chosen}>
-            Adopt
-          </button>
+          <IconButton type="submit" icon="download" label="Adopt" disabled={submitting || !chosen} />
         </div>
       </form>
     </dialog>
