@@ -5,6 +5,9 @@ export interface Project {
   name: string
   checkout: string
   untrusted: boolean
+  // the claude mode the operator's settings name for the checkout, which a
+  // launch with no choice inherits; empty when none does.
+  inherited_permission_mode: string
 }
 
 // what a conversation asks of the operator, computed by the service.
@@ -29,6 +32,8 @@ export interface RequestPayload {
   description?: string
   decision_reason?: string
   blocked_path?: string
+  // the mode the request was raised in.
+  permission_mode?: string
 }
 
 export interface Question {
@@ -54,7 +59,12 @@ export interface Conversation {
   output_seq: number
   model?: string
   version?: string
+  // the running mode, as the runtime last reported or roundhouse last
+  // confirmed it, and whether the operator's settings chose it.
   permission_mode?: string
+  permission_mode_inherited: boolean
+  // the recorded choice every launch passes; empty is roundhouse's default.
+  permission_mode_choice: string
   pending: PendingRequest[]
 }
 

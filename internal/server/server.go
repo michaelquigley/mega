@@ -57,6 +57,7 @@ func (s *Server) api() http.Handler {
 	mux.HandleFunc("POST /api/conversations/{id}/prompt", s.prompt)
 	mux.HandleFunc("POST /api/conversations/{id}/answer", s.answer)
 	mux.HandleFunc("POST /api/conversations/{id}/interrupt", s.interrupt)
+	mux.HandleFunc("POST /api/conversations/{id}/permission-mode", s.setPermissionMode)
 	mux.HandleFunc("POST /api/conversations/{id}/release", s.release)
 	mux.HandleFunc("POST /api/conversations/{id}/resume", s.resume)
 	mux.HandleFunc("POST /api/conversations/{id}/read", s.read)

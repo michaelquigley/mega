@@ -1,0 +1,3 @@
+[
+  "Using the Bash tool, run exactly `touch /tmp/rh-auto-probe-a.txt`, and after it finishes, run exactly `touch /tmp/rh-auto-probe-b.txt` as a separate Bash call. Then reply ETA-3g4h. Nothing else."
+]

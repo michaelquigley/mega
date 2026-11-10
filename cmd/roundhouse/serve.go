@@ -66,11 +66,13 @@ func runServe(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("loading registry: %w", err)
 	}
 
+	claudeHarness := claude.New(claude.Config{Node: cfg.Claude.Node, Shim: cfg.Claude.Shim, Executable: cfg.Claude.Executable})
 	svc, err := service.New(reg, service.Options{
-		IsUntrusted:  untrustedChecker(),
-		EventLogPath: cfg.EventLogPath,
+		IsUntrusted:   untrustedChecker(),
+		InheritedMode: claudeHarness.InheritedPermissionMode,
+		EventLogPath:  cfg.EventLogPath,
 		Harnesses: []harness.Harness{
-			claude.New(claude.Config{Node: cfg.Claude.Node, Shim: cfg.Claude.Shim, Executable: cfg.Claude.Executable}),
+			claudeHarness,
 			codex.New(codex.Config{Binary: cfg.Codex.Binary}),
 		},
 	})

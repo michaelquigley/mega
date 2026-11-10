@@ -18,13 +18,15 @@ node probe.mjs run --cwd DIR --turns scenarios/x.json --log logs/x.jsonl \
   [--interrupt-on-permission] [--stale-after-abort] \
   [--interrupt-after-ms N [--interrupt-turn I]] [--kill-owner-after-ms N] \
   [--setting-sources user,project,local] [--exec PATH] [--timeout-ms N] \
+  [--set-mode-on-permission MODE] \
   [--relay SOCK [--hold]]
 node probe.mjs list --cwd DIR
 node probe.mjs info --session SESSION_ID [--cwd DIR]
 node probe.mjs messages --session SESSION_ID [--cwd DIR]
 ```
 
-- A turns file is a JSON array of prompt strings. Each prompt is sent after the previous `result` message.
+- A turns file is a JSON array of prompt strings, or of `{"prompt": ..., "set_mode": MODE}`. Each prompt is sent after the previous `result` message. When an item has `set_mode`, `setPermissionMode(MODE)` is called and its result recorded before that prompt is sent.
+- `--set-mode-on-permission MODE` calls `setPermissionMode(MODE)` while the first permission request is pending, records whether that request was aborted within two seconds, then applies the policy.
 - `--approve` matches `ToolName:<json input>`; matching requests are allowed after `--approve-delay-ms`, everything else is denied with a message. `AskUserQuestion` is answered with the first option whose label matches `--answer` (default: first option).
 - `--permission-mode default` forces manual approvals through `canUseTool`. Without it the SDK can start in `auto` mode, where a classifier may approve calls before they reach the host.
 - `--relay SOCK` turns the probe into a reconnect-test owner (see `../common/README.md`): every SDK message is published to connected clients, permission and `AskUserQuestion` requests wait for a client answer (`{"decision":"allow"|"deny"}` or `{"answers":{...}}`), clients can submit prompts, and `--hold` keeps the session open after the turns file until a client sends `close`. Keep the socket path short (`/run/user/<uid>/rh-claude.sock`); long paths fail with `listen EINVAL`.
@@ -42,6 +44,10 @@ node probe.mjs messages --session SESSION_ID [--cwd DIR]
 | `scenarios/int-permission.json` | Interrupt while a permission request is pending (`--interrupt-on-permission`, optionally `--stale-after-abort`) |
 | `scenarios/owner-kill.json` | Kill the SDK host while a tool runs (`--kill-owner-after-ms 10000`) |
 | `scenarios/hook-check.json`, `scenarios/marker-check.json` | Which project hooks and instructions load under different `--setting-sources` |
+| `scenarios/auto-mode.json` | Auto mode (`--permission-mode auto`): a read, a project `ask` rule, a write outside the checkout |
+| `scenarios/auto-switch.json` | `set_mode: auto` between turns, from `--permission-mode default` |
+| `scenarios/auto-switch-pending.json` | `--set-mode-on-permission auto` while a request is pending, then a second call in the same turn |
+| `scenarios/mode-omitted.json` | No `--permission-mode`: what Claude starts in |
 
 Fixture repository used: `/home/michael/Repos/q/research/roundhouse-fixtures/claude-rt1` (disposable; `CLAUDE.md` with marker `ROUNDHOUSE-MARKER-7f3a`, `fixture.txt`, `.claude/settings.json` with allow/ask rules and two logging hooks).
 

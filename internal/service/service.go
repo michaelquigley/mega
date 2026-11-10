@@ -21,9 +21,12 @@ type UntrustedChecker func(checkout string) bool
 
 // Options are the service's collaborators.
 type Options struct {
-	IsUntrusted  UntrustedChecker
-	EventLogPath func(conversationID string) string
-	Harnesses    []harness.Harness
+	IsUntrusted UntrustedChecker
+	// InheritedMode returns the claude permission mode the operator's settings
+	// name for a checkout, or empty.
+	InheritedMode func(checkout string) string
+	EventLogPath  func(conversationID string) string
+	Harnesses     []harness.Harness
 }
 
 // Workspace is the arrangement as the service last confirmed it.
@@ -42,6 +45,7 @@ type Service struct {
 	mu          sync.Mutex
 	reg         *registry.Registry
 	isUntrusted UntrustedChecker
+	inherited   func(checkout string) string
 	logPath     func(conversationID string) string
 	harnesses   map[string]harness.Harness
 	live        map[string]*live
@@ -56,6 +60,7 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 	s := &Service{
 		reg:         reg,
 		isUntrusted: opts.IsUntrusted,
+		inherited:   opts.InheritedMode,
 		logPath:     opts.EventLogPath,
 		harnesses:   make(map[string]harness.Harness),
 		live:        make(map[string]*live),
@@ -63,6 +68,9 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 	}
 	if s.isUntrusted == nil {
 		s.isUntrusted = func(string) bool { return false }
+	}
+	if s.inherited == nil {
+		s.inherited = func(string) string { return "" }
 	}
 	for _, h := range opts.Harnesses {
 		s.harnesses[h.Name()] = h
@@ -239,8 +247,11 @@ func (s *Service) drop(sub *Subscription) {
 	close(sub.updates)
 }
 
+// applyTrust fills what is read from the operator's claude configuration each
+// time a project is read: the trust notice and the inherited permission mode.
 func (s *Service) applyTrust(project *model.Project) {
 	project.Untrusted = s.isUntrusted(project.Checkout)
+	project.InheritedPermissionMode = s.inherited(project.Checkout)
 }
 
 func validateCheckout(checkout string) (string, error) {

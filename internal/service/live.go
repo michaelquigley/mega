@@ -56,6 +56,7 @@ type live struct {
 	inc       *incarnation // the current runtime's identity; nil when none
 	busy      bool         // a start or a resume is under way
 	releasing bool         // the current runtime has been asked to stop
+	switching bool         // a permission mode switch is waiting on the runtime
 
 	// session is a native session this conversation created that the registry
 	// does not hold yet: one a runtime reported, or the last one the log shows
@@ -399,6 +400,10 @@ func (k *sink) Event(ev *model.Event) {
 		k.started(ev)
 		return
 	}
+	if ev.Kind == model.EventRuntime && ev.Status == model.StatusModeChanged {
+		s.harnessModeChanged(l, ev)
+		return
+	}
 	if err := s.record(l, ev); err != nil {
 		dl.Errorf("%v", err)
 		return
@@ -416,10 +421,12 @@ func (k *sink) Event(ev *model.Event) {
 		s.endTurnLocked(l)
 		s.changed()
 	}
-	// agent output, including the harness's own native events, counts toward
-	// unread only within a turn, and only once that turn ends.
+	// agent output counts toward unread only within a turn, and only once that
+	// turn ends. native events never count: they are the harness's own
+	// bookkeeping (init, status, lifecycle), and bookkeeping never creates
+	// attention.
 	switch ev.Kind {
-	case model.EventAssistant, model.EventToolUse, model.EventToolResult, model.EventNative:
+	case model.EventAssistant, model.EventToolUse, model.EventToolResult:
 		if l.turnActive && ev.Seq > 0 {
 			l.turnOutput, l.turnOutputAt = ev.Seq, ev.At
 		}

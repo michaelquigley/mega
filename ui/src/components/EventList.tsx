@@ -103,6 +103,14 @@ export function EventList({ events, pending, turnActive, stale, showNative }: Ev
             )
           }
           case 'runtime':
+            if (event.status === 'mode_changed') {
+              return (
+                <p key={event.seq} className="system">
+                  Permission mode {event.facts?.permission_mode ?? 'changed'}
+                  {event.text && `: ${event.text}`}
+                </p>
+              )
+            }
             return (
               <p
                 key={event.seq}

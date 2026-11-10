@@ -377,6 +377,58 @@ Remaining blockers: no Codex collaboration mode exposes blocking questions in 0.
 
 Recorded separately from the technical findings. Michael has decided that operator care is sufficient for session ownership in the earliest Roundhouse versions: no leases, native-process exclusion, terminal wrappers, or cross-process locking for now. The operating procedure is explicit handoff: close the previous writer before opening another, where an idle terminal is still a writer. The concurrent-writer hazards above (Claude C9, pi P7) remain real and documented; stronger enforcement stays a possible later direction, not an immediate requirement. Tests must not resume a session still held by a different process; the Codex shared app-server multi-client case is a distinct, intentional configuration.
 
+## Follow-up (2026-11-09): Claude permission modes and auto mode
+
+Probed for the auto-mode roadmap card, the one sanctioned reopening of the Claude investigation. Claude Code 2.1.318 (`~/.local/share/claude/versions/2.1.318`; `claude` on `PATH` was 2.1.321 and was not used), Agent SDK 0.3.318, fixture `claude-rt1`, whose `.claude/settings.json` allows `Read` and `Bash(cat *)` and asks for `Bash(sleep *)`. The operator's settings name no `permissions.defaultMode`. `probes/claude/probe.mjs` gained a per-turn `set_mode` (calls `setPermissionMode` before the prompt) and `--set-mode-on-permission MODE` (calls it while the first permission request is pending). The probe allows every Bash call that reaches `canUseTool`. Logs are `probes/claude/logs/auto-mode*`, `mode-omitted*`, and the fixture transcripts named below.
+
+| Run | Launch | Scenario | Result |
+| --- | --- | --- | --- |
+| A | `permissionMode: 'auto'` | `scenarios/auto-mode.json` | pass: the classifier runs under the SDK |
+| B | `'default'`, then `setPermissionMode('auto')` between turns | `scenarios/auto-switch.json` | pass |
+| C | `'default'`, then `setPermissionMode('auto')` while a request is pending | `scenarios/auto-switch-pending.json` | pass |
+| D | option omitted | `scenarios/mode-omitted.json` | starts in `default` |
+
+- Auto mode is available headless under the SDK in stream-json mode for this account `[observed]`. In run A (session `c94fb593-0bf2-42fd-ab7b-d8c4e91d24b9`), `system/init` reported `permissionMode: "auto"`.
+- `system/init` is emitted again at the start of every turn, not only at launch, each time with the current mode `[observed]`. It is not emitted mid-turn.
+- Which calls reach `canUseTool` in auto mode `[observed]`:
+  - `wc -l fixture.txt` and `touch /tmp/rh-auto-probe-outside.txt` (a write outside the checkout) never reached `canUseTool`. The transcript records each as `permissionDecision: {decision: "accept", source: "config", reasonType: "classifier"}`.
+  - `sleep 3`, covered by the project `ask` rule, still reached `canUseTool`, with no `decisionReason`. Its transcript entry is `{source: "user_temporary", ruleSource: "projectSettings", reasonCode: "rule:projectSettings"}`.
+  - So an `ask` rule still produces a request in auto mode, and the classifier answers only what no rule settles. A denial by the classifier was not observed: every call the classifier saw, it approved.
+- What the transcript records `[observed]`:
+  - Each user prompt entry carries `permissionMode` (`"auto"` or `"default"`).
+  - Tool results carry `permissionDecision` as above, and assistant entries carry `serverClassifierRequest` ids.
+  - An `auto_mode` attachment is added to the context (the "While auto mode is active" reminder).
+  - No separate classifier API request appears among the transcript's `api-request` entries (7 entries for 7 model steps).
+- In `default` mode, a read-only command such as `wc -l` is accepted by Claude itself without asking (`reasonType: "subcommandResults"`) `[observed]`. A call that does not ask in `default` therefore proves nothing about the classifier.
+- Run B (session `11ed775f-1d9a-494b-8600-97c9681c4749`): `setPermissionMode('auto')` between turns resolved at once, the next turn's `system/init` reported `auto`, the next prompt entry recorded `auto`, and the next call was decided with `reasonType: "classifier"` `[observed]`.
+- Run C (session `a3dc8dc7-362d-4e38-8efa-ffa5f9374cfa`), with the switch made while a request was pending `[observed]`:
+  - The pending request was not aborted: its signal had not fired two seconds after `setPermissionMode` resolved.
+  - The operator's answer still applied (`source: "user_temporary"`).
+  - The next tool call in the same turn (`touch /tmp/rh-auto-probe-b.txt`) went to the classifier without asking.
+  - No `system/init` was emitted until the next turn, so the stream does not report a mid-turn change.
+  - The switch therefore takes effect from the next tool call and leaves pending requests alone.
+- Run D (session `29f0751a-cd75-4f4c-af1c-afa6131d768c`): with `permissionMode` omitted and no `defaultMode` in any settings, `system/init` reported `default` `[observed]`. The SDK's documentation says an omitted mode falls back to `auto` where available `[docs]`; this version, with these settings, did not. Roundhouse still passes `default` explicitly, so a later version cannot change it silently `[inference]`.
+
+### Where Claude reads project settings for a session below the repository root (2026-11-09)
+
+Claude Code 2.1.318, SDK 0.3.318. Each probe is a one-turn `scenarios/mode-omitted.json` run with no `permissionMode` on `claude-rt1`, which is a git repository and trusted. A temporary `sub/` directory and temporary settings were restored afterwards; the fixture's `.claude/settings.json` was put back byte for byte. The mode is what `system/init` reported. Logs are `probes/claude/logs/nested-*`.
+
+| Probe | Setting | Session started in | Mode | Session |
+| --- | --- | --- | --- | --- |
+| P1 | root `.claude/settings.local.json` names `plan` | `sub/` | `plan` | `95856cc0-dc17-477e-9445-9bcc50f48c18` |
+| P2 | `sub/.claude/settings.json` names `plan` | `sub/` | `plan` | `a55e533f-47a9-4ef5-893d-cd552054f937` |
+| P3 | root `.claude/settings.json` names `plan` | `sub/` | `default` | `53323da2-e8cd-418b-8f78-df08cade4e5d` |
+| P3 control | root `.claude/settings.json` names `plan` | root | `plan` | `76e90876-6672-4171-b384-c31b37d17daa` |
+| P4 | root `.claude/settings.local.json` names `auto` | root | `default` | `fdf6461f-b2aa-46d4-a03d-cd0c62c541ad` |
+
+- The local file is read at the repository root for a session below it (P1) `[observed]`.
+- The shared `settings.json` is read only from the session's directory: the root's is not read from below it (P3), and the session directory's own is (P2) `[observed]`.
+- `auto` named in local settings does not take effect (P4) `[observed]`.
+- All three match the settings documentation `[docs]`:
+  - the local file sits at the repository root since 2.1.211, and is still also read from the starting directory, the root winning;
+  - it stays in the starting directory outside a repository, when the root is the home directory, in a worktree (where the main checkout's root is used), or when the root, `.git` or `.claude` is not owned by the user;
+  - `auto` and `bypassPermissions` in `defaultMode` don't take effect from project or local settings.
+
 ## Recommendations
 
 - Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. Roundhouse should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.

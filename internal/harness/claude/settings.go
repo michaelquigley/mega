@@ -1,0 +1,148 @@
+package claude
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"syscall"
+
+	"github.com/michaelquigley/df/dd"
+	"github.com/michaelquigley/df/dl"
+
+	"git.hq.quigley.com/research/roundhouse/internal/model"
+)
+
+// DefaultManagedSettings is where claude code reads managed settings on linux.
+const DefaultManagedSettings = "/etc/claude-code/managed-settings.json"
+
+type claudeSettings struct {
+	Permissions struct {
+		DefaultMode string `dd:"defaultMode,+omitempty"`
+	} `dd:",+omitempty"`
+}
+
+// settingsLayer is one settings file claude merges. project marks the
+// checkout's own files, from which claude does not honor every mode.
+type settingsLayer struct {
+	path    string
+	project bool
+}
+
+// ignoredInProject are the defaultMode values claude 2.1.318 does not take
+// from project or local settings, only from user or managed ones (observed;
+// capability report, 2026-11-09).
+var ignoredInProject = map[string]bool{"auto": true, "bypassPermissions": true}
+
+// InheritedPermissionMode returns the permissions.defaultMode the operator's
+// claude settings name for a session in cwd, as claude 2.1.318 resolves it, or
+// "" when none does. it reads, highest precedence first: managed settings; the
+// local settings.local.json at the repository root, then the one in cwd; the
+// shared .claude/settings.json in cwd (never the repository root's, which
+// claude does not read for a session below it); then the user's settings.json
+// ($CLAUDE_CONFIG_DIR, else ~/.claude). auto and bypassPermissions named in a
+// project or local file are skipped, as claude ignores them there. it only
+// reads. a file that cannot be read is skipped with a warning. every way this
+// can differ from claude ends in roundhouse passing the manual mode, never in
+// passing nothing where claude would find no mode.
+func (h *Harness) InheritedPermissionMode(cwd string) string {
+	for _, layer := range h.settingsLayers(cwd) {
+		settings := &claudeSettings{}
+		if err := dd.BindJSONFile(settings, layer.path); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				dl.Warnf("reading claude settings '%s': %v", layer.path, err)
+			}
+			continue
+		}
+		mode := settings.Permissions.DefaultMode
+		if mode == "" || (layer.project && ignoredInProject[mode]) {
+			continue
+		}
+		return mode
+	}
+	return ""
+}
+
+func (h *Harness) settingsLayers(cwd string) []settingsLayer {
+	managed := h.cfg.ManagedSettings
+	if managed == "" {
+		managed = DefaultManagedSettings
+	}
+	layers := []settingsLayer{{path: managed}}
+	if dir := localSettingsDir(cwd); dir != cwd {
+		layers = append(layers, settingsLayer{path: filepath.Join(dir, ".claude", "settings.local.json"), project: true})
+	}
+	layers = append(layers,
+		settingsLayer{path: filepath.Join(cwd, ".claude", "settings.local.json"), project: true},
+		settingsLayer{path: filepath.Join(cwd, ".claude", "settings.json"), project: true},
+	)
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return append(layers, settingsLayer{path: filepath.Join(dir, "settings.json")})
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		layers = append(layers, settingsLayer{path: filepath.Join(home, ".claude", "settings.json")})
+	}
+	return layers
+}
+
+// localSettingsDir is where claude keeps settings.local.json for a session in
+// cwd: the git repository's root, unless cwd is outside a repository, the root
+// is the home directory, the checkout is a worktree (claude uses the main
+// checkout's root, which is not resolved here), or the root, its .git or its
+// .claude is not owned by this user. in each of those cases it stays in cwd.
+func localSettingsDir(cwd string) string {
+	start, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return cwd
+	}
+	for dir := start; ; dir = filepath.Dir(dir) {
+		gitInfo, err := os.Lstat(filepath.Join(dir, ".git"))
+		if err == nil {
+			if !gitInfo.IsDir() {
+				return cwd // a worktree
+			}
+			if home, err := os.UserHomeDir(); err == nil {
+				if realHome, err := filepath.EvalSymlinks(home); err == nil && realHome == dir {
+					return cwd
+				}
+			}
+			for _, entry := range []string{dir, filepath.Join(dir, ".git"), filepath.Join(dir, ".claude")} {
+				if !ownedByMe(entry) {
+					return cwd
+				}
+			}
+			if dir == start {
+				return cwd
+			}
+			return dir
+		}
+		if dir == filepath.Dir(dir) {
+			return cwd
+		}
+	}
+}
+
+// ownedByMe reports whether path belongs to this user; a path that does not
+// exist counts as owned.
+func ownedByMe(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return errors.Is(err, os.ErrNotExist)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return !ok || int(stat.Uid) == os.Getuid()
+}
+
+// launchMode is the --permission-mode to pass for a chosen mode, and whether
+// passing none leaves the mode to the operator's settings. a chosen mode is
+// passed as it is. no choice is roundhouse's default: inherit what the
+// settings name, else pass the manual mode explicitly, so a claude whose own
+// fallback changes cannot pick a looser mode on roundhouse's behalf.
+func (h *Harness) launchMode(cwd, chosen string) (mode string, inherited bool) {
+	if chosen != "" {
+		return chosen, false
+	}
+	if h.InheritedPermissionMode(cwd) != "" {
+		return "", true
+	}
+	return model.PermissionModeDefault, false
+}

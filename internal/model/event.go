@@ -37,6 +37,10 @@ const (
 	StatusResuming     = "resuming"
 	StatusResumed      = "resumed"
 	StatusError        = "error"
+	// StatusModeChanged records a change of permission mode in a running
+	// runtime, carried in Facts.PermissionMode: the operator's, or one the
+	// harness reports, such as leaving plan mode.
+	StatusModeChanged = "mode_changed"
 )
 
 // turn end statuses, carried in Event.Status.
@@ -78,5 +82,8 @@ type RuntimeFacts struct {
 	Model          string `dd:",+omitempty"`
 	Version        string `dd:",+omitempty"`
 	PermissionMode string `dd:",+omitempty"`
-	Cwd            string `dd:",+omitempty"`
+	// ModeInherited is whether roundhouse passed no permission mode, so the
+	// operator's native settings chose it.
+	ModeInherited bool   `dd:",+omitempty"`
+	Cwd           string `dd:",+omitempty"`
 }

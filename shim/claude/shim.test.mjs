@@ -52,6 +52,10 @@ function fakeSdk(seen) {
         }
       })();
       gen.interrupt = async () => { interruptAbort?.(); return { still_queued: [] }; };
+      gen.setPermissionMode = async mode => {
+        if (mode === 'refuse') throw new Error('unsupported mode');
+        seen.modes.push(mode);
+      };
       return gen;
     },
   };
@@ -59,11 +63,11 @@ function fakeSdk(seen) {
 
 test('relays prompts, requests, answers, interrupts and exit', async () => {
   const h = harness();
-  const seen = { prompts: [] };
-  const done = main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude', '--session-id', 's-1'], fakeSdk(seen), h.io);
+  const seen = { prompts: [], modes: [] };
+  const done = main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude', '--session-id', 's-1', '--permission-mode', 'default'], fakeSdk(seen), h.io);
 
   assert.equal((await h.next(f => f.type === 'event')).msg.subtype, 'init');
-  assert.equal(seen.options.permissionMode, 'default');
+  assert.equal(seen.options.permissionMode, 'default', 'the mode the service passed');
   assert.equal(seen.options.settingSources, undefined, 'default setting sources must not be narrowed');
   assert.equal(seen.options.sessionId, 's-1');
 
@@ -98,8 +102,33 @@ test('relays prompts, requests, answers, interrupts and exit', async () => {
   assert.equal(h.frames.at(-1).type, 'exit');
 });
 
+test('passes the chosen mode, omits it when none is given, and switches on request', async () => {
+  const h = harness();
+  const seen = { prompts: [], modes: [] };
+  const done = main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude', '--resume', 's-2', '--permission-mode', 'auto'], fakeSdk(seen), h.io);
+  await h.next(f => f.type === 'event');
+  assert.equal(seen.options.permissionMode, 'auto');
+
+  h.send({ type: 'set_permission_mode', id: 'm-1', mode: 'plan' });
+  assert.deepEqual(await h.next(f => f.type === 'permission_mode_set' && f.id === 'm-1'), { type: 'permission_mode_set', id: 'm-1', mode: 'plan' });
+  assert.deepEqual(seen.modes, ['plan']);
+  h.send({ type: 'set_permission_mode', id: 'm-2', mode: 'refuse' });
+  const refused = await h.next(f => f.type === 'permission_mode_set' && f.id === 'm-2');
+  assert.equal(refused.error, 'unsupported mode', 'a failed switch is reported, not hidden');
+  h.send({ type: 'close' });
+  assert.equal(await done, 0);
+
+  const h2 = harness();
+  const seen2 = { prompts: [], modes: [] };
+  const done2 = main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude', '--session-id', 's-3'], fakeSdk(seen2), h2.io);
+  await h2.next(f => f.type === 'event');
+  assert.equal('permissionMode' in seen2.options, false, 'no mode passed: claude\'s own settings decide');
+  h2.send({ type: 'close' });
+  assert.equal(await done2, 0);
+});
+
 test('refuses to start without exactly one session flag', async () => {
   const h = harness();
-  const code = await main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude'], fakeSdk({ prompts: [] }), h.io);
+  const code = await main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude'], fakeSdk({ prompts: [], modes: [] }), h.io);
   assert.equal(code, 2);
 });

@@ -1,6 +1,6 @@
 ---
 title: Message text is never clipped
-state: building
+state: evaluating
 created: 2026-11-09
 tags: [adapters, conversation-view, fix]
 ---

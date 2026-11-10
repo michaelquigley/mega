@@ -1,17 +1,24 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { startConversation } from '../api'
 import { harnesses } from '../harnesses'
+import { permissionModes } from '../permissions'
 import type { Conversation } from '../types'
 
 interface LaunchDialogProps {
   projectId: string
+  // the claude mode the operator's settings name for the checkout, or empty.
+  inheritedMode: string
   onClose: () => void
   onLaunched: (conversation: Conversation) => void
 }
 
-export function LaunchDialog({ projectId, onClose, onLaunched }: LaunchDialogProps) {
+// a claude conversation starts in the mode the operator picks. roundhouse's
+// own default is the manual mode, unless the operator's settings name one, in
+// which case that is inherited by passing none (the empty value).
+export function LaunchDialog({ projectId, inheritedMode, onClose, onLaunched }: LaunchDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [harness, setHarness] = useState('claude')
+  const [permissionMode, setPermissionMode] = useState(inheritedMode ? '' : 'default')
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -26,7 +33,7 @@ export function LaunchDialog({ projectId, onClose, onLaunched }: LaunchDialogPro
     setSubmitting(true)
     setError(null)
     try {
-      onLaunched(await startConversation(projectId, harness, name, prompt))
+      onLaunched(await startConversation(projectId, harness, name, prompt, harness === 'claude' ? permissionMode : ''))
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
       setSubmitting(false)
@@ -47,6 +54,19 @@ export function LaunchDialog({ projectId, onClose, onLaunched }: LaunchDialogPro
             ))}
           </select>
         </label>
+        {harness === 'claude' && (
+          <label>
+            Permission mode
+            <select value={permissionMode} onChange={(event) => setPermissionMode(event.target.value)}>
+              {inheritedMode && <option value="">Inherited from your settings: {inheritedMode}</option>}
+              {permissionModes.map((mode) => (
+                <option key={mode.value} value={mode.value}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Opening prompt
           <textarea
@@ -71,8 +91,8 @@ export function LaunchDialog({ projectId, onClose, onLaunched }: LaunchDialogPro
           />
         </label>
         <p className="muted">
-          Native settings are inherited: approvals reach you here, and the checkout&apos;s own
-          instructions, hooks and permission rules apply as in a terminal.
+          Native settings are inherited: approvals the mode asks for reach you here, and the
+          checkout&apos;s own instructions, hooks and permission rules apply as in a terminal.
         </p>
         {error && <p className="error">{error}</p>}
         <div className="actions">

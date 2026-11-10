@@ -20,6 +20,11 @@ var ErrNotPending = errors.New("request is not pending")
 // and the service then refuses to start a fresh one in its place.
 var ErrNotStarted = errors.New("the runtime did not start")
 
+// ErrModeUnconfirmed reports a permission mode switch the harness did not
+// confirm in time: it may still take effect, and the runtime reports it as a
+// mode change if it does.
+var ErrModeUnconfirmed = errors.New("the permission mode switch was not confirmed in time")
+
 // ErrLeftRunning reports a runtime whose own process exited while processes it
 // started were still running when the bounded check gave up.
 var ErrLeftRunning = errors.New("processes the runtime started are still running")
@@ -67,6 +72,10 @@ type Session struct {
 type Spec struct {
 	Cwd      string
 	NativeID string
+	// PermissionMode is the operator's choice. empty asks the adapter for
+	// roundhouse's default: the mode the operator's native settings name,
+	// inherited by passing none, else the manual mode.
+	PermissionMode string
 }
 
 // Sink receives a runtime's output. calls arrive in order from one goroutine
@@ -107,6 +116,11 @@ type Runtime interface {
 
 	// Interrupt stops the active turn, aborting any pending request.
 	Interrupt() error
+
+	// SetPermissionMode switches the running session's permission mode. it
+	// returns once the harness confirms the switch, which applies from the next
+	// tool call and leaves pending requests pending.
+	SetPermissionMode(mode string) error
 
 	// Close ends input. the runtime exits once the harness is idle.
 	Close() error

@@ -192,6 +192,10 @@ type Runtime struct {
 	closed      bool
 	exited      bool
 	holdOnClose bool
+	modes       []string
+	modeErr     error
+	onMode      func()
+	afterMode   func()
 	requests    map[string]string // service id -> native number
 	nextNative  int
 }
@@ -221,6 +225,61 @@ func (r *Runtime) Answer(requestID string, answer harness.Answer) error {
 }
 
 // Interrupt aborts every pending request, as claude's abort signal does.
+// SetPermissionMode switches like a real runtime: it runs the hook OnMode set,
+// fails if FailMode said so, and otherwise records the switch and reports the
+// confirmed mode to the sink as a mode change before returning. the hook
+// AfterMode set runs after that report, still before the call returns.
+func (r *Runtime) SetPermissionMode(mode string) error {
+	r.mu.Lock()
+	hook, err, after := r.onMode, r.modeErr, r.afterMode
+	r.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.modes = append(r.modes, mode)
+	r.mu.Unlock()
+	r.sink.Event(&model.Event{Kind: model.EventRuntime, Status: model.StatusModeChanged, Origin: model.OriginManaged, Text: "confirmed by claude; applies from the next tool call", Facts: &model.RuntimeFacts{PermissionMode: mode}})
+	if after != nil {
+		after()
+	}
+	return nil
+}
+
+// AfterMode runs fn inside every later successful switch, after its report and
+// before it returns, as a newer report arriving first would. fn must not call
+// back into the service.
+func (r *Runtime) AfterMode(fn func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.afterMode = fn
+}
+
+// FailMode makes later switches fail with err; nil restores success.
+func (r *Runtime) FailMode(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.modeErr = err
+}
+
+// OnMode runs fn inside every later switch, before it takes effect, while
+// the caller waits. fn must not call back into the service.
+func (r *Runtime) OnMode(fn func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onMode = fn
+}
+
+// Modes lists the switches the runtime accepted, in order.
+func (r *Runtime) Modes() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.modes)
+}
+
 func (r *Runtime) Interrupt() error {
 	r.mu.Lock()
 	r.interrupts++

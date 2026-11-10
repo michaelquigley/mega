@@ -55,6 +55,9 @@ function PermissionForm({ request, sending, onAnswer }: { request: PendingReques
   return (
     <>
       <h2>Approval: {payload.display_name ?? payload.tool ?? 'tool'}</h2>
+      {payload.permission_mode === 'auto' && (
+        <p className="muted">Raised in auto mode: the classifier could not decide this call, so it needs your answer.</p>
+      )}
       {detail && <p>{detail}</p>}
       <pre>{describeInput(payload.input)}</pre>
       {payload.blocked_path && (

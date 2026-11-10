@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/michaelquigley/df/dd"
 	"github.com/michaelquigley/df/dl"
@@ -35,6 +36,8 @@ type shimFrame struct {
 	DecisionReason string `dd:"decisionReason,+nullable"`
 	BlockedPath    string `dd:"blockedPath,+nullable"`
 	Suggestions    any    `dd:",+opaque,+nullable"`
+	Mode           string `dd:",+nullable"`
+	Error          string `dd:",+nullable"`
 }
 
 // command frames sent to the shim.
@@ -56,6 +59,26 @@ type controlFrame struct {
 	Type string
 }
 
+// modeSwitch is a mode switch waiting for the shim's reply. only the reply
+// handler removes it: it applies a confirmed mode and reports it as a mode
+// change before waking the waiter, so every mode fact reaches the sink in the
+// order claude reported it, and whatever the reader handles next already sees
+// it. done is buffered, so a waiter that gave up never blocks the reader.
+type modeSwitch struct {
+	mode string
+	done chan error
+}
+
+type modeFrame struct {
+	Type string
+	ID   string
+	Mode string
+}
+
+// modeTimeout bounds the wait for the shim to confirm a mode switch, which the
+// sdk answers at once (capability report, 2.1.318).
+var modeTimeout = 30 * time.Second
+
 // runtime is one shim process bound to one claude session.
 type runtime struct {
 	nativeID string
@@ -64,13 +87,17 @@ type runtime struct {
 	sink     harness.Sink
 
 	mu          sync.Mutex
-	requests    map[string]string     // service request id -> sdk requestId
-	byNative    map[string]string     // sdk requestId -> service request id
-	answers     map[string]chan error // sdk requestId -> the answer waiting for the shim's verdict
-	started     bool                  // the first init has been reported
-	interrupted bool                  // an interrupt was sent during the current turn
-	gone        bool                  // the shim's output has ended
-	failure     string                // the shim's last error frame
+	requests    map[string]string      // service request id -> sdk requestId
+	byNative    map[string]string      // sdk requestId -> service request id
+	answers     map[string]chan error  // sdk requestId -> the answer waiting for the shim's verdict
+	modes       map[string]*modeSwitch // mode switch id -> the switch waiting for the shim's reply
+	nextMode    int
+	inherited   bool   // no permission mode was passed; the operator's settings chose it
+	mode        string // the permission mode as last reported or confirmed
+	started     bool   // the first init has been reported
+	interrupted bool   // an interrupt was sent during the current turn
+	gone        bool   // the shim's output has ended
+	failure     string // the shim's last error frame
 }
 
 // errExited fails an answer whose runtime ended before the shim confirmed it.
@@ -78,7 +105,7 @@ var errExited = errors.New("the claude runtime exited before the answer was conf
 
 // start runs the shim. each failure here comes before or while starting the
 // shim process, so no session can exist and each is marked not started.
-func start(cmd *exec.Cmd, nativeID string, sink harness.Sink) (*runtime, error) {
+func start(cmd *exec.Cmd, nativeID string, sink harness.Sink, inherited bool) (*runtime, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
@@ -95,13 +122,15 @@ func start(cmd *exec.Cmd, nativeID string, sink harness.Sink) (*runtime, error) 
 		return nil, fmt.Errorf("%w: starting claude shim: %w", harness.ErrNotStarted, err)
 	}
 	r := &runtime{
-		nativeID: nativeID,
-		cmd:      cmd,
-		stdin:    stdin,
-		sink:     sink,
-		requests: make(map[string]string),
-		byNative: make(map[string]string),
-		answers:  make(map[string]chan error),
+		nativeID:  nativeID,
+		cmd:       cmd,
+		stdin:     stdin,
+		sink:      sink,
+		requests:  make(map[string]string),
+		byNative:  make(map[string]string),
+		answers:   make(map[string]chan error),
+		modes:     make(map[string]*modeSwitch),
+		inherited: inherited,
 	}
 	go logStderr(nativeID, stderr)
 	go r.read(stdout)
@@ -166,6 +195,46 @@ func (r *runtime) Interrupt() error {
 	return r.send(&controlFrame{Type: "interrupt"})
 }
 
+// modeChanged is the event for a permission mode claude confirmed or reported.
+func modeChanged(mode, text string) *model.Event {
+	return &model.Event{
+		Kind:   model.EventRuntime,
+		Status: model.StatusModeChanged,
+		Origin: model.OriginManaged,
+		Text:   text,
+		Facts:  &model.RuntimeFacts{PermissionMode: mode},
+	}
+}
+
+// SetPermissionMode asks the shim to switch the session's mode and returns once
+// the sdk has confirmed or refused it. the switch applies from the next tool
+// call; a request already pending stays pending.
+func (r *runtime) SetPermissionMode(mode string) error {
+	r.mu.Lock()
+	if r.gone {
+		r.mu.Unlock()
+		return errExited
+	}
+	r.nextMode++
+	id := fmt.Sprintf("mode-%d", r.nextMode)
+	done := make(chan error, 1)
+	r.modes[id] = &modeSwitch{mode: mode, done: done}
+	if err := r.send(&modeFrame{Type: "set_permission_mode", ID: id, Mode: mode}); err != nil {
+		delete(r.modes, id)
+		r.mu.Unlock()
+		return err
+	}
+	r.mu.Unlock()
+	// the switch stays registered until its reply is read, even after the
+	// timeout, so a late confirmation is still applied and reported.
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(modeTimeout):
+		return fmt.Errorf("%w: claude did not confirm the switch to '%s' within %s", harness.ErrModeUnconfirmed, mode, modeTimeout)
+	}
+}
+
 func (r *runtime) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -204,6 +273,10 @@ func (r *runtime) read(stdout io.Reader) {
 	for native, waiting := range r.answers {
 		waiting <- errExited
 		delete(r.answers, native)
+	}
+	for id, waiting := range r.modes {
+		waiting.done <- errExited
+		delete(r.modes, id)
 	}
 	r.mu.Unlock()
 	err := r.cmd.Wait()
@@ -246,6 +319,30 @@ func (r *runtime) handle(line []byte) {
 		r.mu.Lock()
 		r.failure = frame.Message
 		r.mu.Unlock()
+	case "permission_mode_set":
+		r.mu.Lock()
+		waiting, ok := r.modes[frame.ID]
+		delete(r.modes, frame.ID)
+		changed := false
+		if ok && frame.Error == "" {
+			changed = r.mode != waiting.mode
+			r.mode = waiting.mode
+		}
+		r.mu.Unlock()
+		if !ok {
+			dl.Warnf("claude shim for '%s' confirmed a mode switch it was never asked for", r.nativeID)
+			return
+		}
+		if frame.Error != "" {
+			waiting.done <- fmt.Errorf("claude refused permission mode '%s': %s", waiting.mode, frame.Error)
+			return
+		}
+		// reported before the waiter wakes, whether or not it is still
+		// waiting, so the mode reaches the sink in claude's order.
+		if changed {
+			r.sink.Event(modeChanged(waiting.mode, "confirmed by claude; applies from the next tool call"))
+		}
+		waiting.done <- nil
 	case "interrupted", "exit":
 	default:
 		dl.Debugf("unknown frame '%s' from claude shim for '%s'", frame.Type, r.nativeID)
@@ -271,7 +368,18 @@ func (r *runtime) event(raw map[string]any) {
 		r.mu.Lock()
 		first := !r.started
 		r.started = true
+		previous := r.mode
+		if msg.PermissionMode != "" {
+			r.mode = msg.PermissionMode
+		}
+		inherited := r.inherited
 		r.mu.Unlock()
+		if !first && msg.PermissionMode != "" && msg.PermissionMode != previous {
+			// claude re-reports init at the start of every turn. a mode that
+			// differs from the last one known changed inside the session, as
+			// when plan mode is left.
+			r.sink.Event(modeChanged(msg.PermissionMode, "reported by claude"))
+		}
 		if first {
 			r.sink.Event(&model.Event{
 				Kind:   model.EventRuntime,
@@ -282,6 +390,7 @@ func (r *runtime) event(raw map[string]any) {
 					Model:          msg.Model,
 					Version:        msg.ClaudeCodeVersion,
 					PermissionMode: msg.PermissionMode,
+					ModeInherited:  inherited,
 					Cwd:            msg.Cwd,
 				},
 				Raw: raw,
@@ -333,6 +442,11 @@ func (r *runtime) request(frame *shimFrame) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// the mode the request was raised in: in auto mode, a request is one the
+	// classifier and the checkout's rules did not settle on their own.
+	if r.mode != "" {
+		payload["permission_mode"] = r.mode
+	}
 	id := r.sink.Request(kind, payload)
 	r.requests[id] = frame.ID
 	r.byNative[frame.ID] = id

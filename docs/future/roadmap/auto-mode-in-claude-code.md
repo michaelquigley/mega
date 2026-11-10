@@ -1,6 +1,6 @@
 ---
 title: auto mode in claude code
-state: researching
+state: evaluating
 created: 2026-11-09
 tags: [permissions, claude, conversation-view]
 ---

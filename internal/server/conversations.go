@@ -30,7 +30,13 @@ type conversationView struct {
 	Model          string `dd:",+omitempty"`
 	Version        string `dd:",+omitempty"`
 	PermissionMode string `dd:",+omitempty"`
-	Pending        []*requestView
+	// PermissionModeInherited is whether the running mode came from the
+	// operator's settings because roundhouse passed none.
+	PermissionModeInherited bool
+	// PermissionModeChoice is the recorded choice every launch passes; empty
+	// is roundhouse's default.
+	PermissionModeChoice string
+	Pending              []*requestView
 }
 
 type requestView struct {
@@ -54,10 +60,13 @@ func newConversationView(conv service.ConversationView) *conversationView {
 		ReadSeq:    conv.ReadSeq,
 		LastSeq:    conv.LastSeq,
 		OutputSeq:  conv.OutputSeq,
-		Pending:    make([]*requestView, 0, len(conv.Pending)),
+
+		PermissionModeChoice: conv.PermissionMode,
+		Pending:              make([]*requestView, 0, len(conv.Pending)),
 	}
 	if conv.Facts != nil {
 		view.Model, view.Version, view.PermissionMode = conv.Facts.Model, conv.Facts.Version, conv.Facts.PermissionMode
+		view.PermissionModeInherited = conv.Facts.ModeInherited
 	}
 	for _, req := range conv.Pending {
 		view.Pending = append(view.Pending, &requestView{ID: req.ID, Kind: req.Kind, Payload: req.Payload})
@@ -66,9 +75,21 @@ func newConversationView(conv service.ConversationView) *conversationView {
 }
 
 type startConversationRequest struct {
-	Harness string
-	Name    string
-	Prompt  string
+	Harness        string
+	Name           string
+	Prompt         string
+	PermissionMode string
+}
+
+type permissionModeRequest struct {
+	Mode string
+}
+
+// modeOutcomeView is the harness's answer to a switch: confirmed, refused or
+// unconfirmed, with what it said.
+type modeOutcomeView struct {
+	Outcome string
+	Message string `dd:",+omitempty"`
 }
 
 type updateConversationRequest struct {
@@ -143,7 +164,7 @@ func (s *Server) startConversation(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	conv, err := s.svc.StartConversation(r.PathValue("id"), req.Harness, req.Name, req.Prompt)
+	conv, err := s.svc.StartConversation(r.PathValue("id"), req.Harness, req.Name, req.Prompt, req.PermissionMode)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -220,6 +241,19 @@ func (s *Server) read(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) interrupt(w http.ResponseWriter, r *http.Request) {
 	s.command(w, r, s.svc.Interrupt(r.PathValue("id")))
+}
+
+func (s *Server) setPermissionMode(w http.ResponseWriter, r *http.Request) {
+	var req permissionModeRequest
+	if !readJSON(w, r, &req) {
+		return
+	}
+	outcome, err := s.svc.SetPermissionMode(r.PathValue("id"), req.Mode)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, r, http.StatusOK, &modeOutcomeView{Outcome: outcome.Outcome, Message: outcome.Message})
 }
 
 func (s *Server) release(w http.ResponseWriter, r *http.Request) {

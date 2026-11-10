@@ -5,9 +5,11 @@ import {
   removeConversation,
   resumeConversation,
   sendPrompt,
+  setPermissionMode,
   updateConversation,
 } from '../api'
 import { useLatest } from '../latest'
+import { permissionModes } from '../permissions'
 import { loadedThrough, type ConversationLog } from '../log'
 import type { Conversation, Project } from '../types'
 import { EventList } from './EventList'
@@ -102,7 +104,19 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
           </span>
         </div>
         <p className="facts">
-          {[conversation.harness, conversation.model, conversation.version && `v${conversation.version}`, conversation.mode, conversation.permission_mode && `permissions: ${conversation.permission_mode}`]
+          {[
+            conversation.harness,
+            conversation.model,
+            conversation.version && `v${conversation.version}`,
+            conversation.mode,
+            conversation.permission_mode &&
+              `permissions: ${conversation.permission_mode}${conversation.permission_mode_inherited ? ' (inherited)' : ''}`,
+            // the stored choice is intent for the next launch; shown when there
+            // is no live mode, or apart from it when they differ.
+            conversation.permission_mode_choice &&
+              conversation.permission_mode_choice !== conversation.permission_mode &&
+              `next launch: ${conversation.permission_mode_choice}`,
+          ]
             .filter(Boolean)
             .join(' · ')}
         </p>
@@ -115,6 +129,25 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
             </>
           )}
         </p>
+        {conversation.harness === 'claude' && state !== 'unsupervised' && (
+          <ModeControl
+            live={state === 'running' && !!conversation.permission_mode}
+            mode={(state === 'running' && conversation.permission_mode) || conversation.permission_mode_choice}
+            inheritedMode={project.inherited_permission_mode}
+            disabled={busy || stale || state === 'starting' || state === 'stopping' || state === 'resuming' || (state === 'running' && !conversation.permission_mode)}
+            onChange={(mode) =>
+              void attempt(async () => {
+                const { outcome, message } = await setPermissionMode(conversation.id, mode)
+                if (outcome === 'refused') {
+                  throw new Error(`Claude refused the switch: ${message ?? 'no reason given'}`)
+                }
+                if (outcome === 'unconfirmed') {
+                  throw new Error(message ?? 'Claude did not confirm the switch in time.')
+                }
+              })
+            }
+          />
+        )}
         <details className="edit">
           <summary>Name and label</summary>
           <RenameForm conversation={conversation} onSave={(name, label) => attempt(() => updateConversation(conversation.id, name, label))} />
@@ -234,6 +267,50 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
         </div>
       )}
     </article>
+  )
+}
+
+// ModeControl changes a claude conversation's permission mode. while the
+// runtime runs (live) it switches the session; otherwise it stores the choice
+// for the next launch, and an empty choice shows as not chosen. it shows
+// the mode the service last confirmed, so a change shows only once recorded. a
+// mode inherited from the operator's settings that roundhouse does not offer
+// is shown as it is, and cannot be chosen again once left.
+function ModeControl({
+  live,
+  mode,
+  inheritedMode,
+  disabled,
+  onChange,
+}: {
+  live: boolean
+  mode: string
+  inheritedMode: string
+  disabled: boolean
+  onChange: (mode: string) => void
+}) {
+  const offered = permissionModes.some((option) => option.value === mode)
+  let unoffered = mode
+  if (mode === '') {
+    unoffered = inheritedMode ? `Not chosen: inherits ${inheritedMode} from your settings` : 'Not chosen: default'
+  }
+  return (
+    <label className="mode-control">
+      Permission mode
+      <select value={mode} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+        {!offered && (
+          <option value={mode} disabled>
+            {unoffered}
+          </option>
+        )}
+        {permissionModes.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <span className="muted">{live ? 'Applies from the next tool call.' : 'Applies at the next launch.'}</span>
+    </label>
   )
 }
 

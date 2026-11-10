@@ -25,10 +25,13 @@ const (
 
 // StartConversation launches a new conversation in a project and sends its
 // opening prompt.
-func (s *Service) StartConversation(projectID, harnessName, name, prompt string) (ConversationView, error) {
+func (s *Service) StartConversation(projectID, harnessName, name, prompt, permissionMode string) (ConversationView, error) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return ConversationView{}, newError(CodeInvalid, "an opening prompt is required")
+	}
+	if err := checkPermissionMode(harnessName, permissionMode); err != nil {
+		return ConversationView{}, err
 	}
 	s.mu.Lock()
 	if s.closed {
@@ -54,6 +57,8 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string)
 		Harness:   harnessName,
 		Mode:      model.ModeLongLived,
 		Runtime:   model.RuntimeNone,
+
+		PermissionMode: permissionMode,
 	}
 	err := s.update(func(doc *registry.Document) error {
 		doc.Conversations = append(doc.Conversations, conv)
@@ -275,7 +280,9 @@ func (s *Service) prepareLaunchLocked(conversationID string, l *live) (harness.H
 	l.session = ""
 	inc := &incarnation{exited: make(chan struct{})}
 	l.inc = inc
-	return h, harness.Spec{Cwd: project.Checkout, NativeID: session}, inc, nil
+	// the recorded choice goes with every launch, so a release and a resume
+	// keep it; a terminal visit never changes it.
+	return h, harness.Spec{Cwd: project.Checkout, NativeID: session, PermissionMode: conv.PermissionMode}, inc, nil
 }
 
 // send records the prompt with a service-minted message identity and hands it
@@ -539,9 +546,9 @@ func (s *Service) importHistory(conv model.Conversation, l *live) (imported, err
 	return result, nil
 }
 
-// newestFinishedOutputLocked finds the newest agent output anywhere in the log,
-// cached or imported, leaving out events of a turn still in progress. callers
-// hold s.mu.
+// newestFinishedOutputLocked finds the newest agent output (assistant, tool use
+// or tool result; never a native event) anywhere in the log, cached or
+// imported, leaving out events of a turn still in progress. callers hold s.mu.
 func (s *Service) newestFinishedOutputLocked(l *live, open map[string]bool) (int64, time.Time, error) {
 	evs, err := l.log.Since(0)
 	if err != nil {
@@ -550,7 +557,7 @@ func (s *Service) newestFinishedOutputLocked(l *live, open map[string]bool) (int
 	for i := len(evs) - 1; i >= 0; i-- {
 		ev := evs[i]
 		switch ev.Kind {
-		case model.EventAssistant, model.EventToolUse, model.EventToolResult, model.EventNative:
+		case model.EventAssistant, model.EventToolUse, model.EventToolResult:
 			if ev.NativeID != "" && open[ev.NativeID] {
 				continue
 			}

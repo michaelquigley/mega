@@ -48,7 +48,7 @@ func (r *rig) restart() {
 
 func (r *rig) start(prompt string) ConversationView {
 	r.t.Helper()
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", prompt)
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", prompt, "")
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestExitDuringTurnIsAnErrorAndAbortsPending(t *testing.T) {
 func TestLaunchFailureIsRecordedAndLeavesNoRuntime(t *testing.T) {
 	r := newRig(t)
 	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "named", "one")
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "named", "one", "")
 	if err == nil {
 		t.Fatal("expected the launch to fail")
 	}
@@ -363,7 +363,7 @@ func TestLaunchFailureIsRecordedAndLeavesNoRuntime(t *testing.T) {
 
 func TestUnknownHarnessIsInvalid(t *testing.T) {
 	r := newRig(t)
-	_, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one")
+	_, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one", "")
 	wantCode(t, err, CodeInvalid)
 }
 
@@ -822,7 +822,7 @@ func TestLeftRunningIsNeverACleanStop(t *testing.T) {
 func TestFirstRuntimeExitingDuringLaunchKeepsItsSession(t *testing.T) {
 	r := newRig(t)
 	r.fake.ExitDuringLaunch(true)
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "early", "one")
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "early", "one", "")
 	if err == nil {
 		t.Fatal("expected the start to report the early exit")
 	}
@@ -864,7 +864,7 @@ func TestUnrecordedSessionIsResumedAndBoundByTheNextLaunch(t *testing.T) {
 		}
 	})
 	t.Cleanup(func() { os.Chmod(dir, 0o700) })
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unbound", "one")
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unbound", "one", "")
 	if err == nil {
 		t.Skip("directory permissions are not enforced here")
 	}
@@ -951,7 +951,7 @@ func TestUnkeptSessionIsNeverReplacedAfterRestart(t *testing.T) {
 		}
 	})
 	t.Cleanup(func() { os.Chmod(dir, 0o700) })
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unkept", "one")
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unkept", "one", "")
 	if err == nil {
 		t.Skip("directory permissions are not enforced here")
 	}
@@ -980,7 +980,7 @@ func TestUnkeptSessionIsNeverReplacedAfterRestart(t *testing.T) {
 func TestRecordedNotStartedAllowsAFreshSession(t *testing.T) {
 	r := newRig(t)
 	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "retry", "one")
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "retry", "one", "")
 	if err == nil {
 		t.Fatal("expected the launch to fail")
 	}
@@ -1007,7 +1007,7 @@ func TestStartingWithNothingAfterItIsRefused(t *testing.T) {
 		svc.mu.Unlock()
 	})
 	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "closed", "one")
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "closed", "one", "")
 	if err == nil {
 		t.Fatal("expected the launch to fail")
 	}
@@ -1033,7 +1033,7 @@ func TestStartingWithNothingAfterItIsRefused(t *testing.T) {
 func TestUnclassifiedLaunchFailureLeavesTheSessionUnknown(t *testing.T) {
 	r := newRig(t)
 	r.fake.FailLaunch(errors.New("no reply to thread/start"))
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unknown", "one")
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unknown", "one", "")
 	if err == nil {
 		t.Fatal("expected the launch to fail")
 	}
@@ -1248,7 +1248,7 @@ func TestRemoveProjectDeletesItsConversationsLogs(t *testing.T) {
 		waitFor(t, "the runtime to exit", rt.Exited)
 		ids = append(ids, conv.ID)
 	}
-	kept, err := r.svc.StartConversation(other.ID, model.HarnessClaude, "", "kept")
+	kept, err := r.svc.StartConversation(other.ID, model.HarnessClaude, "", "kept", "")
 	if err != nil {
 		t.Fatal(err)
 	}

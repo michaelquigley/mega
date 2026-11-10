@@ -1,17 +1,19 @@
 building:
-  - no-clipped-messages.md
+  - permission-mode-follow-ups.md
 horizon:
   - ui-test-runner.md
 researching:
-  - auto-mode-in-claude-code.md
+  - mcp-approval-for-codex.md
   - working-spinner.md
   - typography.md
+  - side-panel.md
   - paths.md
   - favicon.md
   - dfw-daemon-mode.md
   - empty-never-means-unreachable.md
   - conversation-view-nits.md
+  - start-without-a-turn.md
 evaluating:
+  - auto-mode-in-claude-code.md
+  - no-clipped-messages.md
   - markdown.md
-  - scroll-to-latest.md
-  - remove-conversation.md

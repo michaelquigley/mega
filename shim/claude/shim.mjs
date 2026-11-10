@@ -2,7 +2,7 @@
 // roundhouse claude shim: a policy-free bridge between the roundhouse service
 // and the claude agent sdk, speaking one JSON object per line on stdio.
 //
-//   node shim.mjs run --cwd DIR (--session-id UUID | --resume UUID) --exec PATH
+//   node shim.mjs run --cwd DIR (--session-id UUID | --resume UUID) --exec PATH [--permission-mode MODE]
 //   node shim.mjs messages --session UUID --cwd DIR
 //   node shim.mjs list --cwd DIR
 //
@@ -13,6 +13,8 @@
 //   {"type":"answer_accepted","id":...}     the answer reached the waiting request
 //   {"type":"answer_rejected","id":...}     no request with that id was waiting
 //   {"type":"interrupted","response":{...}}
+//   {"type":"permission_mode_set","id":...,"mode":...}            the sdk switched
+//   {"type":"permission_mode_set","id":...,"mode":...,"error":...}  it did not
 //   {"type":"error","message":...}
 //   {"type":"exit","code":N}
 // run, service to shim:
@@ -20,11 +22,14 @@
 //   {"type":"answer","id":...,"decision":"allow"|"deny","message":...}
 //   {"type":"answer","id":...,"answers":{"<question>":"<label>"}}
 //   {"type":"interrupt"}
+//   {"type":"set_permission_mode","id":...,"mode":...}
 //   {"type":"close"}
 //
-// the shim decides nothing: every request waits for the service's answer, and
-// permissionMode is 'default' with default setting sources so approvals reach
-// the operator and project settings load as they would in a terminal.
+// the shim decides nothing: every request waits for the service's answer, the
+// permission mode is whatever the service passes (the operator's choice), and
+// with no --permission-mode the option is left out so claude's own settings
+// decide. setting sources stay the default, so approvals reach the operator
+// and project settings load as they would in a terminal.
 
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
@@ -103,11 +108,11 @@ export async function run(opt, sdk, io) {
   const options = {
     cwd: opt.cwd,
     pathToClaudeCodeExecutable: opt.exec,
-    permissionMode: 'default',
     canUseTool,
     includePartialMessages: true,
     stderr: data => io.stderr.write(data),
   };
+  if (typeof opt['permission-mode'] === 'string') options.permissionMode = opt['permission-mode'];
   if (opt['session-id']) options.sessionId = opt['session-id'];
   if (opt.resume) options.resume = opt.resume;
 
@@ -133,6 +138,14 @@ export async function run(opt, sdk, io) {
       interrupting = q.interrupt()
         .then(response => emit({ type: 'interrupted', response: response ?? {} }))
         .catch(e => emit({ type: 'error', message: `interrupt: ${e?.message ?? e}` }));
+    } else if (m.type === 'set_permission_mode') {
+      // takes effect from the next tool call; a request already pending stays
+      // pending (capability report, 2.1.318).
+      const reply = { type: 'permission_mode_set', id: m.id, mode: m.mode };
+      if (!q) { emit({ ...reply, error: 'no session yet' }); return; }
+      q.setPermissionMode(m.mode)
+        .then(() => emit(reply))
+        .catch(e => emit({ ...reply, error: String(e?.message ?? e) }));
     } else if (m.type === 'close') {
       close();
     }

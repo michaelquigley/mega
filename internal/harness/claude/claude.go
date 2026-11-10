@@ -24,10 +24,13 @@ import (
 const shimScript = "shim.mjs"
 
 // Config locates node, the shim directory, and the claude code executable.
+// ManagedSettings overrides where managed settings are read; empty is
+// DefaultManagedSettings.
 type Config struct {
-	Node       string
-	Shim       string
-	Executable string
+	Node            string
+	Shim            string
+	Executable      string
+	ManagedSettings string
 }
 
 // Harness runs claude code through the stdio shim.
@@ -80,12 +83,17 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		nativeID = newUUID()
 		sessionFlag = "--session-id"
 	}
-	cmd, err := h.command(context.Background(), "run", "--cwd", spec.Cwd, "--exec", h.cfg.Executable, sessionFlag, nativeID)
+	args := []string{"run", "--cwd", spec.Cwd, "--exec", h.cfg.Executable, sessionFlag, nativeID}
+	mode, inherited := h.launchMode(spec.Cwd, spec.PermissionMode)
+	if mode != "" {
+		args = append(args, "--permission-mode", mode)
+	}
+	cmd, err := h.command(context.Background(), args...)
 	if err != nil {
 		// the shim was never started, so no session can exist.
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 	}
-	r, err := start(cmd, nativeID, sink)
+	r, err := start(cmd, nativeID, sink, inherited)
 	if err != nil {
 		return nil, err
 	}

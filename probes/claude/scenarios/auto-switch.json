@@ -1,0 +1,4 @@
+[
+  "Using the Bash tool, run exactly `wc -l fixture.txt` in the working directory and reply with the line count followed by BETA-3c4d. Nothing else.",
+  { "set_mode": "auto", "prompt": "Using the Bash tool, run exactly `wc -c fixture.txt` in the working directory and reply with the byte count followed by ZETA-1e2f. Nothing else." }
+]

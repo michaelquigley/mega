@@ -1,0 +1,6 @@
+[
+  "Reply with the project instruction marker token from your project instructions, followed by the word ALPHA-1a2b. Nothing else.",
+  "Using the Bash tool, run exactly `wc -l fixture.txt` in the working directory and reply with the line count followed by BETA-3c4d. Nothing else.",
+  "Using the Bash tool, run exactly `sleep 3` and then reply DELTA-7a8b. Nothing else.",
+  "Using the Bash tool, run exactly `touch /tmp/rh-auto-probe-outside.txt` and then reply EPSILON-9c0d. Nothing else."
+]

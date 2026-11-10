@@ -322,6 +322,7 @@ export function App() {
       {launching && (
         <LaunchDialog
           projectId={launching}
+          inheritedMode={projects.find((p) => p.id === launching)?.inherited_permission_mode ?? ''}
           onClose={() => setLaunching(null)}
           onLaunched={(conversation) => {
             setLaunching(null)

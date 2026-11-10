@@ -45,8 +45,23 @@ export const removeProject = (id: string) =>
 
 const conversationPath = (id: string) => `/api/conversations/${encodeURIComponent(id)}`
 
-export const startConversation = (projectId: string, harness: string, name: string, prompt: string) =>
-  request<Conversation>('POST', `/api/projects/${encodeURIComponent(projectId)}/conversations`, { harness, name, prompt })
+export const startConversation = (projectId: string, harness: string, name: string, prompt: string, permissionMode: string) =>
+  request<Conversation>('POST', `/api/projects/${encodeURIComponent(projectId)}/conversations`, {
+    harness,
+    name,
+    prompt,
+    permission_mode: permissionMode,
+  })
+
+// the harness's answer to a switch. only a confirmed switch moves the live mode,
+// and only once the runtime's report of it is recorded.
+export interface ModeOutcome {
+  outcome: 'confirmed' | 'refused' | 'unconfirmed' | 'stored'
+  message?: string
+}
+
+export const setPermissionMode = (id: string, mode: string) =>
+  request<ModeOutcome>('POST', `${conversationPath(id)}/permission-mode`, { mode })
 
 export const updateConversation = (id: string, name: string, label: string) =>
   request<Conversation>('PATCH', conversationPath(id), { name, label })

@@ -258,3 +258,34 @@ func TestRemoveConversationOnTheWire(t *testing.T) {
 		t.Errorf("second removal: %d %v", status, body)
 	}
 }
+
+func TestPermissionModeOnTheWire(t *testing.T) {
+	f := start(t)
+	status, project := f.do(t, http.MethodPost, "/api/projects", createBody("p", f.checkout))
+	if status != http.StatusCreated || project["inherited_permission_mode"] != "" {
+		t.Fatalf("create project: %d %v", status, project)
+	}
+	path := fmt.Sprintf("/api/projects/%s/conversations", project["id"])
+	if status, body := f.do(t, http.MethodPost, path, jsonBody(map[string]string{"harness": "claude", "prompt": "one", "permission_mode": "bypassPermissions"})); status != http.StatusBadRequest {
+		t.Errorf("bypass at launch: %d %v", status, body)
+	}
+	status, conv := f.do(t, http.MethodPost, path, jsonBody(map[string]string{"harness": "claude", "prompt": "one", "permission_mode": "plan"}))
+	if status != http.StatusCreated || conv["permission_mode_choice"] != "plan" || f.fake.Last().Spec.PermissionMode != "plan" {
+		t.Fatalf("launch in plan: %d %v", status, conv)
+	}
+	id := conv["id"].(string)
+	rt := f.fake.Last()
+	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID(), PermissionMode: "plan"}})
+
+	modePath := "/api/conversations/" + id + "/permission-mode"
+	if status, body := f.do(t, http.MethodPost, modePath, `{"mode":"dontAsk"}`); status != http.StatusBadRequest || body["code"] != "invalid" {
+		t.Errorf("dontAsk: %d %v", status, body)
+	}
+	if status, body := f.do(t, http.MethodPost, modePath, `{"mode":"auto"}`); status != http.StatusOK || body["outcome"] != "confirmed" {
+		t.Fatalf("switch: %d %v", status, body)
+	}
+	got := f.conversation(t, id)
+	if got["permission_mode"] != "auto" || got["permission_mode_choice"] != "auto" || got["permission_mode_inherited"] != false {
+		t.Errorf("after the switch: %v", got)
+	}
+}

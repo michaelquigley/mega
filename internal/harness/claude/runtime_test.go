@@ -19,13 +19,15 @@ type recordingSink struct {
 	events   []*model.Event
 	deltas   []string
 	requests []string
+	payloads []any
 	resolved []string
 	next     int
 }
 
 func (s *recordingSink) Event(ev *model.Event) { s.events = append(s.events, ev) }
 func (s *recordingSink) Delta(text string)     { s.deltas = append(s.deltas, text) }
-func (s *recordingSink) Request(kind string, _ any) string {
+func (s *recordingSink) Request(kind string, payload any) string {
+	s.payloads = append(s.payloads, payload)
 	s.next++
 	id := fmt.Sprintf("svc-%d", s.next)
 	s.requests = append(s.requests, kind+":"+id)
@@ -48,6 +50,7 @@ func testRuntime() (*runtime, *recordingSink, *nopCloser) {
 		requests: make(map[string]string),
 		byNative: make(map[string]string),
 		answers:  make(map[string]chan error),
+		modes:    make(map[string]*modeSwitch),
 	}, sink, stdin
 }
 

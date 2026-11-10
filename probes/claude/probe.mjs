@@ -11,6 +11,9 @@
 //        [--interrupt-on-permission] [--stale-after-abort] \
 //        [--interrupt-after-ms N [--interrupt-turn I]] [--kill-owner-after-ms N] \
 //        [--setting-sources user,project,local] [--exec PATH]
+//        [--set-mode-on-permission MODE]  on the first permission request, call
+//                                 setPermissionMode(MODE), wait, record whether the
+//                                 pending request was aborted, then apply the policy
 //        [--relay SOCK [--hold]]   owner mode: requests wait for a relay client's answer;
 //                                 clients may send prompts; with --hold the owner keeps the
 //                                 session open after the turns file until a client sends close
@@ -19,6 +22,8 @@
 //   node probe.mjs messages --session SESSION_ID [--cwd DIR]
 //
 // Turns file: JSON array; each item is a prompt string or {"prompt": "..."}.
+// An item may carry "set_mode": the probe calls setPermissionMode with it, and
+// records the result, before sending that item's prompt.
 // Policy: a tool request whose "ToolName:<json input>" matches --approve is
 // allowed (after --approve-delay-ms); anything else is denied with a message.
 // AskUserQuestion is answered by choosing the first option whose label matches
@@ -105,6 +110,16 @@ const canUseTool = async (toolName, input, o) => {
   say(`can_use_tool ${toolName} requestId=${o.requestId} toolUseID=${o.toolUseID} reason=${JSON.stringify(o.decisionReason ?? null)}`);
   rec('permission_request', base);
   const aborted = new Promise(r => o.signal.addEventListener('abort', () => r('aborted'), { once: true }));
+  if (opt['set-mode-on-permission'] && !summary.switched_on_permission) {
+    summary.switched_on_permission = true;
+    const mode = opt['set-mode-on-permission'];
+    say(`setPermissionMode(${mode}) while request ${o.requestId} is pending`);
+    const sr = await q.setPermissionMode(mode).then(r => ({ ok: true, result: r ?? null }), e => ({ ok: false, error: String(e) }));
+    const outcome = await Promise.race([aborted, new Promise(r => setTimeout(() => r('still_pending'), 2000))]);
+    rec('set_mode_while_pending', { requestId: o.requestId, mode, set: sr, pendingAfter2s: outcome });
+    summary.set_mode_while_pending = { requestId: o.requestId, mode, set: sr, pendingAfter2s: outcome };
+    say(`after setPermissionMode: request ${outcome}`);
+  }
   if (relay) {
     const kind = toolName === 'AskUserQuestion' ? 'question' : 'permission';
     aborted.then(() => { if (relay.resolve(o.requestId, 'aborted')) rec('relay_request_aborted', { requestId: o.requestId }); });
@@ -187,7 +202,16 @@ function sendNext() {
   rec('send_turn', { i: turnIdx, prompt: t.prompt });
   say(`send turn ${turnIdx}: ${t.prompt.slice(0, 80)}`);
   if (relay) relay.setState({ phase: 'working', turn: turnIdx });
-  push({ type: 'user', message: { role: 'user', content: t.prompt }, parent_tool_use_id: null });
+  const send = () => push({ type: 'user', message: { role: 'user', content: t.prompt }, parent_tool_use_id: null });
+  if (t.set_mode) {
+    say(`setPermissionMode(${t.set_mode}) before turn ${turnIdx}`);
+    q.setPermissionMode(t.set_mode).then(
+      (r) => { rec('set_mode', { turn: turnIdx, mode: t.set_mode, result: r ?? null }); summary.mode_changes = [...(summary.mode_changes ?? []), { turn: turnIdx, mode: t.set_mode, ok: true }]; say(`setPermissionMode ok`); send(); },
+      (e) => { rec('set_mode', { turn: turnIdx, mode: t.set_mode, error: String(e) }); summary.mode_changes = [...(summary.mode_changes ?? []), { turn: turnIdx, mode: t.set_mode, ok: false, error: String(e) }]; say(`setPermissionMode failed: ${e}`); send(); },
+    );
+  } else {
+    send();
+  }
   const iTurn = Number(opt['interrupt-turn'] ?? 1);
   if (opt['interrupt-after-ms'] && turnIdx === iTurn) {
     setTimeout(async () => {

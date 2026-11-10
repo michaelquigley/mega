@@ -774,3 +774,18 @@ hr.turn {
   box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
   color: var(--accent);
 }
+
+.mode-control {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.mode-control select {
+  font-size: 12px;
+  padding: 2px 6px;
+}

@@ -19,6 +19,12 @@
 //   stream MS N      the lines after the first, streamed N characters every
 //                    MS, then landed as one assistant message
 //   anything else    one assistant message, "ok"
+//
+// like claude, it starts in --permission-mode (or 'default' when none is
+// passed), re-reports system/init with the current mode at the start of every
+// turn, and switches on set_permission_mode, confirming with
+// permission_mode_set. it never decides a request: in any mode, ask raises
+// one.
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
@@ -61,6 +67,7 @@ if (cmd !== 'run') {
 const session = arg('--session-id') ?? arg('--resume')
 const cwd = arg('--cwd')
 const fresh = arg('--session-id') !== undefined
+let mode = arg('--permission-mode') ?? 'default'
 let first = null
 let waiting = null
 
@@ -92,19 +99,21 @@ const end = (subtype = 'success') =>
 const filler = (i) =>
   `Message ${i}. ` + 'This line stands in for a paragraph of agent output, long enough to wrap. '.repeat(3)
 
-out({
-  type: 'event',
-  msg: {
-    type: 'system',
-    subtype: 'init',
-    uuid: randomUUID(),
-    session_id: session,
-    model: 'fake',
-    claude_code_version: 'fake',
-    permissionMode: 'default',
-    cwd,
-  },
-})
+const init = () =>
+  out({
+    type: 'event',
+    msg: {
+      type: 'system',
+      subtype: 'init',
+      uuid: randomUUID(),
+      session_id: session,
+      model: 'fake',
+      claude_code_version: 'fake',
+      permissionMode: mode,
+      cwd,
+    },
+  })
+init()
 
 async function turn(text) {
   const newline = text.indexOf('\n')
@@ -150,8 +159,12 @@ lines.on('line', (line) => {
       first = frame.text
       appendFileSync(join(store, 'sessions.jsonl'), JSON.stringify({ id: session, cwd, first, at: Date.now() }) + '\n')
     }
+    init()
     keep({ type: 'user', uuid: frame.uuid, session_id: session, parent_tool_use_id: null, message: { role: 'user', content: frame.text } })
     void turn(frame.text)
+  } else if (frame.type === 'set_permission_mode') {
+    mode = frame.mode
+    out({ type: 'permission_mode_set', id: frame.id, mode })
   } else if (frame.type === 'answer') {
     if (frame.id !== waiting) {
       out({ type: 'answer_rejected', id: frame.id })

@@ -227,6 +227,12 @@ func responseFor(req *serverRequest, answer harness.Answer) any {
 
 // Interrupt stops the active turn. the adapter's own questions are aborted at
 // once: none may outlive an interrupt and start new work when answered.
+// SetPermissionMode is refused: codex has no permission modes, and its approval
+// policy and sandbox come from the operator's own configuration.
+func (r *runtime) SetPermissionMode(string) error {
+	return errors.New("codex has no permission modes; its approval policy comes from its own configuration")
+}
+
 func (r *runtime) Interrupt() error {
 	r.remember()
 	r.mu.Lock()

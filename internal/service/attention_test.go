@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -311,5 +312,82 @@ func TestOutputOfATurnStillInProgressDoesNotCount(t *testing.T) {
 	}
 	if got := r.attention(conv.ID); got != model.AttentionIdle {
 		t.Errorf("output of an in-progress native turn counted: %q", got)
+	}
+}
+
+// native events are the harness's own bookkeeping and never count as agent
+// output: a turn of init, status and lifecycle frames leaves the unread marker
+// where it was, and one assistant event still moves it.
+func TestNativeEventsNeverCountAsOutput(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	finishTurn(rt, "a-1", "done")
+	r.readAll(conv.ID)
+	before := r.view(conv.ID).OutputSeq
+
+	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
+		t.Fatal(err)
+	}
+	for i, text := range []string{"system/init", "system/status", "system/session_state_changed"} {
+		rt.Emit(&model.Event{Kind: model.EventNative, Text: text, NativeID: fmt.Sprintf("n-%d", i)})
+	}
+	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	if view := r.view(conv.ID); view.OutputSeq != before || view.Attention != model.AttentionIdle {
+		t.Errorf("a bookkeeping-only turn: output seq %d -> %d, attention %q", before, view.OutputSeq, view.Attention)
+	}
+
+	if err := r.svc.Prompt(conv.ID, "three"); err != nil {
+		t.Fatal(err)
+	}
+	rt.Emit(&model.Event{Kind: model.EventNative, Text: "system/init", NativeID: "n-3"})
+	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "reply", NativeID: "a-3"})
+	rt.Emit(&model.Event{Kind: model.EventNative, Text: "system/status", NativeID: "n-4"})
+	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	evs := r.events(conv.ID)
+	var replySeq int64
+	for _, ev := range evs {
+		if ev.NativeID == "a-3" {
+			replySeq = ev.Seq
+		}
+	}
+	if view := r.view(conv.ID); view.OutputSeq != replySeq || view.Attention != model.AttentionUnread {
+		t.Errorf("a turn with one assistant event: output seq %d (want %d), attention %q", view.OutputSeq, replySeq, view.Attention)
+	}
+}
+
+// after an unsupervised resume the marker is the newest assistant or tool
+// event, never a native one recorded after it.
+func TestResumeMarkerIgnoresNativeEvents(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	finishTurn(r.fake.Last(), "a-1", "done")
+	r.readAll(conv.ID)
+	r.restart()
+	r.fake.SetHistory(conv.NativeID, []*model.Event{
+		{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"},
+		{Kind: model.EventToolUse, Text: "Bash ls", Tool: "Bash", ToolUseID: "tu-1", NativeID: "u-1"},
+		{Kind: model.EventToolResult, Text: "file", ToolUseID: "tu-1", NativeID: "r-1"},
+		{Kind: model.EventNative, Text: "system/init", NativeID: "n-1"},
+		{Kind: model.EventNative, Text: "system/status", NativeID: "n-2"},
+	})
+	if err := r.svc.Resume(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	var resultSeq, nativeSeq int64
+	for _, ev := range r.events(conv.ID) {
+		switch ev.NativeID {
+		case "r-1":
+			resultSeq = ev.Seq
+		case "n-2":
+			nativeSeq = ev.Seq
+		}
+	}
+	view := r.view(conv.ID)
+	if view.OutputSeq != resultSeq || nativeSeq <= resultSeq {
+		t.Errorf("marker = %d, want the tool result's %d (newest native at %d)", view.OutputSeq, resultSeq, nativeSeq)
+	}
+	if view.Attention != model.AttentionUnread {
+		t.Errorf("attention = %q", view.Attention)
 	}
 }

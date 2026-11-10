@@ -13,14 +13,18 @@ type projectView struct {
 	Name      string
 	Checkout  string
 	Untrusted bool
+	// InheritedPermissionMode is the claude mode the operator's settings name
+	// for the checkout, which a launch with no choice inherits; empty if none.
+	InheritedPermissionMode string
 }
 
 func newProjectView(project model.Project) *projectView {
 	return &projectView{
-		ID:        project.ID,
-		Name:      project.Name,
-		Checkout:  project.Checkout,
-		Untrusted: project.Untrusted,
+		ID:                      project.ID,
+		Name:                    project.Name,
+		Checkout:                project.Checkout,
+		Untrusted:               project.Untrusted,
+		InheritedPermissionMode: project.InheritedPermissionMode,
 	}
 }
 

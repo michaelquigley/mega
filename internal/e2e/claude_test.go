@@ -105,16 +105,7 @@ func (s *session) prompt(text string) {
 // service, without the terminal visit (C5), which the operator does by hand.
 func TestClaudeRoundTrip(t *testing.T) {
 	fixture := env("ROUNDHOUSE_E2E_CLAUDE_FIXTURE", defaultFixture)
-	shim, err := filepath.Abs(filepath.Join("..", "..", "shim", "claude"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	home, _ := os.UserHomeDir()
-	h := claude.New(claude.Config{
-		Node:       env("ROUNDHOUSE_E2E_NODE", "node"),
-		Shim:       shim,
-		Executable: env("ROUNDHOUSE_E2E_CLAUDE", filepath.Join(home, ".local", "share", "claude", "versions", "2.1.318")),
-	})
+	h := newClaudeHarness(t)
 	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
@@ -122,7 +113,7 @@ func TestClaudeRoundTrip(t *testing.T) {
 	}
 
 	// C1: launch with the marker turn; project instructions load.
-	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e", markerPrompt)
+	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e", markerPrompt, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,6 +216,126 @@ func TestClaudeRoundTrip(t *testing.T) {
 
 	shutdown(t, svc, s)
 	t.Logf("session %s", conv.NativeID)
+}
+
+// newClaudeHarness runs the real shim and the pinned claude code.
+func newClaudeHarness(t *testing.T) *claude.Harness {
+	t.Helper()
+	shim, err := filepath.Abs(filepath.Join("..", "..", "shim", "claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, _ := os.UserHomeDir()
+	return claude.New(claude.Config{
+		Node:       env("ROUNDHOUSE_E2E_NODE", "node"),
+		Shim:       shim,
+		Executable: env("ROUNDHOUSE_E2E_CLAUDE", filepath.Join(home, ".local", "share", "claude", "versions", "2.1.318")),
+	})
+}
+
+// TestClaudeAutoMode launches in the auto mode the operator chose and runs the
+// fixture's sleep turn, which its project ask rule keeps out of the
+// classifier's hands: the residue must still arrive as a request, raised in
+// auto mode, and wait for the operator's answer.
+func TestClaudeAutoMode(t *testing.T) {
+	fixture := env("ROUNDHOUSE_E2E_CLAUDE_FIXTURE", defaultFixture)
+	svc := newE2EService(t, newClaudeHarness(t))
+	project, err := svc.RegisterProject("claude-rt1", fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e auto", approvalPrompt, "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &session{t: t, svc: svc, id: conv.ID}
+	view := s.waitFor("the approval", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
+	if facts := view.Facts; facts == nil || facts.PermissionMode != "auto" || facts.ModeInherited {
+		t.Errorf("runtime facts = %+v", facts)
+	}
+	approval := view.Pending[0]
+	payload, _ := approval.Payload.(map[string]any)
+	if approval.Kind != model.RequestPermission || payload["permission_mode"] != "auto" {
+		t.Fatalf("expected a permission request raised in auto mode, got %+v", approval)
+	}
+	if err := svc.Answer(s.id, approval.ID, harness.Answer{Decision: harness.DecisionAllow}); err != nil {
+		t.Fatal(err)
+	}
+	s.idle()
+	s.expectReply("DELTA-7a8b")
+	shutdown(t, svc, s)
+	t.Logf("session %s", s.view().NativeID)
+}
+
+// TestClaudeModeSwitch switches a default-mode conversation to auto while its
+// sleep turn waits on an approval, mid-turn. claude must confirm the switch,
+// the live mode must follow from its report, the pending request must survive
+// and be answerable, and the next turn's system/init, as claude re-sends it,
+// must report the same mode the header shows.
+func TestClaudeModeSwitch(t *testing.T) {
+	fixture := env("ROUNDHOUSE_E2E_CLAUDE_FIXTURE", defaultFixture)
+	svc := newE2EService(t, newClaudeHarness(t))
+	project, err := svc.RegisterProject("claude-rt1", fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e switch", approvalPrompt, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &session{t: t, svc: svc, id: conv.ID}
+	view := s.waitFor("the approval", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
+	if view.Facts == nil || view.Facts.PermissionMode != "default" {
+		t.Fatalf("started in %+v", view.Facts)
+	}
+	approval := view.Pending[0]
+
+	outcome, err := svc.SetPermissionMode(s.id, "auto")
+	if err != nil || outcome.Outcome != service.ModeConfirmed {
+		t.Fatalf("switch: %+v, %v", outcome, err)
+	}
+	view = s.view()
+	if view.Facts.PermissionMode != "auto" || view.PermissionMode != "auto" {
+		t.Errorf("after the switch: live %q, choice %q", view.Facts.PermissionMode, view.PermissionMode)
+	}
+	if len(view.Pending) != 1 || view.Pending[0].ID != approval.ID {
+		t.Fatalf("the pending request did not survive the switch: %+v", view.Pending)
+	}
+	if err := svc.Answer(s.id, approval.ID, harness.Answer{Decision: harness.DecisionAllow}); err != nil {
+		t.Fatal(err)
+	}
+	s.idle()
+	s.expectReply("DELTA-7a8b")
+
+	// the next turn's init is claude's own report of the mode.
+	s.prompt(markerPrompt)
+	s.idle()
+	s.expectReply("ALPHA-1a2b")
+	evs, err := svc.Events(s.id, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lastInit string
+	for _, ev := range evs {
+		if ev.Kind != model.EventNative || ev.Text != "system/init" {
+			continue
+		}
+		if raw, ok := ev.Raw.(map[string]any); ok {
+			lastInit, _ = raw["permissionMode"].(string)
+		}
+	}
+	if lastInit != "auto" || s.view().Facts.PermissionMode != "auto" {
+		t.Errorf("the next turn's init reported %q; the header shows %q", lastInit, s.view().Facts.PermissionMode)
+	}
+	var changes []string
+	for _, ev := range evs {
+		if ev.Kind == model.EventRuntime && ev.Status == model.StatusModeChanged {
+			changes = append(changes, ev.Facts.PermissionMode+": "+ev.Text)
+		}
+	}
+	t.Logf("mode changes recorded: %v", changes)
+	shutdown(t, svc, s)
+	t.Logf("session %s", s.view().NativeID)
 }
 
 // newE2EService is a service over h with a throwaway data directory.

@@ -75,7 +75,7 @@ func TestCodexRoundTrip(t *testing.T) {
 
 	// X1: a new thread; AGENTS.md loads; the operator's approval policy and
 	// sandbox are inherited.
-	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e", codexMarkerPrompt)
+	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e", codexMarkerPrompt, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestCodexReleaseDuringCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e release", `Run exactly python3 -c "import time; time.sleep(40); print(1)" in the working directory and then reply SLEPT. Nothing else.`)
+	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e release", `Run exactly python3 -c "import time; time.sleep(40); print(1)" in the working directory and then reply SLEPT. Nothing else.`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
