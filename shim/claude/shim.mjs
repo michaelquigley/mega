@@ -2,7 +2,9 @@
 // roundhouse claude shim: a policy-free bridge between the roundhouse service
 // and the claude agent sdk, speaking one JSON object per line on stdio.
 //
-//   node shim.mjs run --cwd DIR (--session-id UUID | --resume UUID) --exec PATH [--permission-mode MODE]
+//   node shim.mjs run --cwd DIR (--session-id UUID | --resume UUID) --exec PATH
+//        [--permission-mode MODE] [--model MODEL] [--effort LEVEL]
+//   node shim.mjs models --cwd DIR --exec PATH
 //   node shim.mjs messages --session UUID --cwd DIR
 //   node shim.mjs list --cwd DIR
 //
@@ -15,6 +17,8 @@
 //   {"type":"interrupted","response":{...}}
 //   {"type":"permission_mode_set","id":...,"mode":...}            the sdk switched
 //   {"type":"permission_mode_set","id":...,"mode":...,"error":...}  it did not
+//   {"type":"model_set","id":...,"model":...[,"error":...]}
+//   {"type":"effort_set","id":...,"effort":...[,"error":...]}
 //   {"type":"error","message":...}
 //   {"type":"exit","code":N}
 // run, service to shim:
@@ -23,6 +27,8 @@
 //   {"type":"answer","id":...,"answers":{"<question>":"<label>"}}
 //   {"type":"interrupt"}
 //   {"type":"set_permission_mode","id":...,"mode":...}
+//   {"type":"set_model","id":...,"model":...}
+//   {"type":"set_effort","id":...,"effort":...}
 //   {"type":"close"}
 //
 // the shim decides nothing: every request waits for the service's answer, the
@@ -113,6 +119,8 @@ export async function run(opt, sdk, io) {
     stderr: data => io.stderr.write(data),
   };
   if (typeof opt['permission-mode'] === 'string') options.permissionMode = opt['permission-mode'];
+  if (typeof opt.model === 'string') options.model = opt.model;
+  if (typeof opt.effort === 'string') options.effort = opt.effort;
   if (opt['session-id']) options.sessionId = opt['session-id'];
   if (opt.resume) options.resume = opt.resume;
 
@@ -146,6 +154,13 @@ export async function run(opt, sdk, io) {
       q.setPermissionMode(m.mode)
         .then(() => emit(reply))
         .catch(e => emit({ ...reply, error: String(e?.message ?? e) }));
+    } else if (m.type === 'set_model' || m.type === 'set_effort') {
+      // the operator's choice, applied from the next response.
+      const isModel = m.type === 'set_model';
+      const reply = isModel ? { type: 'model_set', id: m.id, model: m.model } : { type: 'effort_set', id: m.id, effort: m.effort };
+      if (!q) { emit({ ...reply, error: 'no session yet' }); return; }
+      const call = isModel ? q.setModel(m.model) : q.applyFlagSettings({ effortLevel: m.effort });
+      call.then(() => emit(reply)).catch(e => emit({ ...reply, error: String(e?.message ?? e) }));
     } else if (m.type === 'close') {
       close();
     }
@@ -179,10 +194,29 @@ export async function list(opt, sdk, io) {
   return 0;
 }
 
+// models answers the model list from an idle session: no prompt is sent, so no
+// turn runs and no session is stored (capability report, 2.1.318).
+export async function models(opt, sdk, io) {
+  const emit = writer(io.stdout);
+  let end;
+  const closed = new Promise(r => { end = r; });
+  const idle = (async function* () { await closed; })();
+  const q = sdk.query({ prompt: idle, options: { cwd: opt.cwd, pathToClaudeCodeExecutable: opt.exec } });
+  try {
+    const list = await q.supportedModels();
+    const init = await q.initializationResult().catch(() => ({}));
+    emit({ version: init.claude_code_version ?? '', models: list });
+  } finally {
+    end();
+    for await (const _ of q) { /* drain until the cli exits */ }
+  }
+  return 0;
+}
+
 export async function main(argv, sdk, io) {
   const cmd = argv[0];
   const opt = parseArgs(argv.slice(1));
-  const required = { run: ['cwd', 'exec'], messages: ['session', 'cwd'], list: ['cwd'] }[cmd];
+  const required = { run: ['cwd', 'exec'], messages: ['session', 'cwd'], list: ['cwd'], models: ['cwd', 'exec'] }[cmd];
   if (!required) { io.stderr.write(`unknown command '${cmd}'\n`); return 2; }
   const missing = required.filter(k => typeof opt[k] !== 'string');
   if (missing.length) { io.stderr.write(`missing --${missing.join(', --')}\n`); return 2; }
@@ -190,7 +224,7 @@ export async function main(argv, sdk, io) {
     io.stderr.write('exactly one of --session-id and --resume is required\n');
     return 2;
   }
-  return { run, messages, list }[cmd](opt, sdk, io);
+  return { run, messages, list, models }[cmd](opt, sdk, io);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

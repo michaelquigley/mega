@@ -67,8 +67,20 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		shutDown(c)
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 	}
+	// thread/start and thread/resume take a model but no effort (0.166.0
+	// schema); an unchosen model is sent as the config's, so a resumed thread
+	// that once had an override returns to the config. the effort goes with
+	// every turn/start.
+	threadModel := spec.Model
+	if threadModel == "" {
+		configModel, _, err := readConfig(ctx, c, spec.Cwd)
+		if err != nil {
+			dl.Warnf("reading what a thread in '%s' inherits: %v", spec.Cwd, err)
+		}
+		threadModel = configModel
+	}
 	if spec.NativeID == "" {
-		err = c.call(ctx, "thread/start", &threadStartParams{Cwd: spec.Cwd}, started)
+		err = c.call(ctx, "thread/start", &threadStartParams{Cwd: spec.Cwd, Model: threadModel}, started)
 		var refused *replyError
 		if errors.As(err, &refused) {
 			// the server answered that it did not start the thread.
@@ -76,7 +88,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 			return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 		}
 	} else {
-		err = c.call(ctx, "thread/resume", &threadResumeParams{ThreadID: spec.NativeID, Cwd: spec.Cwd}, started)
+		err = c.call(ctx, "thread/resume", &threadResumeParams{ThreadID: spec.NativeID, Cwd: spec.Cwd, Model: threadModel}, started)
 	}
 	if err != nil {
 		// no answer to thread/start (a timeout, or the app-server exiting) may
@@ -90,6 +102,8 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	}
 	r.mu.Lock()
 	r.threadID = started.Thread.ID
+	r.cwd, r.model, r.effort = spec.Cwd, spec.Model, spec.Effort
+	r.liveModel, r.liveEffort = started.Model, started.ReasoningEffort
 	r.mu.Unlock()
 	sink.Event(&model.Event{
 		Kind:   model.EventRuntime,
@@ -100,6 +114,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 			Model:          started.Model,
 			Version:        started.Thread.CliVersion,
 			PermissionMode: permissionSummary(started),
+			Effort:         started.ReasoningEffort,
 			Cwd:            started.Cwd,
 		},
 		Text: instructionSummary(started.InstructionSources),
@@ -171,6 +186,80 @@ func (h *Harness) once(ctx context.Context, cwd, method string, params, out any)
 		return err
 	}
 	return c.call(ctx, method, params, out)
+}
+
+// Models lists the models codex offers, from a short-lived app-server with no
+// thread, as discovery does. hidden models are left out. the version comes
+// from the app-server's user agent.
+func (h *Harness) Models(ctx context.Context, cwd string) (harness.Catalog, error) {
+	c, err := dial(h.cfg.Binary, cwd, quiet{})
+	if err != nil {
+		return harness.Catalog{}, err
+	}
+	defer shutDown(c)
+	if err := c.initialize(ctx); err != nil {
+		return harness.Catalog{}, err
+	}
+	list := &modelList{}
+	if err := c.call(ctx, "model/list", &modelListParams{}, list); err != nil {
+		return harness.Catalog{}, fmt.Errorf("listing codex models: %w", err)
+	}
+	catalog := harness.Catalog{Version: userAgentVersion(c.userAgent)}
+	for _, m := range list.Data {
+		if m.Hidden {
+			continue
+		}
+		option := harness.ModelOption{ID: m.ID, Resolved: m.ID, DisplayName: m.DisplayName, Description: m.Description, DefaultEffort: m.DefaultReasoningEffort, IsDefault: m.IsDefault}
+		efforts, _ := m.SupportedReasoningEfforts.([]any)
+		for _, e := range efforts {
+			switch v := e.(type) {
+			case string:
+				option.Efforts = append(option.Efforts, v)
+			case map[string]any:
+				if s, ok := v["reasoningEffort"].(string); ok {
+					option.Efforts = append(option.Efforts, s)
+				}
+			}
+		}
+		catalog.Models = append(catalog.Models, option)
+	}
+	return catalog, nil
+}
+
+// Inherited says what model and effort a thread with none chosen gets in
+// cwd: codex's own effective config for the checkout, project layers
+// included, from config/read (capability report, 0.166.0). it only reads.
+func (h *Harness) Inherited(ctx context.Context, cwd string) (string, string, error) {
+	c, err := dial(h.cfg.Binary, cwd, quiet{})
+	if err != nil {
+		return "", "", err
+	}
+	defer shutDown(c)
+	if err := c.initialize(ctx); err != nil {
+		return "", "", err
+	}
+	return readConfig(ctx, c, cwd)
+}
+
+// readConfig reads the model and effort codex's effective config gives cwd,
+// project layers included, over an initialized connection. a field the
+// config does not set is empty.
+func readConfig(ctx context.Context, c *conn, cwd string) (string, string, error) {
+	read := &configRead{}
+	if err := c.call(ctx, "config/read", &configReadParams{Cwd: cwd}, read); err != nil {
+		return "", "", fmt.Errorf("reading codex config: %w", err)
+	}
+	model, _ := read.Config["model"].(string)
+	effort, _ := read.Config["model_reasoning_effort"].(string)
+	return model, effort, nil
+}
+
+// userAgentVersion reads the version from an app-server user agent such as
+// "roundhouse/0.166.0 (Ubuntu ...)".
+func userAgentVersion(agent string) string {
+	head, _, _ := strings.Cut(agent, " ")
+	_, version, _ := strings.Cut(head, "/")
+	return version
 }
 
 // shutDown closes a connection's input and waits for the app-server to exit,

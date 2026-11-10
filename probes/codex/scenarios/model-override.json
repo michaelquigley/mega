@@ -1,0 +1,4 @@
+[
+  "Reply with the word ALPHA-1a2b. Nothing else.",
+  { "prompt": "Reply with the word BETA-3c4d. Nothing else.", "turn_json": { "model": "gpt-6-astra", "effort": "low" } }
+]

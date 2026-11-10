@@ -13,6 +13,7 @@
 //        [--steer-answer TEXT]    when an agentMessage with questions[] (async question) appears,
 //                                 send TEXT into the active turn with turn/steer
 //        [--start-json JSON] [--turn-json JSON]  extra params merged into thread/start|resume and turn/start
+//        (a turns-file item may also carry "turn_json", merged into its own turn/start only)
 //        [--config k=v]           passed to `codex app-server -c k=v` (repeatable via comma)
 //        [--linger-ms N]          wait N ms after the last turn before closing stdin
 //        [--close-on-approval]     suspension test: close stdin while an approval is pending, record exit
@@ -232,6 +233,16 @@ if (cmd === 'list') {
   console.log(JSON.stringify(r.data.map(t => ({ id: t.id, cwd: t.cwd, path: t.path, preview: t.preview?.slice(0, 80), status: t.status, model: t.model, createdAt: t.createdAt, updatedAt: t.updatedAt, source: t.source })), null, 2));
   await shutdown(); process.exit(0);
 }
+if (cmd === 'models') {
+  // model/list from a short-lived app-server with no thread, as roundhouse's
+  // dialog asks for it.
+  await init();
+  const t = Date.now();
+  const r = await request('model/list', { includeHidden: Boolean(opt['include-hidden']) });
+  const c = await request('config/read', { cwd: resolve(opt.cwd ?? '.'), includeLayers: false });
+  console.log(JSON.stringify({ ms: Date.now() - t, nextCursor: r.nextCursor ?? null, effective: { model: c.config?.model ?? null, model_reasoning_effort: c.config?.model_reasoning_effort ?? null }, models: r.data.map(m => ({ id: m.id, model: m.model, displayName: m.displayName, isDefault: m.isDefault, hidden: m.hidden, defaultReasoningEffort: m.defaultReasoningEffort, supportedReasoningEfforts: m.supportedReasoningEfforts })) }, null, 2));
+  await shutdown(); process.exit(0);
+}
 if (cmd === 'read') {
   await init();
   const r = await request('thread/read', { threadId: opt.thread, includeTurns: true });
@@ -281,7 +292,7 @@ try {
     summary.turns.push(tr);
     say(`send turn ${i + 1}: ${t.prompt.slice(0, 80)}`);
     const completed = waitFor(m => m.method === 'turn/completed' && m.params.threadId === currentThreadId && m.params.turn?.id === currentTurnId);
-    const resp = await request('turn/start', { threadId: currentThreadId, input: [{ type: 'text', text: t.prompt, text_elements: [] }], ...(opt['turn-json'] ? JSON.parse(opt['turn-json']) : {}) });
+    const resp = await request('turn/start', { threadId: currentThreadId, input: [{ type: 'text', text: t.prompt, text_elements: [] }], ...(opt['turn-json'] ? JSON.parse(opt['turn-json']) : {}), ...(t.turn_json ?? {}) });
     currentTurnId = resp.turn.id; tr.turnId = currentTurnId;
     rec('turn_accepted', { turnId: currentTurnId, i: i + 1 });
     if (opt['interrupt-after-ms'] && i + 1 === Number(opt['interrupt-turn'] ?? 1)) {

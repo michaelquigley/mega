@@ -5,15 +5,19 @@ import {
   removeConversation,
   resumeConversation,
   sendPrompt,
+  setModel,
   setPermissionMode,
   updateConversation,
 } from '../api'
+import { harnesses } from '../harnesses'
 import { useLatest } from '../latest'
+import { useModels } from '../models'
 import { permissionModes } from '../permissions'
 import { loadedThrough, type ConversationLog } from '../log'
 import type { Conversation, Project } from '../types'
 import { EventList } from './EventList'
 import { Markdown } from './Markdown'
+import { ModelPicker } from './ModelPicker'
 import { RequestCard } from './RequestCard'
 
 interface ConversationViewProps {
@@ -107,6 +111,7 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
           {[
             conversation.harness,
             conversation.model,
+            effortFact(conversation),
             conversation.version && `v${conversation.version}`,
             conversation.mode,
             conversation.permission_mode &&
@@ -116,6 +121,7 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
             conversation.permission_mode_choice &&
               conversation.permission_mode_choice !== conversation.permission_mode &&
               `next launch: ${conversation.permission_mode_choice}`,
+            nextPrompt(conversation),
           ]
             .filter(Boolean)
             .join(' · ')}
@@ -143,6 +149,26 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
                 }
                 if (outcome === 'unconfirmed') {
                   throw new Error(message ?? 'Claude did not confirm the switch in time.')
+                }
+              })
+            }
+          />
+        )}
+        {state !== 'unsupervised' && (
+          <ModelControl
+            key={`${conversation.model_choice ?? ''}\n${conversation.effort_choice ?? ''}`}
+            conversation={conversation}
+            projectId={project.id}
+            disabled={busy || stale || state === 'starting' || state === 'stopping' || state === 'resuming' || (state === 'running' && !conversation.model)}
+            onApply={(model, effort) =>
+              attempt(async () => {
+                const { outcome, message } = await setModel(conversation.id, model, effort)
+                const name = harnessName(conversation.harness)
+                if (outcome === 'refused') {
+                  throw new Error(`${name} refused the change: ${message ?? 'no reason given'}`)
+                }
+                if (outcome === 'unconfirmed') {
+                  throw new Error(message ?? `${name} did not confirm the change in time.`)
                 }
               })
             }
@@ -311,6 +337,87 @@ function ModeControl({
       </select>
       <span className="muted">{live ? 'Applies from the next tool call.' : 'Applies at the next launch.'}</span>
     </label>
+  )
+}
+
+const harnessName = (value: string) => harnesses.find((h) => h.value === value)?.label ?? value
+
+// effortFact is the effort in the header: as codex reports it, or for claude,
+// which never reports it, the level asked for, labelled as such.
+function effortFact(conversation: Conversation): string | undefined {
+  if (conversation.effort) {
+    return `effort: ${conversation.effort}`
+  }
+  if (conversation.harness === 'claude' && conversation.model && conversation.effort_choice) {
+    return `effort: ${conversation.effort_choice} (requested)`
+  }
+  return undefined
+}
+
+// nextPrompt is a model or effort the next prompt carries that the header
+// does not show as running yet: a change asked for while running (claude's
+// effort excepted, shown as requested already), or with no runtime, the
+// stored choice the next launch passes.
+function nextPrompt(conversation: Conversation): string | undefined {
+  const running = !!conversation.model
+  const model = running ? conversation.model_next : conversation.model_choice
+  const effort = running
+    ? conversation.harness === 'claude'
+      ? undefined
+      : conversation.effort_next
+    : conversation.effort_choice
+  const parts = [model, effort && `effort ${effort}`].filter(Boolean)
+  return parts.length > 0 ? `next prompt: ${parts.join(', ')}` : undefined
+}
+
+// ModelControl changes a conversation's model and effort. while the runtime
+// runs (live) it asks the harness: claude applies a change from the next
+// response, codex with the next prompt. otherwise it stores the choice for the
+// next launch. while live, inherit cannot be picked again once left, since
+// neither harness returns to the operator's settings mid-session. it shows the
+// stored choice; the header shows what the harness reports.
+function ModelControl({
+  conversation,
+  projectId,
+  disabled,
+  onApply,
+}: {
+  conversation: Conversation
+  projectId: string
+  disabled: boolean
+  onApply: (model: string, effort: string) => Promise<boolean>
+}) {
+  const { models } = useModels(projectId, conversation.harness)
+  const stored = { model: conversation.model_choice ?? '', effort: conversation.effort_choice ?? '' }
+  const [draft, setDraft] = useState(stored)
+  const live = conversation.state === 'running' && !!conversation.model
+  const changed = draft.model !== stored.model || draft.effort !== stored.effort
+  let when = 'Applies at the next launch.'
+  if (live) {
+    when = conversation.harness === 'codex' ? 'Applies from the next prompt.' : 'Applies from the next response.'
+  }
+  return (
+    <div className="mode-control model-control">
+      <ModelPicker
+        harness={conversation.harness}
+        models={models}
+        model={draft.model}
+        effort={draft.effort}
+        inheritModel={!live || stored.model === ''}
+        inheritEffort={!live || stored.effort === ''}
+        disabled={disabled}
+        onChange={(model, effort) => setDraft({ model, effort })}
+      />
+      <button type="button" disabled={disabled || !changed} onClick={() => void onApply(draft.model, draft.effort)}>
+        Apply
+      </button>
+      {changed && (
+        <button type="button" disabled={disabled} onClick={() => setDraft(stored)}>
+          Undo
+        </button>
+      )}
+      <span className="muted">{when}</span>
+    </div>
   )
 }
 

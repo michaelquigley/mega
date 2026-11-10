@@ -481,6 +481,41 @@ Claude Code 2.1.318, Agent SDK 0.3.318, seen in an operator conversation and in 
   - 2 with `is_meta`: both this hand-back case.
 - So a history import can contain user messages that are not prompts, and only `is_meta` tells them apart `[inference]`.
 
+## Follow-up (2026-11-10): model and effort
+
+### Claude Code 2.1.318, Agent SDK 0.3.318
+
+`probes/claude/models.mjs`, on `claude-rt1`. Logs are `probes/claude/logs/models-*`.
+
+| Run | Launch | Turns | Result |
+| --- | --- | --- | --- |
+| inherit | no model or effort | marker, after `setModel('sonnet')`, after `applyFlagSettings({effortLevel: 'low'})` | `system/init` reported `claude-opus-5-5`, then `claude-sonnet-5-5` twice |
+| explicit | `model: 'haiku'`, `effort: 'low'` | the same three | `claude-haiku-5-5`, then `claude-sonnet-5-5` twice |
+| idle only | no prompt | none | the model list answered, and the session left nothing behind |
+
+- `supportedModels()` answers on an idle session in streaming input mode before any prompt, in 395 to 405 ms from `query()` `[observed]`. `initializationResult()` then answers at once, and also carries a `models` list.
+- The list held 14 entries for this account `[observed]`. Each has `value`, `resolvedModel`, `displayName`, `supportsEffort` and `supportedEffortLevels`:
+  - aliases first: `default` (Default, recommended, resolving to `claude-opus-5-5`), `opus`, `sonnet`, `haiku` and `fable`;
+  - then explicit ids;
+  - every entry offers `low` to `max` except `claude-opus-4-6` and `claude-sonnet-4-6` (no `xhigh`) and `claude-haiku-4-5-20251001` (no effort at all).
+- The idle start costs no turn `[observed]`. The CLI starts, answers, and closes after about 1.1 s when input closes with no prompt. That session, launched under a known id, left no transcript under `~/.claude/projects` and did not show in `listSessions` for the checkout, so a models query does not pollute discovery.
+- The `model` launch option is applied and reported by `system/init` (`claude-haiku-5-5` for `haiku`) `[observed]`.
+- `setModel('sonnet')` resolved in 5 to 21 ms, and the next turn's `system/init` reported `claude-sonnet-5-5` `[observed]`. The assistant message's `model` agreed. `system/init` reports the resolved id, not the alias.
+- `applyFlagSettings({effortLevel: 'low'})` was accepted, resolving in 22 to 23 ms `[observed]`.
+- Effort is never reported on the stream `[observed]`. `system/init` carried no `effort` field in any turn, launched or switched; the type declares one only for Remote Control bridge frames `[docs]`. No message in any run mentioned effort, so the effective effort cannot be read from the stream.
+
+### codex-cli 0.166.0
+
+`probes/codex/probe.mjs`: a new `models` command, and turn-file items may carry `turn_json`. Logs are `probes/codex/logs/models-list.*`, `effort-override.*` and `model-override.*`.
+
+- `model/list` on a thread-less app-server answered in 3 ms `[observed]`. It returned 8 models, with no next cursor. Each has `id` (equal to `model`), `displayName`, `isDefault`, `hidden`, `defaultReasoningEffort` and `supportedReasoningEfforts`: `low` to `max` everywhere, plus `ultra` on six of them.
+- The catalog's `isDefault` model (`gpt-6.1-sol`) is not what the operator's config chooses `[observed]`. `~/.codex/config.toml` sets `model = "gpt-6-astra"` and `model_reasoning_effort = "high"`, and a thread started without a model ran `gpt-6-astra` at `high`. So `isDefault` does not say what "inherit" means.
+- `config/read {cwd}` returns the effective config for the checkout, project layers included: `model: gpt-6-astra`, `model_reasoning_effort: high`, in 15 ms `[observed]`. That is the cheap, exact answer to what "inherit" means.
+- The `thread/start` response reports `model` and `reasoningEffort`: `gpt-6-astra` and `high` with none passed; `gpt-6-luna` and `high` with `model: gpt-6-luna` passed `[observed]`.
+- A `turn/start` override of `effort` (or of `model` and `effort`) produces a `thread/settings/updated` notification before the turn, with `threadSettings.model` and `threadSettings.effort` (`gpt-6-astra` and `low`) `[observed]`. `turn/started` and the turn itself carry neither.
+- A later `turn/start` without overrides produced no update and kept the override, as documented ("this turn and subsequent turns") `[observed]`.
+- The override also survives `thread/resume` `[observed]`. Resuming the overridden thread (`01a1c625-07ca-74c0-a31b-38df6ad16fd3`) with no model or effort reported `gpt-6-astra` at `low`, not the config's `high` (`logs/resume-after-override.*`). Once a thread has had an override, passing nothing keeps that override; only sending the config's values explicitly returns to them `[inference]`.
+
 ## Recommendations
 
 - Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. Roundhouse should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.

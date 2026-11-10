@@ -58,3 +58,8 @@ Fixture repository used: `/home/michael/Repos/q/research/roundhouse-fixtures/cla
 | `run-reconnect.sh` | Section 1 of the follow-up brief: client drop during work, pending question across reconnect, request interrupted while away, late answer, follow-up turn |
 | `run-suspend.sh` | Section 2: idle stop and reopen, stop with a permission pending, active command with interrupt vs wait (`ONLY=active` runs just the last two) |
 | `../common/run-grouped.sh` | Grouped suspension of one Claude session and one Codex thread from a static manifest |
+
+## Model and effort (2026-11-10)
+
+`models.mjs --cwd DIR --log logs/x.jsonl [--model M] [--effort E] [--idle-only]` starts a session with no prompt and times `supportedModels()` and `initializationResult()`. It then runs three marker turns: as launched, after `setModel('sonnet')`, and after `applyFlagSettings({effortLevel: 'low'})`. For each it records `system/init`'s model and effort, and any message that mentions effort. `--idle-only` instead closes without a prompt under a fresh session id, and reports whether a transcript or a `listSessions` entry was left.
+

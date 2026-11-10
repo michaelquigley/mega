@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { startConversation } from '../api'
 import { harnesses } from '../harnesses'
+import { useModels } from '../models'
 import { permissionModes } from '../permissions'
 import type { Conversation } from '../types'
+import { ModelPicker } from './ModelPicker'
 
 interface LaunchDialogProps {
   projectId: string
@@ -14,11 +16,15 @@ interface LaunchDialogProps {
 
 // a claude conversation starts in the mode the operator picks. roundhouse's
 // own default is the manual mode, unless the operator's settings name one, in
-// which case that is inherited by passing none (the empty value).
+// which case that is inherited by passing none (the empty value). the model
+// and effort start at inherit, which passes none, and the lists come from the
+// harness; what inherit means is read afresh each time the dialog opens.
 export function LaunchDialog({ projectId, inheritedMode, onClose, onLaunched }: LaunchDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [harness, setHarness] = useState('claude')
   const [permissionMode, setPermissionMode] = useState(inheritedMode ? '' : 'default')
+  const [choice, setChoice] = useState({ model: '', effort: '' })
+  const { models, error: modelsError } = useModels(projectId, harness, true)
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +39,12 @@ export function LaunchDialog({ projectId, inheritedMode, onClose, onLaunched }: 
     setSubmitting(true)
     setError(null)
     try {
-      onLaunched(await startConversation(projectId, harness, name, prompt, harness === 'claude' ? permissionMode : ''))
+      onLaunched(
+        await startConversation(projectId, harness, name, prompt, {
+          permissionMode: harness === 'claude' ? permissionMode : '',
+          ...choice,
+        }),
+      )
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
       setSubmitting(false)
@@ -46,7 +57,13 @@ export function LaunchDialog({ projectId, inheritedMode, onClose, onLaunched }: 
         <h2>New conversation</h2>
         <label>
           Harness
-          <select value={harness} onChange={(event) => setHarness(event.target.value)}>
+          <select
+            value={harness}
+            onChange={(event) => {
+              setHarness(event.target.value)
+              setChoice({ model: '', effort: '' })
+            }}
+          >
             {harnesses.map((h) => (
               <option key={h.value} value={h.value}>
                 {h.label}
@@ -67,6 +84,18 @@ export function LaunchDialog({ projectId, inheritedMode, onClose, onLaunched }: 
             </select>
           </label>
         )}
+        <ModelPicker
+          harness={harness}
+          models={models}
+          model={choice.model}
+          effort={choice.effort}
+          inheritModel
+          inheritEffort
+          disabled={false}
+          onChange={(model, effort) => setChoice({ model, effort })}
+        />
+        {models === null && !modelsError && <p className="muted">Asking the harness for its models…</p>}
+        {modelsError && <p className="muted">The harness did not list its models ({modelsError}); inherit still launches.</p>}
         <label>
           Opening prompt
           <textarea

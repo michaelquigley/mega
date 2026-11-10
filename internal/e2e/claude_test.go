@@ -113,7 +113,7 @@ func TestClaudeRoundTrip(t *testing.T) {
 	}
 
 	// C1: launch with the marker turn; project instructions load.
-	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e", markerPrompt, "")
+	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e", markerPrompt, service.LaunchChoice{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestClaudeAutoMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e auto", approvalPrompt, "auto")
+	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e auto", approvalPrompt, service.LaunchChoice{PermissionMode: "auto"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestClaudeModeSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e switch", approvalPrompt, "default")
+	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e switch", approvalPrompt, service.LaunchChoice{PermissionMode: "default"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,4 +367,48 @@ func shutdown(t *testing.T, svc *service.Service, s *session) {
 	if v := s.view(); v.Runtime != model.RuntimeNone {
 		t.Errorf("after shutdown the conversation records %q", v.Runtime)
 	}
+}
+
+// TestClaudeModelAndEffort lists claude's models through an idle session, then
+// launches one marker turn with an explicit model and effort: claude's own
+// report, the next system/init, names the chosen model resolved. effort is
+// never reported, so only the request is checked.
+func TestClaudeModelAndEffort(t *testing.T) {
+	fixture := env("ROUNDHOUSE_E2E_CLAUDE_FIXTURE", defaultFixture)
+	chosen := env("ROUNDHOUSE_E2E_CLAUDE_MODEL", "sonnet")
+	svc := newE2EService(t, newClaudeHarness(t))
+	project, err := svc.RegisterProject("claude-rt1", fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := svc.Models(project.ID, model.HarnessClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolved string
+	for _, m := range list.Models {
+		if m.ID == chosen {
+			resolved = m.Resolved
+		}
+	}
+	t.Logf("claude %s lists %d models; %s resolves to %q; inherit means %q at %q", list.Version, len(list.Models), chosen, resolved, list.InheritedModel, list.InheritedEffort)
+	if resolved == "" {
+		t.Fatalf("%s is not listed", chosen)
+	}
+	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e model", markerPrompt, service.LaunchChoice{Model: chosen, Effort: "low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &session{t: t, svc: svc, id: conv.ID}
+	s.idle()
+	s.expectReply("ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b")
+	view := s.view()
+	if view.Facts == nil || view.Facts.Model != resolved {
+		t.Errorf("claude reported %+v, want %s", view.Facts, resolved)
+	}
+	if view.Model != chosen || view.Effort != "low" {
+		t.Errorf("stored choice %q %q", view.Model, view.Effort)
+	}
+	shutdown(t, svc, s)
+	t.Logf("session %s ran %s", view.NativeID, view.Facts.Model)
 }

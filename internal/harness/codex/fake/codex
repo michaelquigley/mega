@@ -11,6 +11,13 @@
 //                is the content it was answered with
 //   anything     a reply of "ok"
 // turn/interrupt resolves a pending elicitation and ends the turn interrupted.
+//
+// models: model/list offers fake-large (low to high, the default) and
+// fake-small (low and medium); config/read says the checkout inherits
+// fake-large at medium. a thread runs what thread/start or thread/resume
+// passed, or the inherited model; a turn/start model or effort override is
+// kept for later turns and reported with thread/settings/updated before the
+// turn, as codex-cli 0.166.0 does.
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 
@@ -27,8 +34,17 @@ let activeTurn = null
 let nextRequest = 0
 const pending = new Map() // our server request id -> {resolve, turn}
 
+const catalog = [
+  { id: 'fake-large', model: 'fake-large', displayName: 'Fake Large', description: 'The bigger stand-in.', hidden: false, isDefault: true, defaultReasoningEffort: 'medium', supportedReasoningEfforts: ['low', 'medium', 'high'].map((reasoningEffort) => ({ reasoningEffort, description: reasoningEffort })) },
+  { id: 'fake-small', model: 'fake-small', displayName: 'Fake Small', description: 'The smaller stand-in.', hidden: false, isDefault: false, defaultReasoningEffort: 'low', supportedReasoningEfforts: ['low', 'medium'].map((reasoningEffort) => ({ reasoningEffort, description: reasoningEffort })) },
+  { id: 'fake-hidden', model: 'fake-hidden', displayName: 'Fake Hidden', description: 'Never offered.', hidden: true, isDefault: false, defaultReasoningEffort: 'low', supportedReasoningEfforts: [] },
+]
+const inherited = { model: 'fake-large', model_reasoning_effort: 'medium' }
+let runModel = inherited.model
+let runEffort = inherited.model_reasoning_effort
+
 const thread = (tid) => ({ id: tid, cliVersion: 'fake', cwd: process.cwd(), preview: '', createdAt: 0, updatedAt: 0, turns: [] })
-const started = (tid) => ({ thread: thread(tid), model: 'fake', cwd: process.cwd(), approvalPolicy: 'on-request', sandbox: { type: 'workspaceWrite' }, instructionSources: [] })
+const started = (tid) => ({ thread: thread(tid), model: runModel, reasoningEffort: runEffort, cwd: process.cwd(), approvalPolicy: 'on-request', sandbox: { type: 'workspaceWrite' }, instructionSources: [] })
 
 const ask = (method, params) =>
   new Promise((resolve) => {
@@ -110,15 +126,24 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   const p = msg.params ?? {}
   switch (msg.method) {
     case 'initialize':
-      send({ id: msg.id, result: { userAgent: 'fake-codex/0', codexHome: '/nowhere', platformFamily: 'unix', platformOs: 'linux' } })
+      send({ id: msg.id, result: { userAgent: 'fake-codex/0.0.0-fake', codexHome: '/nowhere', platformFamily: 'unix', platformOs: 'linux' } })
       break
     case 'initialized':
       break
+    case 'model/list':
+      send({ id: msg.id, result: { data: catalog, nextCursor: null } })
+      break
+    case 'config/read':
+      send({ id: msg.id, result: { config: { ...inherited }, origins: {} } })
+      break
     case 'thread/start':
+      runModel = p.model ?? inherited.model
+      runEffort = inherited.model_reasoning_effort
       threadID = id()
       send({ id: msg.id, result: started(threadID) })
       break
     case 'thread/resume':
+      if (p.model) runModel = p.model
       threadID = p.threadId
       send({ id: msg.id, result: started(threadID) })
       break
@@ -132,6 +157,11 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       const turn = id()
       activeTurn = turn
       const text = (p.input ?? []).map((i) => i.text ?? '').join('')
+      if ((p.model && p.model !== runModel) || (p.effort && p.effort !== runEffort)) {
+        runModel = p.model ?? runModel
+        runEffort = p.effort ?? runEffort
+        notify('thread/settings/updated', { threadId: threadID, threadSettings: { model: runModel, effort: runEffort } })
+      }
       send({ id: msg.id, result: { turn: { id: turn, status: 'inProgress', items: [] } } })
       notify('turn/started', { threadId: threadID, turn: { id: turn, status: 'inProgress', items: [] } })
       notify('item/completed', { threadId: threadID, turnId: turn, item: { type: 'userMessage', id: id(), clientId: p.clientUserMessageId, content: [{ type: 'text', text }] } })

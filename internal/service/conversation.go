@@ -25,12 +25,16 @@ const (
 
 // StartConversation launches a new conversation in a project and sends its
 // opening prompt.
-func (s *Service) StartConversation(projectID, harnessName, name, prompt, permissionMode string) (ConversationView, error) {
+func (s *Service) StartConversation(projectID, harnessName, name, prompt string, choice LaunchChoice) (ConversationView, error) {
+	permissionMode := choice.PermissionMode
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return ConversationView{}, newError(CodeInvalid, "an opening prompt is required")
 	}
 	if err := checkPermissionMode(harnessName, permissionMode); err != nil {
+		return ConversationView{}, err
+	}
+	if err := s.checkModelChoice(harnessName, choice.Model, choice.Effort); err != nil {
 		return ConversationView{}, err
 	}
 	s.mu.Lock()
@@ -59,6 +63,8 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt, permis
 		Runtime:   model.RuntimeNone,
 
 		PermissionMode: permissionMode,
+		Model:          choice.Model,
+		Effort:         choice.Effort,
 	}
 	err := s.update(func(doc *registry.Document) error {
 		doc.Conversations = append(doc.Conversations, conv)
@@ -282,7 +288,7 @@ func (s *Service) prepareLaunchLocked(conversationID string, l *live) (harness.H
 	l.inc = inc
 	// the recorded choice goes with every launch, so a release and a resume
 	// keep it; a terminal visit never changes it.
-	return h, harness.Spec{Cwd: project.Checkout, NativeID: session, PermissionMode: conv.PermissionMode}, inc, nil
+	return h, harness.Spec{Cwd: project.Checkout, NativeID: session, PermissionMode: conv.PermissionMode, Model: conv.Model, Effort: conv.Effort}, inc, nil
 }
 
 // send records the prompt with a service-minted message identity and hands it
@@ -301,6 +307,7 @@ func (s *Service) send(conversationID, text string) error {
 		return err
 	}
 	l.turnActive = true
+	l.nextSent = true
 	s.changed()
 	rt := l.runtime
 	s.mu.Unlock()

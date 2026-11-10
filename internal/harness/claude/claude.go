@@ -88,6 +88,14 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	if mode != "" {
 		args = append(args, "--permission-mode", mode)
 	}
+	// the operator's choice of model and effort; none chosen passes nothing,
+	// so claude's own settings apply.
+	if spec.Model != "" {
+		args = append(args, "--model", spec.Model)
+	}
+	if spec.Effort != "" {
+		args = append(args, "--effort", spec.Effort)
+	}
 	cmd, err := h.command(context.Background(), args...)
 	if err != nil {
 		// the shim was never started, so no session can exist.
@@ -97,6 +105,9 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	if err != nil {
 		return nil, err
 	}
+	r.mu.Lock()
+	r.reqModel, r.reqEffort = spec.Model, spec.Effort
+	r.mu.Unlock()
 	return r, nil
 }
 
@@ -138,6 +149,45 @@ func (h *Harness) History(ctx context.Context, cwd, nativeID string) (harness.Hi
 			return harness.History{}, err
 		}
 	}
+}
+
+// shimModels is what the shim's models command prints.
+type shimModels struct {
+	Version string `dd:",+nullable"`
+	Models  []struct {
+		Value                 string   `dd:"value"`
+		ResolvedModel         string   `dd:"resolvedModel,+nullable"`
+		DisplayName           string   `dd:"displayName,+nullable"`
+		Description           string   `dd:"description,+nullable"`
+		SupportedEffortLevels []string `dd:"supportedEffortLevels,+nullable"`
+	}
+}
+
+// Models lists the models claude offers, from an idle session through the
+// shim: no prompt is sent, so no turn runs and no session is stored
+// (capability report, 2.1.318).
+func (h *Harness) Models(ctx context.Context, cwd string) (harness.Catalog, error) {
+	cmd, err := h.command(ctx, "models", "--cwd", cwd, "--exec", h.cfg.Executable)
+	if err != nil {
+		return harness.Catalog{}, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return harness.Catalog{}, fmt.Errorf("listing claude models: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	listed := &shimModels{}
+	if err := dd.BindJSON(listed, bytes.TrimSpace(out)); err != nil {
+		return harness.Catalog{}, fmt.Errorf("reading claude models: %w", err)
+	}
+	catalog := harness.Catalog{Version: listed.Version}
+	for _, m := range listed.Models {
+		// the "default" entry is what claude runs when nothing names a model
+		// (capability report, 2.1.318).
+		catalog.Models = append(catalog.Models, harness.ModelOption{ID: m.Value, Resolved: m.ResolvedModel, DisplayName: m.DisplayName, Description: m.Description, Efforts: m.SupportedEffortLevels, IsDefault: m.Value == "default"})
+	}
+	return catalog, nil
 }
 
 // sessionInfo is the subset of the sdk's listSessions entries discovery reads.

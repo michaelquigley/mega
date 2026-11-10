@@ -51,6 +51,7 @@ type Service struct {
 	live        map[string]*live
 	subs        map[*Subscription]struct{}
 	closed      bool
+	catalogs    catalogs // model lists, per harness, for the service's life
 }
 
 // New returns a service over reg. it recovers from the previous run before

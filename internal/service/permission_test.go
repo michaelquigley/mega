@@ -28,7 +28,7 @@ func modeEvents(evs []*model.Event) []string {
 
 func TestChosenModeIsRecordedAndPassedOnEveryLaunch(t *testing.T) {
 	r := newRig(t)
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", "auto")
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{PermissionMode: "auto"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,10 +59,10 @@ func TestChosenModeIsRecordedAndPassedOnEveryLaunch(t *testing.T) {
 func TestOnlyOfferedModesAreAccepted(t *testing.T) {
 	r := newRig(t)
 	for _, mode := range []string{"bypassPermissions", "dontAsk", "Auto", "yolo"} {
-		_, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", mode)
+		_, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{PermissionMode: mode})
 		wantCode(t, err, CodeInvalid)
 	}
-	_, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one", "auto")
+	_, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one", LaunchChoice{PermissionMode: "auto"})
 	wantCode(t, err, CodeInvalid)
 	if n := len(r.svc.Workspace().Conversations); n != 0 {
 		t.Errorf("refused launches left %d conversations", n)
@@ -157,7 +157,7 @@ func TestNewerReportBeforeTheSwitchReturnsIsNeverOverwritten(t *testing.T) {
 
 func TestRefusedSwitchRestoresThePreviousChoice(t *testing.T) {
 	r := newRig(t)
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", "plan")
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{PermissionMode: "plan"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +332,7 @@ func TestChoiceIsRefusedWhileUnsupervised(t *testing.T) {
 
 func TestHarnessReportedModeShowsButLeavesTheChoice(t *testing.T) {
 	r := newRig(t)
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", "plan")
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{PermissionMode: "plan"})
 	if err != nil {
 		t.Fatal(err)
 	}

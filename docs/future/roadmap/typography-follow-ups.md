@@ -1,6 +1,6 @@
 ---
 title: typography follow-ups
-state: inbox
+state: evaluating
 created: 2026-11-10
 tags: [ui, typography]
 ---

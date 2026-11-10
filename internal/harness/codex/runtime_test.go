@@ -75,6 +75,9 @@ func testRuntime() (*runtime, *recordingSink, *wire) {
 	r := newRuntime(sink)
 	r.conn = &conn{stdin: w, calls: make(map[int64]chan callResult), done: make(chan struct{})}
 	r.threadID = "thread-1"
+	// a chosen model and effort, so a turn/start needs no config/read first;
+	// the inherit tests clear them.
+	r.cwd, r.model, r.effort = "/f", "gpt-test", "medium"
 	return r, sink, w
 }
 

@@ -84,7 +84,37 @@ export interface Conversation {
   permission_mode_inherited: boolean
   // the recorded choice every launch passes; empty is roundhouse's default.
   permission_mode_choice: string
+  // the recorded model and effort every launch (and, for codex, every prompt)
+  // passes; absent inherits the operator's settings.
+  model_choice?: string
+  effort_choice?: string
+  // the effort the harness reported, where it reports one (codex). claude
+  // never does, so its effort is only ever what was requested.
+  effort?: string
+  // a change asked for while running that the next prompt carries.
+  model_next?: string
+  effort_next?: string
   pending: PendingRequest[]
+}
+
+// one model a harness offers, and the effort levels it takes (none for a
+// model without effort levels).
+export interface ModelOption {
+  id: string
+  resolved?: string
+  display_name?: string
+  description?: string
+  efforts: string[]
+  default_effort?: string
+  is_default: boolean
+}
+
+// what a harness offers for a checkout, and what a launch with no choice gets
+// there, where the harness's settings say.
+export interface Models {
+  version?: string
+  models: ModelOption[]
+  inherited: { model?: string; effort?: string }
 }
 
 export interface Workspace {
@@ -116,7 +146,7 @@ export interface ConversationEvent {
   tool?: string
   tool_use_id?: string
   req?: { id: string; kind: string; payload?: RequestPayload | null; outcome?: string }
-  facts?: { session?: string; model?: string; version?: string; permission_mode?: string; cwd?: string }
+  facts?: { session?: string; model?: string; effort?: string; version?: string; permission_mode?: string; cwd?: string }
   raw?: unknown
 }
 

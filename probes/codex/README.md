@@ -55,3 +55,8 @@ See `NOTES.md` for the first investigation and `NOTES-followup.md` for the recon
 - The `codex-rt1` fixture's MCP server is `mcp/fixture-server.mjs`, named in the fixture's `.codex/config.toml`. Its `echo` tool logs each call to `mcp/mcp-calls.log`; its `pick_color` tool raises a typed form elicitation.
 - Scenarios: `mcp-accept-decline.json`, `mcp-session.json`, `mcp-form.json`, `mcp-interrupt.json`, `mcp-always.json`. Run `mcp-always` only under a scratch `CODEX_HOME`, and restore the fixture's `.codex/config.toml` afterwards: "always" writes an approval into the config that defines the server.
 
+## Model and effort (2026-11-10)
+
+- `node probe.mjs models --cwd DIR [--include-hidden]` runs `model/list` and `config/read {cwd}` on a thread-less app-server and prints the catalog with the checkout's effective `model` and `model_reasoning_effort`.
+- A turns-file item may carry `"turn_json"`, merged into that turn's `turn/start` only. The scenarios are `effort-override.json` and `model-override.json`, the latter with `--start-json '{"model":"gpt-6-luna"}'`.
+

@@ -52,6 +52,13 @@ function fakeSdk(seen) {
         }
       })();
       gen.interrupt = async () => { interruptAbort?.(); return { still_queued: [] }; };
+      gen.setModel = async model => {
+        if (model === 'refuse') throw new Error('no such model');
+        (seen.models ??= []).push(model);
+      };
+      gen.applyFlagSettings = async settings => { (seen.flags ??= []).push(settings); };
+      gen.supportedModels = async () => [{ value: 'opus', displayName: 'Opus', supportedEffortLevels: ['low', 'high'] }];
+      gen.initializationResult = async () => ({ claude_code_version: '2.1.318' });
       gen.setPermissionMode = async mode => {
         if (mode === 'refuse') throw new Error('unsupported mode');
         seen.modes.push(mode);
@@ -132,3 +139,40 @@ test('refuses to start without exactly one session flag', async () => {
   const code = await main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude'], fakeSdk({ prompts: [], modes: [] }), h.io);
   assert.equal(code, 2);
 });
+
+test('passes model and effort, switches both on request, and lists models idle', async () => {
+  const h = harness();
+  const seen = { prompts: [], modes: [] };
+  const done = main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude', '--session-id', 's-4', '--model', 'haiku', '--effort', 'low'], fakeSdk(seen), h.io);
+  await h.next(f => f.type === 'event');
+  assert.equal(seen.options.model, 'haiku');
+  assert.equal(seen.options.effort, 'low');
+  h.send({ type: 'set_model', id: 'x-1', model: 'sonnet' });
+  assert.deepEqual(await h.next(f => f.type === 'model_set' && f.id === 'x-1'), { type: 'model_set', id: 'x-1', model: 'sonnet' });
+  h.send({ type: 'set_effort', id: 'x-2', effort: 'high' });
+  assert.deepEqual(await h.next(f => f.type === 'effort_set' && f.id === 'x-2'), { type: 'effort_set', id: 'x-2', effort: 'high' });
+  assert.deepEqual(seen.models, ['sonnet']);
+  assert.deepEqual(seen.flags, [{ effortLevel: 'high' }]);
+  h.send({ type: 'set_model', id: 'x-3', model: 'refuse' });
+  assert.equal((await h.next(f => f.type === 'model_set' && f.id === 'x-3')).error, 'no such model');
+  h.send({ type: 'close' });
+  assert.equal(await done, 0);
+
+  const h2 = harness();
+  const seen2 = { prompts: [], modes: [] };
+  const done2 = main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude', '--session-id', 's-5'], fakeSdk(seen2), h2.io);
+  await h2.next(f => f.type === 'event');
+  assert.equal('model' in seen2.options, false, 'no model chosen: the settings decide');
+  assert.equal('effort' in seen2.options, false, 'no effort chosen: the settings decide');
+  h2.send({ type: 'close' });
+  assert.equal(await done2, 0);
+
+  const h3 = harness();
+  const seen3 = { prompts: [], modes: [] };
+  assert.equal(await main(['models', '--cwd', '/tmp/x', '--exec', '/bin/claude'], fakeSdk(seen3), h3.io), 0);
+  const listed = await h3.next(f => 'models' in f);
+  assert.equal(listed.version, '2.1.318');
+  assert.equal(listed.models[0].value, 'opus');
+  assert.equal(seen3.prompts.length, 0, 'the models command sends no prompt');
+});
+

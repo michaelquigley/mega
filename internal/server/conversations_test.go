@@ -289,3 +289,63 @@ func TestPermissionModeOnTheWire(t *testing.T) {
 		t.Errorf("after the switch: %v", got)
 	}
 }
+
+func TestModelAndEffortOnTheWire(t *testing.T) {
+	f := start(t)
+	f.fake.SetCatalog(harness.Catalog{Version: "2.1.318", Models: []harness.ModelOption{
+		{ID: "default", Resolved: "claude-opus-5-5", DisplayName: "Default", IsDefault: true, Efforts: []string{"low", "high"}},
+		{ID: "haiku", Resolved: "claude-haiku-4-5"},
+	}})
+	f.fake.SetInherited("sonnet", "")
+	_, project := f.do(t, http.MethodPost, "/api/projects", createBody("p", f.checkout))
+	pid := project["id"].(string)
+
+	status, list := f.do(t, http.MethodGet, "/api/projects/"+pid+"/models?harness=claude", "")
+	if status != http.StatusOK || list["version"] != "2.1.318" {
+		t.Fatalf("models: %d %v", status, list)
+	}
+	models, _ := list["models"].([]any)
+	if len(models) != 2 {
+		t.Fatalf("models = %v", list["models"])
+	}
+	first, second := models[0].(map[string]any), models[1].(map[string]any)
+	if first["id"] != "default" || first["resolved"] != "claude-opus-5-5" || first["is_default"] != true || fmt.Sprint(first["efforts"]) != "[low high]" {
+		t.Errorf("first = %v", first)
+	}
+	if efforts, ok := second["efforts"].([]any); !ok || len(efforts) != 0 {
+		t.Errorf("a model with no effort levels lists %v", second["efforts"])
+	}
+	if inherited, _ := list["inherited"].(map[string]any); inherited["model"] != "sonnet" {
+		t.Errorf("inherited = %v", list["inherited"])
+	}
+	if status, body := f.do(t, http.MethodGet, "/api/projects/"+pid+"/models?harness=pi", ""); status != http.StatusBadRequest {
+		t.Errorf("an unknown harness: %d %v", status, body)
+	}
+
+	path := "/api/projects/" + pid + "/conversations"
+	if status, body := f.do(t, http.MethodPost, path, jsonBody(map[string]string{"harness": "claude", "prompt": "one", "model": "haiku", "effort": "high"})); status != http.StatusBadRequest {
+		t.Errorf("an effort the model lacks: %d %v", status, body)
+	}
+	status, conv := f.do(t, http.MethodPost, path, jsonBody(map[string]string{"harness": "claude", "prompt": "one", "model": "default", "effort": "low"}))
+	if status != http.StatusCreated || conv["model_choice"] != "default" || conv["effort_choice"] != "low" {
+		t.Fatalf("launch: %d %v", status, conv)
+	}
+	if spec := f.fake.Last().Spec; spec.Model != "default" || spec.Effort != "low" {
+		t.Errorf("spec = %+v", spec)
+	}
+	id := conv["id"].(string)
+	rt := f.fake.Last()
+	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID(), Model: "claude-opus-5-5"}})
+
+	modelPath := "/api/conversations/" + id + "/model"
+	if status, body := f.do(t, http.MethodPost, modelPath, `{"model":"default","effort":"high"}`); status != http.StatusOK || body["outcome"] != "confirmed" {
+		t.Fatalf("change: %d %v", status, body)
+	}
+	got := f.conversation(t, id)
+	if got["model"] != "claude-opus-5-5" || got["effort_choice"] != "high" || got["effort_next"] != "high" {
+		t.Errorf("after the change: %v", got)
+	}
+	if _, ok := got["model_next"]; ok {
+		t.Errorf("an unchanged model is pending: %v", got["model_next"])
+	}
+}

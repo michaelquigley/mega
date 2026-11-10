@@ -1,6 +1,6 @@
 ---
 title: Meta user messages are not prompts
-state: inbox
+state: evaluating
 created: 2026-11-10
 tags: [claude, adapter, import, fix]
 ---

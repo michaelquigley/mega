@@ -111,6 +111,16 @@ export function EventList({ events, pending, turnActive, stale, showNative }: Ev
                 </p>
               )
             }
+            if (event.status === 'model_changed') {
+              // the harness's own report of what it now runs.
+              const reported = [event.facts?.model, event.facts?.effort && `effort ${event.facts.effort}`].filter(Boolean)
+              return (
+                <p key={event.seq} className="system">
+                  Now running {reported.join(', ') || 'a different model'}
+                  {event.text && `: ${event.text}`}
+                </p>
+              )
+            }
             return (
               <p
                 key={event.seq}
@@ -118,6 +128,7 @@ export function EventList({ events, pending, turnActive, stale, showNative }: Ev
               >
                 Runtime {event.status === 'not_started' ? 'did not start' : event.status}
                 {event.facts?.model && ` · ${event.facts.model}`}
+                {event.facts?.effort && ` · effort ${event.facts.effort}`}
                 {event.facts?.version && ` · v${event.facts.version}`}
                 {event.text && `: ${event.text}`}
               </p>

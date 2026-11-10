@@ -920,3 +920,14 @@ hr.turn {
   flex-direction: column;
   gap: 4px;
 }
+
+.model-control label {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.model-control button {
+  font-size: calc(12px * var(--fs));
+  padding: 2px 8px;
+}

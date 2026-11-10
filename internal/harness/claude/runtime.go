@@ -65,8 +65,16 @@ type controlFrame struct {
 // order claude reported it, and whatever the reader handles next already sees
 // it. done is buffered, so a waiter that gave up never blocks the reader.
 type modeSwitch struct {
+	kind string // "" for a permission mode, else "model" or "effort"
 	mode string
 	done chan error
+}
+
+type settingFrame struct {
+	Type   string
+	ID     string
+	Model  string `dd:",+omitempty"`
+	Effort string `dd:",+omitempty"`
 }
 
 type modeFrame struct {
@@ -93,6 +101,9 @@ type runtime struct {
 	modes       map[string]*modeSwitch // mode switch id -> the switch waiting for the shim's reply
 	nextMode    int
 	inherited   bool   // no permission mode was passed; the operator's settings chose it
+	reqModel    string // the model last passed or confirmed; empty if none was chosen
+	reqEffort   string // the effort last passed or confirmed; empty if none was chosen
+	liveModel   string // the model as system/init last reported it
 	mode        string // the permission mode as last reported or confirmed
 	started     bool   // the first init has been reported
 	interrupted bool   // an interrupt was sent during the current turn
@@ -235,6 +246,63 @@ func (r *runtime) SetPermissionMode(mode string) error {
 	}
 }
 
+// SetModel asks claude for the model and effort the operator chose, sending
+// only what differs from what was last passed or confirmed, and returns once
+// claude has confirmed each. the change applies from the next response. the
+// live model is not written here: the next system/init reports it. claude
+// never reports effort, so a confirmed effort is only what was requested.
+func (r *runtime) SetModel(model, effort string) (bool, error) {
+	r.mu.Lock()
+	current, currentEffort := r.reqModel, r.reqEffort
+	r.mu.Unlock()
+	modelSent := model != "" && model != current
+	if modelSent {
+		if err := r.setSetting("model", model); err != nil {
+			return false, err
+		}
+	}
+	if effort != "" && effort != currentEffort {
+		if err := r.setSetting("effort", effort); err != nil {
+			if modelSent && !errors.Is(err, harness.ErrSettingUnconfirmed) {
+				return false, fmt.Errorf("%w: %w", harness.ErrEffortRefused, err)
+			}
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+// setSetting sends set_model or set_effort and waits for the shim's reply.
+func (r *runtime) setSetting(kind, value string) error {
+	r.mu.Lock()
+	if r.gone {
+		r.mu.Unlock()
+		return errExited
+	}
+	r.nextMode++
+	id := fmt.Sprintf("%s-%d", kind, r.nextMode)
+	done := make(chan error, 1)
+	r.modes[id] = &modeSwitch{kind: kind, mode: value, done: done}
+	frame := &settingFrame{Type: "set_" + kind, ID: id}
+	if kind == "model" {
+		frame.Model = value
+	} else {
+		frame.Effort = value
+	}
+	if err := r.send(frame); err != nil {
+		delete(r.modes, id)
+		r.mu.Unlock()
+		return err
+	}
+	r.mu.Unlock()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(modeTimeout):
+		return fmt.Errorf("%w: claude did not confirm %s '%s' within %s", harness.ErrSettingUnconfirmed, kind, value, modeTimeout)
+	}
+}
+
 func (r *runtime) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -319,6 +387,27 @@ func (r *runtime) handle(line []byte) {
 		r.mu.Lock()
 		r.failure = frame.Message
 		r.mu.Unlock()
+	case "model_set", "effort_set":
+		r.mu.Lock()
+		waiting, ok := r.modes[frame.ID]
+		delete(r.modes, frame.ID)
+		if ok && frame.Error == "" {
+			if waiting.kind == "model" {
+				r.reqModel = waiting.mode
+			} else {
+				r.reqEffort = waiting.mode
+			}
+		}
+		r.mu.Unlock()
+		if !ok {
+			dl.Warnf("claude shim for '%s' confirmed a '%s' change it was never asked for", r.nativeID, frame.Type)
+			return
+		}
+		if frame.Error != "" {
+			waiting.done <- fmt.Errorf("claude refused %s '%s': %s", waiting.kind, waiting.mode, frame.Error)
+			return
+		}
+		waiting.done <- nil
 	case "permission_mode_set":
 		r.mu.Lock()
 		waiting, ok := r.modes[frame.ID]
@@ -372,8 +461,17 @@ func (r *runtime) event(raw map[string]any) {
 		if msg.PermissionMode != "" {
 			r.mode = msg.PermissionMode
 		}
+		previousModel := r.liveModel
+		if msg.Model != "" {
+			r.liveModel = msg.Model
+		}
 		inherited := r.inherited
 		r.mu.Unlock()
+		if !first && msg.Model != "" && msg.Model != previousModel {
+			// the model as claude reports it at this turn's start, after a
+			// switch or any change of its own: the one writer of the live model.
+			r.sink.Event(&model.Event{Kind: model.EventRuntime, Status: model.StatusModelChanged, Origin: model.OriginManaged, Text: "reported by claude", Facts: &model.RuntimeFacts{Model: msg.Model}})
+		}
 		if !first && msg.PermissionMode != "" && msg.PermissionMode != previous {
 			// claude re-reports init at the start of every turn. a mode that
 			// differs from the last one known changed inside the session, as

@@ -25,6 +25,13 @@
 // turn, and switches on set_permission_mode, confirming with
 // permission_mode_set. it never decides a request: in any mode, ask raises
 // one.
+//
+// models answers with three models: fake-opus (low to max), fake-sonnet (low
+// to high) and fake-haiku (no effort), as claude's supportedModels() shapes
+// them. run starts on --model (or fake-opus), reports the resolved id in
+// system/init as claude does, and switches on set_model (refusing an id it
+// does not offer, with model_set's error) and set_effort, which it accepts
+// and, like claude, never reports.
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
@@ -52,6 +59,18 @@ if (cmd === 'list') {
   }
   process.exit(0)
 }
+const catalog = [
+  { value: 'default', resolvedModel: 'fake-opus-1', displayName: 'Default (recommended)', description: 'Fake Opus', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+  { value: 'fake-opus', resolvedModel: 'fake-opus-1', displayName: 'Fake Opus', description: 'The bigger stand-in.', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+  { value: 'fake-sonnet', resolvedModel: 'fake-sonnet-1', displayName: 'Fake Sonnet', description: 'The middle stand-in.', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high'] },
+  { value: 'fake-haiku', resolvedModel: 'fake-haiku-1', displayName: 'Fake Haiku', description: 'No effort levels.' },
+]
+const resolve = (value) => catalog.find((m) => m.value === value)?.resolvedModel
+
+if (cmd === 'models') {
+  out({ version: 'fake', models: catalog })
+  process.exit(0)
+}
 if (cmd === 'messages') {
   const file = join(store, `messages-${arg('--session')}.jsonl`)
   if (existsSync(file)) {
@@ -68,6 +87,7 @@ const session = arg('--session-id') ?? arg('--resume')
 const cwd = arg('--cwd')
 const fresh = arg('--session-id') !== undefined
 let mode = arg('--permission-mode') ?? 'default'
+let current = resolve(arg('--model') ?? 'default') ?? arg('--model')
 let first = null
 let waiting = null
 
@@ -107,7 +127,7 @@ const init = () =>
       subtype: 'init',
       uuid: randomUUID(),
       session_id: session,
-      model: 'fake',
+      model: current,
       claude_code_version: 'fake',
       permissionMode: mode,
       cwd,
@@ -165,6 +185,16 @@ lines.on('line', (line) => {
   } else if (frame.type === 'set_permission_mode') {
     mode = frame.mode
     out({ type: 'permission_mode_set', id: frame.id, mode })
+  } else if (frame.type === 'set_model') {
+    const next = resolve(frame.model)
+    if (!next) {
+      out({ type: 'model_set', id: frame.id, model: frame.model, error: `model '${frame.model}' is not offered` })
+      return
+    }
+    current = next
+    out({ type: 'model_set', id: frame.id, model: frame.model })
+  } else if (frame.type === 'set_effort') {
+    out({ type: 'effort_set', id: frame.id, effort: frame.effort })
   } else if (frame.type === 'answer') {
     if (frame.id !== waiting) {
       out({ type: 'answer_rejected', id: frame.id })

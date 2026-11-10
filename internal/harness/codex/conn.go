@@ -54,6 +54,8 @@ type conn struct {
 
 	done chan struct{} // closed once the process has exited and been waited
 	err  error         // the exit, set before done closes
+
+	userAgent string // from initialize; carries the app-server's version
 }
 
 type callResult struct {
@@ -92,9 +94,11 @@ func (c *conn) initialize(ctx context.Context) error {
 		ClientInfo:   clientInfo{Name: "roundhouse", Title: "Roundhouse", Version: "0"},
 		Capabilities: clientCapabilities{ExperimentalAPI: true},
 	}
-	if err := c.call(ctx, "initialize", params, nil); err != nil {
+	result := &initializeResult{}
+	if err := c.call(ctx, "initialize", params, result); err != nil {
 		return err
 	}
+	c.userAgent = result.UserAgent
 	return c.send(&rpcNotification{JSONRPC: "2.0", Method: "initialized", Params: map[string]any{}})
 }
 

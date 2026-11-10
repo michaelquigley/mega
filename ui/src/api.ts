@@ -1,4 +1,4 @@
-import type { Conversation, ConversationEvent, Project, Workspace } from './types'
+import type { Conversation, ConversationEvent, Models, Project, Workspace } from './types'
 
 export class ApiError extends Error {
   readonly code: string
@@ -45,20 +45,36 @@ export const removeProject = (id: string) =>
 
 const conversationPath = (id: string) => `/api/conversations/${encodeURIComponent(id)}`
 
-export const startConversation = (projectId: string, harness: string, name: string, prompt: string, permissionMode: string) =>
+// what the operator chose at launch; an empty field inherits.
+export interface LaunchChoice {
+  permissionMode: string
+  model: string
+  effort: string
+}
+
+export const startConversation = (projectId: string, harness: string, name: string, prompt: string, choice: LaunchChoice) =>
   request<Conversation>('POST', `/api/projects/${encodeURIComponent(projectId)}/conversations`, {
     harness,
     name,
     prompt,
-    permission_mode: permissionMode,
+    permission_mode: choice.permissionMode,
+    model: choice.model,
+    effort: choice.effort,
   })
 
+export const getModels = (projectId: string, harness: string) =>
+  request<Models>('GET', `/api/projects/${encodeURIComponent(projectId)}/models?harness=${encodeURIComponent(harness)}`)
+
 // the harness's answer to a switch. only a confirmed switch moves the live mode,
-// and only once the runtime's report of it is recorded.
+// and only once the runtime's report of it is recorded. next_prompt is a model
+// or effort change codex takes with the next prompt.
 export interface ModeOutcome {
-  outcome: 'confirmed' | 'refused' | 'unconfirmed' | 'stored'
+  outcome: 'confirmed' | 'refused' | 'unconfirmed' | 'stored' | 'next_prompt'
   message?: string
 }
+
+export const setModel = (id: string, model: string, effort: string) =>
+  request<ModeOutcome>('POST', `${conversationPath(id)}/model`, { model, effort })
 
 export const setPermissionMode = (id: string, mode: string) =>
   request<ModeOutcome>('POST', `${conversationPath(id)}/permission-mode`, { mode })

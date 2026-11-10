@@ -59,12 +59,14 @@ type clientCapabilities struct {
 // threadStartParams carries no approvalPolicy and no sandbox: the operator's
 // own codex configuration decides both.
 type threadStartParams struct {
-	Cwd string `dd:"cwd"`
+	Cwd   string `dd:"cwd"`
+	Model string `dd:"model,+omitempty"`
 }
 
 type threadResumeParams struct {
 	ThreadID string `dd:"threadId"`
 	Cwd      string `dd:"cwd"`
+	Model    string `dd:"model,+omitempty"`
 }
 
 // threadStarted is the shared shape of the thread/start and thread/resume
@@ -72,6 +74,7 @@ type threadResumeParams struct {
 type threadStarted struct {
 	Thread             thread
 	Model              string         `dd:"model,+nullable"`
+	ReasoningEffort    string         `dd:"reasoningEffort,+nullable"`
 	ApprovalPolicy     any            `dd:"approvalPolicy,+opaque,+nullable"`
 	Sandbox            map[string]any `dd:"sandbox,+opaque,+nullable"`
 	InstructionSources []string       `dd:"instructionSources,+nullable"`
@@ -126,6 +129,46 @@ type turnStartParams struct {
 	ThreadID            string      `dd:"threadId"`
 	Input               []textInput `dd:"input"`
 	ClientUserMessageID string      `dd:"clientUserMessageId"`
+	// the operator's choice, sent on every turn: an override lasts for this
+	// turn and later ones, so re-sending the stored choice keeps it.
+	Model  string `dd:"model,+omitempty"`
+	Effort string `dd:"effort,+omitempty"`
+}
+
+type modelListParams struct {
+	IncludeHidden bool `dd:"includeHidden"`
+}
+
+type modelList struct {
+	Data []codexModel `dd:"data,+nullable"`
+}
+
+type codexModel struct {
+	ID                        string `dd:"id"`
+	DisplayName               string `dd:"displayName,+nullable"`
+	Description               string `dd:"description,+nullable"`
+	IsDefault                 bool   `dd:"isDefault,+nullable"`
+	Hidden                    bool   `dd:"hidden,+nullable"`
+	DefaultReasoningEffort    string `dd:"defaultReasoningEffort,+nullable"`
+	SupportedReasoningEfforts any    `dd:"supportedReasoningEfforts,+opaque,+nullable"` // a list of strings or of {reasoningEffort}
+}
+
+type configReadParams struct {
+	Cwd           string `dd:"cwd"`
+	IncludeLayers bool   `dd:"includeLayers"`
+}
+
+type configRead struct {
+	Config map[string]any `dd:"config,+opaque,+nullable"`
+}
+
+type settingsUpdated struct {
+	ThreadID       string         `dd:"threadId"`
+	ThreadSettings map[string]any `dd:"threadSettings,+opaque,+nullable"`
+}
+
+type initializeResult struct {
+	UserAgent string `dd:"userAgent,+nullable"`
 }
 
 type turnSteerParams struct {

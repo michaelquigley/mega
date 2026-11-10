@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -19,6 +20,8 @@ type claudeSettings struct {
 	Permissions struct {
 		DefaultMode string `dd:"defaultMode,+omitempty"`
 	} `dd:",+omitempty"`
+	Model       string `dd:"model,+omitempty"`
+	EffortLevel string `dd:"effortLevel,+omitempty"`
 }
 
 // settingsLayer is one settings file claude merges. project marks the
@@ -60,6 +63,28 @@ func (h *Harness) InheritedPermissionMode(cwd string) string {
 		return mode
 	}
 	return ""
+}
+
+// Inherited says what model and effort level the operator's claude settings
+// give a session in cwd with none chosen: the first layer, in claude's
+// precedence, that names each. per-model effort overrides (modelSettings)
+// and environment variables are not read, so this is what the settings files
+// say at the top level. it only reads.
+func (h *Harness) Inherited(_ context.Context, cwd string) (string, string, error) {
+	var model, effort string
+	for _, layer := range h.settingsLayers(cwd) {
+		settings := &claudeSettings{}
+		if err := dd.BindJSONFile(settings, layer.path); err != nil {
+			continue
+		}
+		if model == "" {
+			model = settings.Model
+		}
+		if effort == "" {
+			effort = settings.EffortLevel
+		}
+	}
+	return model, effort, nil
 }
 
 func (h *Harness) settingsLayers(cwd string) []settingsLayer {

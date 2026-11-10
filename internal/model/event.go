@@ -41,6 +41,9 @@ const (
 	// runtime, carried in Facts.PermissionMode: the operator's, or one the
 	// harness reports, such as leaving plan mode.
 	StatusModeChanged = "mode_changed"
+	// StatusModelChanged records a model or effort the harness reported as
+	// changed, carried in Facts.Model and Facts.Effort.
+	StatusModelChanged = "model_changed"
 )
 
 // turn end statuses, carried in Event.Status.
@@ -84,6 +87,9 @@ type RuntimeFacts struct {
 	PermissionMode string `dd:",+omitempty"`
 	// ModeInherited is whether roundhouse passed no permission mode, so the
 	// operator's native settings chose it.
-	ModeInherited bool   `dd:",+omitempty"`
-	Cwd           string `dd:",+omitempty"`
+	ModeInherited bool `dd:",+omitempty"`
+	// Effort is the effort level the harness reports, where it reports one
+	// (codex does; claude does not).
+	Effort string `dd:",+omitempty"`
+	Cwd    string `dd:",+omitempty"`
 }

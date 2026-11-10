@@ -42,8 +42,13 @@ type Conversation struct {
 	// every launch of the conversation. empty is roundhouse's own default: the
 	// mode the operator's native settings name, else the manual mode.
 	PermissionMode string `dd:",+omitempty"`
-	ReadSeq        int64  // reading position
-	OutputSeq      int64  // seq of the latest agent output in a completed turn; drives unread
+	// Model and Effort are the operator's choice of model and effort level,
+	// passed on every launch, and to codex on every prompt. empty inherits the
+	// harness's own settings.
+	Model     string `dd:",+omitempty"`
+	Effort    string `dd:",+omitempty"`
+	ReadSeq   int64  // reading position
+	OutputSeq int64  // seq of the latest agent output in a completed turn; drives unread
 
 	// LastSeq is the newest event's seq, for replay. it is read from the event
 	// log rather than stored, so appending an event never rewrites the registry.

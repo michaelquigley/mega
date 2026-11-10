@@ -36,7 +36,17 @@ type conversationView struct {
 	// PermissionModeChoice is the recorded choice every launch passes; empty
 	// is roundhouse's default.
 	PermissionModeChoice string
-	Pending              []*requestView
+	// ModelChoice and EffortChoice are the recorded choice every launch (and,
+	// for codex, every prompt) passes; empty inherits.
+	ModelChoice  string `dd:",+omitempty"`
+	EffortChoice string `dd:",+omitempty"`
+	// Effort is the effort the harness reported, where it reports one (codex).
+	Effort string `dd:",+omitempty"`
+	// ModelNext and EffortNext are a change asked for while running that the
+	// next prompt carries.
+	ModelNext  string `dd:",+omitempty"`
+	EffortNext string `dd:",+omitempty"`
+	Pending    []*requestView
 }
 
 type requestView struct {
@@ -62,11 +72,16 @@ func newConversationView(conv service.ConversationView) *conversationView {
 		OutputSeq:  conv.OutputSeq,
 
 		PermissionModeChoice: conv.PermissionMode,
+		ModelChoice:          conv.Model,
+		EffortChoice:         conv.Effort,
+		ModelNext:            conv.ModelNext,
+		EffortNext:           conv.EffortNext,
 		Pending:              make([]*requestView, 0, len(conv.Pending)),
 	}
 	if conv.Facts != nil {
 		view.Model, view.Version, view.PermissionMode = conv.Facts.Model, conv.Facts.Version, conv.Facts.PermissionMode
 		view.PermissionModeInherited = conv.Facts.ModeInherited
+		view.Effort = conv.Facts.Effort
 	}
 	for _, req := range conv.Pending {
 		view.Pending = append(view.Pending, &requestView{ID: req.ID, Kind: req.Kind, Payload: req.Payload})
@@ -79,10 +94,41 @@ type startConversationRequest struct {
 	Name           string
 	Prompt         string
 	PermissionMode string
+	Model          string
+	Effort         string
 }
 
 type permissionModeRequest struct {
 	Mode string
+}
+
+type modelRequest struct {
+	Model  string
+	Effort string
+}
+
+// modelOptionView is one model a harness offers.
+type modelOptionView struct {
+	ID            string
+	Resolved      string `dd:",+omitempty"`
+	DisplayName   string `dd:",+omitempty"`
+	Description   string `dd:",+omitempty"`
+	Efforts       []string
+	DefaultEffort string `dd:",+omitempty"`
+	IsDefault     bool
+}
+
+// inheritedView is what a launch with no choice gets in the checkout, where
+// the harness says.
+type inheritedView struct {
+	Model  string `dd:",+omitempty"`
+	Effort string `dd:",+omitempty"`
+}
+
+type modelsView struct {
+	Version   string `dd:",+omitempty"`
+	Models    []*modelOptionView
+	Inherited *inheritedView
 }
 
 // modeOutcomeView is the harness's answer to a switch: confirmed, refused or
@@ -164,7 +210,7 @@ func (s *Server) startConversation(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	conv, err := s.svc.StartConversation(r.PathValue("id"), req.Harness, req.Name, req.Prompt, req.PermissionMode)
+	conv, err := s.svc.StartConversation(r.PathValue("id"), req.Harness, req.Name, req.Prompt, service.LaunchChoice{PermissionMode: req.PermissionMode, Model: req.Model, Effort: req.Effort})
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -249,6 +295,40 @@ func (s *Server) setPermissionMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	outcome, err := s.svc.SetPermissionMode(r.PathValue("id"), req.Mode)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, r, http.StatusOK, &modeOutcomeView{Outcome: outcome.Outcome, Message: outcome.Message})
+}
+
+func (s *Server) models(w http.ResponseWriter, r *http.Request) {
+	list, err := s.svc.Models(r.PathValue("id"), r.URL.Query().Get("harness"))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	view := &modelsView{
+		Version:   list.Version,
+		Models:    make([]*modelOptionView, 0, len(list.Models)),
+		Inherited: &inheritedView{Model: list.InheritedModel, Effort: list.InheritedEffort},
+	}
+	for _, m := range list.Models {
+		efforts := m.Efforts
+		if efforts == nil {
+			efforts = []string{}
+		}
+		view.Models = append(view.Models, &modelOptionView{ID: m.ID, Resolved: m.Resolved, DisplayName: m.DisplayName, Description: m.Description, Efforts: efforts, DefaultEffort: m.DefaultEffort, IsDefault: m.IsDefault})
+	}
+	writeJSON(w, r, http.StatusOK, view)
+}
+
+func (s *Server) setModel(w http.ResponseWriter, r *http.Request) {
+	var req modelRequest
+	if !readJSON(w, r, &req) {
+		return
+	}
+	outcome, err := s.svc.SetModel(r.PathValue("id"), req.Model, req.Effort)
 	if err != nil {
 		writeError(w, r, err)
 		return

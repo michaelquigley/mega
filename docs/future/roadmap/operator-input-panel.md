@@ -13,3 +13,5 @@ the operator input panel needs to:
 - have the controls for approval right above the panel
 - name and label and remove and the other controls need to be readily accessible from the panel and the bottom of the conversation (the bottom is where the action is)
 - needs to support `@` for searching for paths
+
+generally we need to treat the operator input panel as more of a first class ui component, where all of the conversation controls cluster. 

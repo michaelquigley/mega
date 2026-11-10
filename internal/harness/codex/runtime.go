@@ -68,6 +68,11 @@ type runtime struct {
 	stops       int                       // interrupts and closes so far; an answer started before one never starts a turn
 	started     map[int]proc              // processes seen under the app-server, for the exit check
 	mcpCalls    []mcpCall                 // MCP tool calls in flight, oldest first, to name the tool an approval is for
+	cwd         string                    // the checkout, for reading what inherit means
+	model       string                    // the operator's choice, sent on every turn/start; empty inherits the config's
+	effort      string
+	liveModel   string // the model and effort as codex last reported them
+	liveEffort  string
 }
 
 func newRuntime(sink harness.Sink) *runtime {
@@ -111,7 +116,7 @@ func (r *runtime) startTurn(threadID, uuid, body string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 	defer cancel()
 	resp := &turnResponse{}
-	if err := r.conn.call(ctx, "turn/start", &turnStartParams{ThreadID: threadID, Input: text(body), ClientUserMessageID: uuid}, resp); err != nil {
+	if err := r.conn.call(ctx, "turn/start", r.turnStart(ctx, threadID, uuid, body), resp); err != nil {
 		return err
 	}
 	r.mu.Lock()
@@ -181,7 +186,7 @@ func (r *runtime) answerAsTurn(threadID, uuid, body string, stops int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 	defer cancel()
 	resp := &turnResponse{}
-	if err := r.conn.call(ctx, "turn/start", &turnStartParams{ThreadID: threadID, Input: text(body), ClientUserMessageID: uuid}, resp); err != nil {
+	if err := r.conn.call(ctx, "turn/start", r.turnStart(ctx, threadID, uuid, body), resp); err != nil {
 		return err
 	}
 	r.mu.Lock()
@@ -230,14 +235,54 @@ func responseFor(req *serverRequest, answer harness.Answer) any {
 	}
 }
 
-// Interrupt stops the active turn. the adapter's own questions are aborted at
-// once: none may outlive an interrupt and start new work when answered.
+// turnStart builds a turn/start carrying the operator's model and effort.
+// codex takes each as an override that persists in the thread, so an
+// unchosen one is sent as the config's current value, read afresh from
+// config/read: inherit then follows the operator's config even on a thread
+// that once had an override. if the config cannot be read, or names none,
+// that field is sent as none.
+func (r *runtime) turnStart(ctx context.Context, threadID, uuid, body string) *turnStartParams {
+	r.mu.Lock()
+	chosenModel, chosenEffort, cwd := r.model, r.effort, r.cwd
+	r.mu.Unlock()
+	if chosenModel == "" || chosenEffort == "" {
+		configModel, configEffort, err := readConfig(ctx, r.conn, cwd)
+		if err != nil {
+			dl.Warnf("reading what thread '%s' inherits: %v", threadID, err)
+		}
+		if chosenModel == "" {
+			chosenModel = configModel
+		}
+		if chosenEffort == "" {
+			chosenEffort = configEffort
+		}
+	}
+	return &turnStartParams{ThreadID: threadID, Input: text(body), ClientUserMessageID: uuid, Model: chosenModel, Effort: chosenEffort}
+}
+
+// SetModel stores the operator's choice for the next turn/start; nothing is
+// sent until then, so it is always deferred. codex reports the change with
+// thread/settings/updated when that turn starts.
+func (r *runtime) SetModel(model, effort string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if model != "" {
+		r.model = model
+	}
+	if effort != "" {
+		r.effort = effort
+	}
+	return true, nil
+}
+
 // SetPermissionMode is refused: codex has no permission modes, and its approval
 // policy and sandbox come from the operator's own configuration.
 func (r *runtime) SetPermissionMode(string) error {
 	return errors.New("codex has no permission modes; its approval policy comes from its own configuration")
 }
 
+// Interrupt stops the active turn. the adapter's own questions are aborted at
+// once: none may outlive an interrupt and start new work when answered.
 func (r *runtime) Interrupt() error {
 	r.remember()
 	r.mu.Lock()
@@ -344,6 +389,27 @@ func (r *runtime) notify(method string, params map[string]any) {
 		n := &deltaNotification{}
 		if bind(n, params) && n.Delta != "" {
 			r.sink.Delta(n.Delta)
+		}
+	case "thread/settings/updated":
+		// codex's report of the model and effort it runs, as a turn's override
+		// takes effect: the one writer of the live model and effort.
+		n := &settingsUpdated{}
+		if !bind(n, params) {
+			return
+		}
+		reportedModel, _ := n.ThreadSettings["model"].(string)
+		reportedEffort, _ := n.ThreadSettings["effort"].(string)
+		r.mu.Lock()
+		changed := (reportedModel != "" && reportedModel != r.liveModel) || (reportedEffort != "" && reportedEffort != r.liveEffort)
+		if reportedModel != "" {
+			r.liveModel = reportedModel
+		}
+		if reportedEffort != "" {
+			r.liveEffort = reportedEffort
+		}
+		r.mu.Unlock()
+		if changed {
+			r.sink.Event(&model.Event{Kind: model.EventRuntime, Status: model.StatusModelChanged, Origin: model.OriginManaged, Text: "reported by codex", Facts: &model.RuntimeFacts{Model: reportedModel, Effort: reportedEffort}})
 		}
 	case "serverRequest/resolved":
 		n := &resolvedNotification{}

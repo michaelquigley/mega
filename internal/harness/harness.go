@@ -25,6 +25,14 @@ var ErrNotStarted = errors.New("the runtime did not start")
 // mode change if it does.
 var ErrModeUnconfirmed = errors.New("the permission mode switch was not confirmed in time")
 
+// ErrSettingUnconfirmed reports a model or effort change the harness did
+// not confirm in time.
+var ErrSettingUnconfirmed = errors.New("the change was not confirmed in time")
+
+// ErrEffortRefused reports a change whose model the harness accepted and
+// whose effort it then refused: the model changed, the effort did not.
+var ErrEffortRefused = errors.New("the model changed but the effort was refused")
+
 // ErrLeftRunning reports a runtime whose own process exited while processes it
 // started were still running when the bounded check gave up.
 var ErrLeftRunning = errors.New("processes the runtime started are still running")
@@ -49,6 +57,32 @@ type Harness interface {
 	// Discover lists the native sessions stored for cwd, for the operator to
 	// choose from. it never picks one.
 	Discover(ctx context.Context, cwd string) ([]Session, error)
+
+	// Models lists the models the harness offers, with the harness version
+	// the list came from. it starts no conversation and leaves no session.
+	Models(ctx context.Context, cwd string) (Catalog, error)
+
+	// Inherited says what model and effort a launch with no choice gets in
+	// cwd, from the operator's own settings, or empty where unknown.
+	Inherited(ctx context.Context, cwd string) (model, effort string, err error)
+}
+
+// Catalog is the models a harness offers.
+type Catalog struct {
+	Version string
+	Models  []ModelOption
+}
+
+// ModelOption is one model a harness offers. Resolved is the id an alias
+// runs as, where the harness says.
+type ModelOption struct {
+	ID            string
+	Resolved      string
+	DisplayName   string
+	Description   string
+	Efforts       []string
+	DefaultEffort string
+	IsDefault     bool
 }
 
 // History is a native session's stored messages, in order. Open names the
@@ -72,6 +106,10 @@ type Session struct {
 type Spec struct {
 	Cwd      string
 	NativeID string
+	// Model and Effort are the operator's choice; empty passes nothing, so
+	// the harness's own settings apply.
+	Model  string
+	Effort string
 	// PermissionMode is the operator's choice. empty asks the adapter for
 	// roundhouse's default: the mode the operator's native settings name,
 	// inherited by passing none, else the manual mode.
@@ -121,6 +159,11 @@ type Runtime interface {
 	// returns once the harness confirms the switch, which applies from the next
 	// tool call and leaves pending requests pending.
 	SetPermissionMode(mode string) error
+
+	// SetModel changes the model and effort for later responses, sending only
+	// what differs from what the runtime last applied. deferred is true when
+	// the harness takes the change with the next prompt rather than now.
+	SetModel(model, effort string) (deferred bool, err error)
 
 	// Close ends input. the runtime exits once the harness is idle.
 	Close() error

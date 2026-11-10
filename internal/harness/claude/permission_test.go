@@ -144,6 +144,12 @@ func TestUnreadableSettingsLeadToTheManualMode(t *testing.T) {
 // exits, and returns them.
 func launchArgs(t *testing.T, h *Harness, cwd, mode string) []string {
 	t.Helper()
+	return launchArgsFor(t, h, harness.Spec{Cwd: cwd, PermissionMode: mode})
+}
+
+// launchArgsFor is launchArgs for a whole launch spec.
+func launchArgsFor(t *testing.T, h *Harness, spec harness.Spec) []string {
+	t.Helper()
 	shim := t.TempDir()
 	if err := os.WriteFile(filepath.Join(shim, shimScript), nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -157,7 +163,7 @@ func launchArgs(t *testing.T, h *Harness, cwd, mode string) []string {
 		t.Fatal(err)
 	}
 	h.cfg.Node, h.cfg.Shim, h.cfg.Executable = node, shim, "/x"
-	if _, err := h.Launch(harness.Spec{Cwd: cwd, PermissionMode: mode}, &recordingSink{}); err != nil {
+	if _, err := h.Launch(spec, &recordingSink{}); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -174,8 +180,12 @@ func launchArgs(t *testing.T, h *Harness, cwd, mode string) []string {
 }
 
 func modeArg(args []string) (string, bool) {
+	return argValue(args, "--permission-mode")
+}
+
+func argValue(args []string, name string) (string, bool) {
 	for i, arg := range args {
-		if arg == "--permission-mode" && i+1 < len(args) {
+		if arg == name && i+1 < len(args) {
 			return args[i+1], true
 		}
 	}

@@ -39,6 +39,11 @@ type ConversationView struct {
 	// request, or the unread output.
 	Attention   string
 	AttentionAt time.Time
+
+	// ModelNext and EffortNext are a change asked for while running that the
+	// next prompt carries; empty once that turn has ended.
+	ModelNext  string
+	EffortNext string
 }
 
 // live is the in-memory side of one conversation. the pending set lives here
@@ -56,7 +61,14 @@ type live struct {
 	inc       *incarnation // the current runtime's identity; nil when none
 	busy      bool         // a start or a resume is under way
 	releasing bool         // the current runtime has been asked to stop
-	switching bool         // a permission mode switch is waiting on the runtime
+	switching bool         // a permission mode or model change is waiting on the runtime
+
+	// nextModel and nextEffort are a change asked for while running, shown as
+	// the next prompt's until a turn begun after the change ends. nextSent is
+	// whether such a turn has begun.
+	nextModel  string
+	nextEffort string
+	nextSent   bool
 
 	// session is a native session this conversation created that the registry
 	// does not hold yet: one a runtime reported, or the last one the log shows
@@ -238,6 +250,7 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 	}
 	view.TurnActive = l.turnActive
 	view.Facts = l.facts
+	view.ModelNext, view.EffortNext = l.nextModel, l.nextEffort
 	view.Pending = make([]model.Request, 0, len(l.pending))
 	for _, req := range l.pending {
 		view.Pending = append(view.Pending, *req)
@@ -404,6 +417,10 @@ func (k *sink) Event(ev *model.Event) {
 		s.harnessModeChanged(l, ev)
 		return
 	}
+	if ev.Kind == model.EventRuntime && ev.Status == model.StatusModelChanged {
+		s.harnessModelChanged(l, ev)
+		return
+	}
 	if err := s.record(l, ev); err != nil {
 		dl.Errorf("%v", err)
 		return
@@ -414,10 +431,16 @@ func (k *sink) Event(ev *model.Event) {
 		// answer that starts the next turn.
 		if !l.turnActive {
 			l.turnActive = true
+			l.nextSent = true
 			s.changed()
 		}
 	case model.EventTurnEnd:
 		l.turnActive = false
+		if l.nextSent {
+			// a model or effort asked for has had its prompt; from here the
+			// harness's report stands alone.
+			l.nextModel, l.nextEffort, l.nextSent = "", "", false
+		}
 		s.endTurnLocked(l)
 		s.changed()
 	}
@@ -581,7 +604,12 @@ func (k *sink) Exited(err error) {
 		dl.Errorf("the stop of '%s' could not be recorded; it stays recorded running", l.id)
 		return
 	}
-	if err := s.transition(l, ev, "", func() { l.turnActive, l.facts = false, nil }); err != nil {
+	if err := s.transition(l, ev, "", func() {
+		l.turnActive, l.facts = false, nil
+		// a change asked of this runtime dies with it; the next launch
+		// passes the stored choice.
+		l.nextModel, l.nextEffort, l.nextSent = "", "", false
+	}); err != nil {
 		dl.Errorf("the stop of '%s' could not be recorded; it stays recorded running: %v", l.id, err)
 		return
 	}

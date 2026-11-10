@@ -18,17 +18,21 @@ import (
 type Harness struct {
 	name string
 
-	mu        sync.Mutex
-	runtimes  []*Runtime
-	history   map[string][]*model.Event
-	open      map[string]map[string]bool
-	sessions  []harness.Session
-	launchErr error
-	onLaunch  func()
-	onHistory func()
-	exitEarly bool
-	launched  int
-	reads     []string // native ids History was asked for, in order
+	mu         sync.Mutex
+	runtimes   []*Runtime
+	history    map[string][]*model.Event
+	open       map[string]map[string]bool
+	sessions   []harness.Session
+	launchErr  error
+	onLaunch   func()
+	onHistory  func()
+	catalog    harness.Catalog
+	inherited  [2]string
+	deferred   bool // runtimes take a model change with the next prompt, as codex does
+	modelLists int
+	exitEarly  bool
+	launched   int
+	reads      []string // native ids History was asked for, in order
 }
 
 // New returns a fake harness registered under name.
@@ -51,6 +55,48 @@ func (h *Harness) OnLaunch(fn func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.onLaunch = fn
+}
+
+// SetCatalog scripts what Models returns.
+func (h *Harness) SetCatalog(c harness.Catalog) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.catalog = c
+}
+
+// SetInherited scripts what Inherited returns.
+func (h *Harness) SetInherited(model, effort string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.inherited = [2]string{model, effort}
+}
+
+// DeferModelChanges makes later runtimes take a model change with the next
+// prompt (as codex does) rather than at once (as claude does).
+func (h *Harness) DeferModelChanges(deferred bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.deferred = deferred
+}
+
+func (h *Harness) Models(context.Context, string) (harness.Catalog, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.modelLists++
+	return h.catalog, nil
+}
+
+// ModelLists counts the calls to Models.
+func (h *Harness) ModelLists() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.modelLists
+}
+
+func (h *Harness) Inherited(context.Context, string) (string, string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.inherited[0], h.inherited[1], nil
 }
 
 // OnHistory runs fn at the start of every History call, before the history is
@@ -136,7 +182,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		return nil, h.launchErr
 	}
 	h.launched++
-	r := &Runtime{Spec: spec, sink: sink, nativeID: spec.NativeID, requests: make(map[string]string)}
+	r := &Runtime{Spec: spec, sink: sink, nativeID: spec.NativeID, requests: make(map[string]string), deferred: h.deferred}
 	if r.nativeID == "" {
 		r.nativeID = fmt.Sprintf("native-%d", h.launched)
 	}
@@ -193,6 +239,8 @@ type Runtime struct {
 	exited      bool
 	holdOnClose bool
 	modes       []string
+	models      []string // "model/effort" for each model change accepted
+	deferred    bool
 	modeErr     error
 	onMode      func()
 	afterMode   func()
@@ -258,15 +306,43 @@ func (r *Runtime) AfterMode(fn func()) {
 	r.afterMode = fn
 }
 
-// FailMode makes later switches fail with err; nil restores success.
+// SetModel changes like a real runtime: it runs the hook OnMode set, fails
+// if FailMode said so, and otherwise records the change. it reports nothing:
+// the model a runtime runs is reported by Emit, as a harness reports it. it
+// is deferred if the harness was told so.
+func (r *Runtime) SetModel(model, effort string) (bool, error) {
+	r.mu.Lock()
+	hook, err := r.onMode, r.modeErr
+	r.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	if err != nil {
+		return false, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.models = append(r.models, model+"/"+effort)
+	return r.deferred, nil
+}
+
+// ModelChanges lists the model changes the runtime accepted, as "model/effort".
+func (r *Runtime) ModelChanges() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.models)
+}
+
+// FailMode makes later switches, of mode or model, fail with err; nil
+// restores success.
 func (r *Runtime) FailMode(err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.modeErr = err
 }
 
-// OnMode runs fn inside every later switch, before it takes effect, while
-// the caller waits. fn must not call back into the service.
+// OnMode runs fn inside every later switch, of mode or model, before it takes
+// effect, while the caller waits. fn must not call back into the service.
 func (r *Runtime) OnMode(fn func()) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

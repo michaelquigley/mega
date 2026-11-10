@@ -78,7 +78,7 @@ func TestCodexRoundTrip(t *testing.T) {
 
 	// X1: a new thread; AGENTS.md loads; the operator's approval policy and
 	// sandbox are inherited.
-	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e", codexMarkerPrompt, "")
+	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e", codexMarkerPrompt, service.LaunchChoice{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestCodexReleaseDuringCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e release", `Run exactly python3 -c "import time; time.sleep(40); print(1)" in the working directory and then reply SLEPT. Nothing else.`, "")
+	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e release", `Run exactly python3 -c "import time; time.sleep(40); print(1)" in the working directory and then reply SLEPT. Nothing else.`, service.LaunchChoice{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestCodexMCPApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e mcp", "Call the echo tool from the fixture MCP server with the text MCP-E2E-7c1d, then reply with exactly what the tool returned. Nothing else.", "")
+	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e mcp", "Call the echo tool from the fixture MCP server with the text MCP-E2E-7c1d, then reply with exactly what the tool returned. Nothing else.", service.LaunchChoice{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,4 +258,60 @@ func TestCodexMCPApproval(t *testing.T) {
 	}
 	shutdown(t, svc, s)
 	t.Logf("thread %s", s.view().NativeID)
+}
+
+// TestCodexModelAndEffort lists codex's models and what inherit means, then
+// launches one marker turn with an explicit model and effort: codex reports
+// the model on thread/start and both with thread/settings/updated as the turn
+// starts, and the header's facts are that report.
+func TestCodexModelAndEffort(t *testing.T) {
+	fixture := env("ROUNDHOUSE_E2E_CODEX_FIXTURE", defaultCodexFixture)
+	chosen := env("ROUNDHOUSE_E2E_CODEX_MODEL", "gpt-6-luna")
+	h := codex.New(codex.Config{Binary: env("ROUNDHOUSE_E2E_CODEX", "codex")})
+	svc := newE2EService(t, h)
+	project, err := svc.RegisterProject("codex-rt1", fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := svc.Models(project.ID, model.HarnessCodex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := false
+	for _, m := range list.Models {
+		listed = listed || m.ID == chosen
+	}
+	t.Logf("codex %s lists %d models; inherit means %q at %q", list.Version, len(list.Models), list.InheritedModel, list.InheritedEffort)
+	if !listed {
+		t.Fatalf("%s is not listed", chosen)
+	}
+	if list.InheritedEffort == "low" {
+		t.Fatal("the operator's config already runs low; the effort override would not show")
+	}
+	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e model", codexMarkerPrompt, service.LaunchChoice{Model: chosen, Effort: "low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &session{t: t, svc: svc, id: conv.ID}
+	s.idle()
+	s.expectReply("ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b")
+	view := s.view()
+	if view.Facts == nil || view.Facts.Model != chosen || view.Facts.Effort != "low" {
+		t.Errorf("codex reported %+v, want %s at low", view.Facts, chosen)
+	}
+	reported := 0
+	evs, err := svc.Events(s.id, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range evs {
+		if ev.Status == model.StatusModelChanged {
+			reported++
+		}
+	}
+	if reported != 1 {
+		t.Errorf("model changes recorded = %d, want the one report as the turn started", reported)
+	}
+	shutdown(t, svc, s)
+	t.Logf("thread %s ran %s at %s", view.NativeID, view.Facts.Model, view.Facts.Effort)
 }
