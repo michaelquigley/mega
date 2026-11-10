@@ -1,4 +1,5 @@
 import type { ConversationEvent, PendingRequest } from '../types'
+import { Spinner } from './AttentionMark'
 import { Markdown } from './Markdown'
 
 interface EventListProps {
@@ -65,11 +66,17 @@ export function EventList({ events, pending, turnActive, stale, showNative }: Ev
                 <summary>
                   {event.text}
                   {result?.status === 'error' && <span className="tool-error"> failed</span>}
-                  {!result && (
-                    <span className="muted">
-                      {turnActive && index > turnStart ? (stale ? ' running when last seen' : ' running') : ' no result recorded'}
-                    </span>
-                  )}
+                  {!result &&
+                    (turnActive && index > turnStart && !stale ? (
+                      <>
+                        {' '}
+                        <Spinner label="Running" />
+                      </>
+                    ) : (
+                      <span className="muted">
+                        {turnActive && index > turnStart ? ' running when last seen' : ' no result recorded'}
+                      </span>
+                    ))}
                 </summary>
                 {result?.text && <pre>{result.text}</pre>}
               </details>

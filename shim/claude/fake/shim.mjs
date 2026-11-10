@@ -15,6 +15,8 @@
 //   burst N          N assistant messages at once
 //   drip N MS        N assistant messages MS apart, each streamed first
 //   ask              a permission request; the turn ends once it is answered
+//   tool MS          a Bash call to `go test ./...` that runs for MS, then
+//                    its result and one assistant message, "done"
 //   echo             one assistant message: the lines after the first
 //   stream MS N      the lines after the first, streamed N characters every
 //                    MS, then landed as one assistant message
@@ -154,6 +156,25 @@ async function turn(text) {
   } else if (verb === 'ask') {
     waiting = 'req-' + randomUUID().slice(0, 8)
     out({ type: 'request', id: waiting, kind: 'permission', tool: 'Bash', input: { command: 'echo fake' }, toolUseId: 'tu-' + waiting })
+  } else if (verb === 'tool') {
+    const id = 'tu-' + randomUUID().slice(0, 8)
+    keep({
+      type: 'assistant',
+      uuid: randomUUID(),
+      session_id: session,
+      parent_tool_use_id: null,
+      message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'go test ./...' } }] },
+    })
+    await sleep(Number(a) || 1000)
+    keep({
+      type: 'user',
+      uuid: randomUUID(),
+      session_id: session,
+      parent_tool_use_id: null,
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] },
+    })
+    say('done')
+    end()
   } else if (verb === 'echo') {
     say(body)
     end()

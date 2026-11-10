@@ -35,3 +35,20 @@ export function loadedThrough(events: ConversationEvent[]): number {
   }
   return through
 }
+
+// toolInFlight is the newest tool call of the turn in flight that has no
+// result yet: after the last turn end or runtime event, no matching
+// tool_result. the caller says whether a turn is in flight at all.
+export function toolInFlight(events: ConversationEvent[]): ConversationEvent | undefined {
+  const results = new Set(events.filter((e) => e.kind === 'tool_result' && e.tool_use_id).map((e) => e.tool_use_id))
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (event.kind === 'turn_end' || event.kind === 'runtime') {
+      return undefined
+    }
+    if (event.kind === 'tool_use' && !(event.tool_use_id && results.has(event.tool_use_id))) {
+      return event
+    }
+  }
+  return undefined
+}

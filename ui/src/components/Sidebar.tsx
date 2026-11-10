@@ -1,7 +1,7 @@
 import { select, type Selection } from '../selection'
 import type { StreamState } from '../stream'
 import type { Conversation, Project } from '../types'
-import { AttentionMark } from './AttentionMark'
+import { AttentionMark, Elapsed, ProjectMark } from './AttentionMark'
 
 interface SidebarProps {
   projects: Project[]
@@ -48,6 +48,7 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
                 >
                   <AttentionMark conversation={conversation} stale={stale} />
                   <span className="tree-label">{conversation.name}</span>
+                  <Elapsed conversation={conversation} />
                   <span className="muted waiting-project">{projectNames.get(conversation.project_id)}</span>
                 </button>
               </li>
@@ -64,20 +65,21 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
         </div>
         {projects.length === 0 && <p className="muted">No projects yet.</p>}
         <ul>
-          {projects.map((project) => (
-            <li key={project.id}>
-              <button
-                type="button"
-                className={isSelected('project', project.id) ? 'tree-item selected' : 'tree-item'}
-                aria-current={isSelected('project', project.id) ? 'true' : undefined}
-                onClick={() => select({ kind: 'project', id: project.id })}
-              >
-                {project.name}
-              </button>
-              <ul className="tree-children">
-                {conversations
-                  .filter((conversation) => conversation.project_id === project.id)
-                  .map((conversation) => (
+          {projects.map((project) => {
+            const inProject = conversations.filter((conversation) => conversation.project_id === project.id)
+            return (
+              <li key={project.id}>
+                <button
+                  type="button"
+                  className={isSelected('project', project.id) ? 'tree-item project-item selected' : 'tree-item project-item'}
+                  aria-current={isSelected('project', project.id) ? 'true' : undefined}
+                  onClick={() => select({ kind: 'project', id: project.id })}
+                >
+                  <ProjectMark conversations={inProject} stale={stale} />
+                  <span className="tree-label">{project.name}</span>
+                </button>
+                <ul className="tree-children">
+                  {inProject.map((conversation) => (
                     <li key={conversation.id}>
                       <button
                         type="button"
@@ -87,13 +89,15 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
                       >
                         <AttentionMark conversation={conversation} stale={stale} />
                         <span className="tree-label">{conversation.name}</span>
+                        <Elapsed conversation={conversation} />
                         {conversation.label && <span className="tag">{conversation.label}</span>}
                       </button>
                     </li>
                   ))}
-              </ul>
-            </li>
-          ))}
+                </ul>
+              </li>
+            )
+          })}
         </ul>
       </section>
       <footer className={`stream stream-${streamState}`}>{streamLabels[streamState]}</footer>

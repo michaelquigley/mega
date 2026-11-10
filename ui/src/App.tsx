@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getEvents, getWorkspace, readConversation } from './api'
+import { freezeClock } from './clock'
 import { parseHash, select, type Selection } from './selection'
 import { useStream } from './stream'
 import { loadedThrough, merge, type ConversationLog } from './log'
@@ -163,6 +164,8 @@ export function App() {
   }, [])
   const streamState = useStream(onOpen, onFrame, onClose)
   const stale = streamState !== 'connected' || !synced
+  // elapsed labels stand still while the page shows only last-known state.
+  useEffect(() => freezeClock(stale), [stale])
 
   const projects = workspace?.projects ?? []
   const conversations = workspace?.conversations ?? []

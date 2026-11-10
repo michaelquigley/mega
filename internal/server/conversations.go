@@ -14,15 +14,17 @@ import (
 // its runtime as the service sees it now, and its current pending set, which is
 // the only source of answerable requests.
 type conversationView struct {
-	ID             string
-	ProjectID      string
-	Name           string
-	Label          string
-	Harness        string
-	NativeID       string
-	Mode           string
-	State          string
-	TurnActive     bool
+	ID         string
+	ProjectID  string
+	Name       string
+	Label      string
+	Harness    string
+	NativeID   string
+	Mode       string
+	State      string
+	TurnActive bool
+	// TurnStartedAt is when the turn in flight began; absent when none is.
+	TurnStartedAt  time.Time `dd:",+omitempty"`
 	Attention      string
 	ReadSeq        int64
 	LastSeq        int64
@@ -57,19 +59,20 @@ type requestView struct {
 
 func newConversationView(conv service.ConversationView) *conversationView {
 	view := &conversationView{
-		ID:         conv.ID,
-		ProjectID:  conv.ProjectID,
-		Name:       conv.Name,
-		Label:      conv.Label,
-		Harness:    conv.Harness,
-		NativeID:   conv.NativeID,
-		Mode:       conv.Mode,
-		State:      conv.State,
-		TurnActive: conv.TurnActive,
-		Attention:  conv.Attention,
-		ReadSeq:    conv.ReadSeq,
-		LastSeq:    conv.LastSeq,
-		OutputSeq:  conv.OutputSeq,
+		ID:            conv.ID,
+		ProjectID:     conv.ProjectID,
+		Name:          conv.Name,
+		Label:         conv.Label,
+		Harness:       conv.Harness,
+		NativeID:      conv.NativeID,
+		Mode:          conv.Mode,
+		State:         conv.State,
+		TurnActive:    conv.TurnActive,
+		TurnStartedAt: conv.TurnStartedAt,
+		Attention:     conv.Attention,
+		ReadSeq:       conv.ReadSeq,
+		LastSeq:       conv.LastSeq,
+		OutputSeq:     conv.OutputSeq,
 
 		PermissionModeChoice: conv.PermissionMode,
 		ModelChoice:          conv.Model,

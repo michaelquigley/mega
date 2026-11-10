@@ -144,6 +144,8 @@ code {
 .stream,
 .tag,
 .waiting-project,
+.elapsed,
+.activity,
 .shortcut,
 .who,
 .system,
@@ -402,8 +404,8 @@ dialog label {
   border-radius: 50%;
   display: inline-block;
   flex: none;
-  height: 8px;
-  width: 8px;
+  height: 11px;
+  width: 11px;
 }
 
 .mark-request {
@@ -417,9 +419,13 @@ dialog label {
   border-color: var(--accent);
 }
 
-.mark-running {
-  animation: pulse 1.6s ease-in-out infinite;
-  border-color: var(--accent);
+/* working is a rotating arc: a quarter-lit ring turning once a second. */
+.mark-running,
+.spinner {
+  animation: spin 1s linear infinite;
+  border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
 }
 
 .mark-error {
@@ -431,10 +437,40 @@ dialog label {
   border-color: var(--error);
 }
 
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
+}
+
+/* a working mark that must not move, because it is only last known, is a
+   still half-filled ring, as under reduced motion below. */
+.mark-running.mark-stale {
+  animation: none;
+  background: linear-gradient(90deg, var(--accent) 50%, transparent 50%);
+  border-color: var(--accent);
+}
+
+.spinner {
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+  height: 0.8em;
+  vertical-align: -0.05em;
+  width: 0.8em;
+}
+
+/* how long a turn in flight has run, beside a name. */
+.elapsed {
+  color: var(--muted);
+  flex: none;
+  font-size: calc(12px * var(--fs));
+}
+
+.project-item {
+  align-items: center;
+  display: flex;
+  gap: 6px;
 }
 
 .needs-you .tree-item {
@@ -820,10 +856,6 @@ hr.turn {
   opacity: 0.55;
 }
 
-/* a last-known mark must not move as if it were live. */
-.mark-running.mark-stale {
-  animation: none;
-}
 
 .section-actions {
   display: flex;
@@ -854,8 +886,11 @@ hr.turn {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mark-running {
+  .mark-running,
+  .spinner {
     animation: none;
+    background: linear-gradient(90deg, var(--accent) 50%, transparent 50%);
+    border-color: var(--accent);
   }
 }
 
@@ -930,4 +965,42 @@ hr.turn {
 .model-control button {
   font-size: calc(12px * var(--fs));
   padding: 2px 8px;
+}
+
+/* the activity line: what the conversation is doing now, just above the
+   reply box. */
+.activity {
+  align-items: center;
+  color: var(--accent);
+  display: flex;
+  font-size: calc(13px * var(--fs));
+  gap: 8px;
+  min-width: 0;
+}
+
+.activity .spinner {
+  height: 12px;
+  width: 12px;
+}
+
+.activity-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-notice {
+  background: var(--notice-bg);
+  border: 1px solid var(--notice-line);
+  border-radius: 4px;
+  color: inherit;
+  padding: 4px 10px;
+}
+
+.activity-alert {
+  color: var(--error);
+}
+
+.activity-stale {
+  color: var(--muted);
 }

@@ -31,6 +31,9 @@ type ConversationView struct {
 	// stopping, resuming, or unsupervised.
 	State      string
 	TurnActive bool
+	// TurnStartedAt is when the turn in flight began, from memory; zero when
+	// no turn is active.
+	TurnStartedAt time.Time
 	Facts      *model.RuntimeFacts
 	Pending    []model.Request
 
@@ -77,6 +80,9 @@ type live struct {
 	session    string
 	state      string // displayed: "", starting, running, stopping or resuming
 	turnActive bool
+	// turnStartedAt is when the turn in flight began; zero when none is. it
+	// lives only here, beside turnActive, and is never stored.
+	turnStartedAt time.Time
 	facts      *model.RuntimeFacts
 	pending    []*model.Request
 	pendingAt  map[string]time.Time // when each pending request was recorded
@@ -249,6 +255,9 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 		view.State = l.state
 	}
 	view.TurnActive = l.turnActive
+	if l.turnActive {
+		view.TurnStartedAt = l.turnStartedAt
+	}
 	view.Facts = l.facts
 	view.ModelNext, view.EffortNext = l.nextModel, l.nextEffort
 	view.Pending = make([]model.Request, 0, len(l.pending))
@@ -430,12 +439,11 @@ func (k *sink) Event(ev *model.Event) {
 		// a user message the runtime reports opens a turn too, such as an
 		// answer that starts the next turn.
 		if !l.turnActive {
-			l.turnActive = true
-			l.nextSent = true
+			l.beginTurn(ev.At)
 			s.changed()
 		}
 	case model.EventTurnEnd:
-		l.turnActive = false
+		l.turnActive, l.turnStartedAt = false, time.Time{}
 		if l.nextSent {
 			// a model or effort asked for has had its prompt; from here the
 			// harness's report stands alone.
@@ -605,7 +613,7 @@ func (k *sink) Exited(err error) {
 		return
 	}
 	if err := s.transition(l, ev, "", func() {
-		l.turnActive, l.facts = false, nil
+		l.turnActive, l.turnStartedAt, l.facts = false, time.Time{}, nil
 		// a change asked of this runtime dies with it; the next launch
 		// passes the stored choice.
 		l.nextModel, l.nextEffort, l.nextSent = "", "", false
@@ -616,4 +624,15 @@ func (k *sink) Exited(err error) {
 	if err := s.updateConversation(l.id, func(c *model.Conversation) { c.Runtime = model.RuntimeNone }); err != nil {
 		dl.Errorf("recording that '%s' stopped: %v", l.id, err)
 	}
+}
+
+// beginTurn marks a turn in flight from at, the time its first event was
+// recorded (now, if it was not recorded). a model or effort change asked for
+// before it goes with it.
+func (l *live) beginTurn(at time.Time) {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	l.turnActive, l.turnStartedAt = true, at
+	l.nextSent = true
 }

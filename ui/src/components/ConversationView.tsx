@@ -15,6 +15,7 @@ import { useModels } from '../models'
 import { permissionModes } from '../permissions'
 import { loadedThrough, type ConversationLog } from '../log'
 import type { Conversation, Project } from '../types'
+import { ActivityLine } from './ActivityLine'
 import { EventList } from './EventList'
 import { Markdown } from './Markdown'
 import { ModelPicker } from './ModelPicker'
@@ -262,6 +263,7 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
       </p>
 
       {error && <p className="error">{error}</p>}
+      <ActivityLine conversation={conversation} log={log} stale={stale} />
       <form className="reply" onSubmit={(event) => void onSend(event)}>
         <textarea
           rows={4}

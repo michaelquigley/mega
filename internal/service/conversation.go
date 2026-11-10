@@ -302,12 +302,12 @@ func (s *Service) send(conversationID, text string) error {
 		return newError(CodeConflict, "the conversation has no runtime")
 	}
 	uuid := registry.NewUUID()
-	if err := s.record(l, &model.Event{Kind: model.EventUser, Origin: model.OriginManaged, Text: text, NativeID: uuid}); err != nil {
+	ev := &model.Event{Kind: model.EventUser, Origin: model.OriginManaged, Text: text, NativeID: uuid}
+	if err := s.record(l, ev); err != nil {
 		s.mu.Unlock()
 		return err
 	}
-	l.turnActive = true
-	l.nextSent = true
+	l.beginTurn(ev.At)
 	s.changed()
 	rt := l.runtime
 	s.mu.Unlock()

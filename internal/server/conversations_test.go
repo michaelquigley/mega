@@ -349,3 +349,21 @@ func TestModelAndEffortOnTheWire(t *testing.T) {
 		t.Errorf("an unchanged model is pending: %v", got["model_next"])
 	}
 }
+
+func TestTurnStartedAtOnTheWire(t *testing.T) {
+	f := start(t)
+	_, project := f.do(t, http.MethodPost, "/api/projects", createBody("p", f.checkout))
+	_, conv := f.do(t, http.MethodPost, "/api/projects/"+project["id"].(string)+"/conversations", jsonBody(map[string]string{"harness": "claude", "prompt": "one"}))
+	id := conv["id"].(string)
+	rt := f.fake.Last()
+	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID()}})
+	got := f.conversation(t, id)
+	at, _ := got["turn_started_at"].(string)
+	if parsed, err := time.Parse(time.RFC3339Nano, at); err != nil || time.Since(parsed) > time.Minute {
+		t.Errorf("during the turn: turn_started_at %v (%v)", got["turn_started_at"], err)
+	}
+	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	if got := f.conversation(t, id); got["turn_started_at"] != nil {
+		t.Errorf("after the turn: turn_started_at %v", got["turn_started_at"])
+	}
+}

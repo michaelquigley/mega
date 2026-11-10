@@ -1,4 +1,5 @@
 building:
+  - working-indicators.md
   - operator-input-panel.md
   - conversation-view-improvements.md
   - side-panel-improvements.md

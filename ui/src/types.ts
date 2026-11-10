@@ -72,6 +72,9 @@ export interface Conversation {
   mode: string
   state: ConversationState
   turn_active: boolean
+  // when the turn in flight began, from the service's memory; absent when no
+  // turn is in flight.
+  turn_started_at?: string
   attention: Attention
   read_seq: number
   last_seq: number
