@@ -1,6 +1,6 @@
 ---
-title: Codex can return to inherit while running
-state: inbox
+title: codex can return to inherit while running
+state: researching
 created: 2026-11-10
 tags: [codex, conversation-view]
 ---

@@ -1,6 +1,6 @@
 ---
 title: model and effort selection
-state: building
+state: evaluating
 created: 2026-11-10
 tags: [conversation-view, claude, codex]
 ---

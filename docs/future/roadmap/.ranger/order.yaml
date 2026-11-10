@@ -1,17 +1,19 @@
 building:
-  - model-and-effort-selection.md
-horizon:
-  - start-without-a-turn.md
-  - ui-test-runner.md
-researching:
   - operator-input-panel.md
   - conversation-view-improvements.md
   - side-panel-improvements.md
+horizon:
+  - start-or-reattach-a-runtime-without-a-turn.md
+  - ui-test-runner.md
+researching:
+  - codex-can-return-to-inherit-while-running.md
+  - idle-lock.md
   - favicon.md
   - dfw-daemon-mode.md
-  - empty-never-means-unreachable.md
-  - e2e-discovery-own-thread.md
+  - a-failed-load-never-renders-as-an-empty-workspace.md
+  - codex-discovery-e2e-reads-its-own-thread.md
 evaluating:
+  - model-and-effort-selection.md
   - typography-follow-ups.md
   - meta-user-messages-are-not-prompts.md
   - typography.md

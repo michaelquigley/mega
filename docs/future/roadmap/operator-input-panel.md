@@ -1,6 +1,6 @@
 ---
 title: operator input panel
-state: researching
+state: building
 created: 2026-11-09
 tags: [enhancement]
 ---

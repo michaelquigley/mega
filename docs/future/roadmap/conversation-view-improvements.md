@@ -1,6 +1,6 @@
 ---
 title: conversation view improvements
-state: researching
+state: building
 created: 2026-11-09
 tags: [enhancement]
 ---

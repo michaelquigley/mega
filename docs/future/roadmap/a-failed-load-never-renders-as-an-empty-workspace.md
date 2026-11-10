@@ -1,5 +1,5 @@
 ---
-title: A failed load never renders as an empty workspace
+title: a failed load never renders as an empty workspace
 state: researching
 created: 2026-11-09
 tags: [ui, honesty]

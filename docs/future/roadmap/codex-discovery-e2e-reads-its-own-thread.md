@@ -1,5 +1,5 @@
 ---
-title: Codex discovery e2e reads its own thread
+title: codex discovery e2e reads its own thread
 state: researching
 created: 2026-11-10
 tags: [testing, codex]
