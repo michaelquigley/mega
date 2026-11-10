@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -52,5 +53,39 @@ func TestToolUseSummaryStaysBounded(t *testing.T) {
 	}
 	if len(text) > maxTitle+len("…") || !utf8.ValidString(text) {
 		t.Errorf("summary is %d bytes (valid utf-8: %v), bound %d", len(text), utf8.ValidString(text), maxTitle)
+	}
+}
+
+// the shape getSessionMessages synthesizes for a subagent's hand-back (claude
+// code 2.1.318, sdk 0.3.318; capability report, 2026-11-10). the live stream
+// never delivers it.
+const handBack = `{"type":"user","uuid":"meta-1","session_id":"s-1","parent_tool_use_id":null,"is_meta":true,"isQueuedCommand":true,"message":{"role":"user","content":"<agent-message from=\"a1b2\">\nReport on the fetched page.\n</agent-message>"},"origin":{"kind":"peer","handback":true,"name":"web-fetch","from":"a1b2","senderTaskId":"t-1","body":"Report on the fetched page."}}`
+
+func decode(t *testing.T, frame string) map[string]any {
+	t.Helper()
+	raw := map[string]any{}
+	if err := json.Unmarshal([]byte(frame), &raw); err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestMetaUserMessageIsNativeNotAPrompt(t *testing.T) {
+	evs := mapOne(t, decode(t, handBack))
+	if len(evs) != 1 || evs[0].Kind != model.EventNative || evs[0].Text != "meta: hand-back from web-fetch" || evs[0].NativeID != "meta-1" || evs[0].Raw == nil {
+		t.Fatalf("hand-back mapped to %+v", evs)
+	}
+	// the transcript's own spelling, and no origin at all.
+	plain := decode(t, `{"type":"user","uuid":"meta-2","isMeta":true,"message":{"content":"something claude added"}}`)
+	if evs := mapOne(t, plain); evs[0].Kind != model.EventNative || evs[0].Text != "user/meta" {
+		t.Errorf("meta without origin mapped to %+v", evs[0])
+	}
+}
+
+// a prompt typed ahead while a turn ran is queued but is the operator's own.
+func TestQueuedCommandWithoutMetaIsStillAPrompt(t *testing.T) {
+	evs := mapOne(t, decode(t, `{"type":"user","uuid":"q-1","isQueuedCommand":true,"message":{"content":"and then run the tests"}}`))
+	if len(evs) != 1 || evs[0].Kind != model.EventUser || evs[0].Text != "and then run the tests" {
+		t.Errorf("queued prompt mapped to %+v", evs)
 	}
 }

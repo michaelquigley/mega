@@ -465,6 +465,22 @@ codex-cli 0.166.0, through `probes/codex/probe.mjs`, which gained `--elicit`: a 
   - it arrives with `mode: "form"`, `_meta: null`, the server's own message ("Which color do you prefer?"), and the real `requestedSchema`: `color` a string enum `["Red", "Blue"]`, `note` a string, `required: ["color"]`;
   - `{action: "accept", content: {color: "Blue", note: "..."}}` delivered exactly that content to the server.
 
+## Observation (2026-11-10): the history reader synthesizes user messages the live stream never delivers
+
+Claude Code 2.1.318, Agent SDK 0.3.318, seen in an operator conversation and in its transcript; no probe was run.
+- A subagent's hand-back reaches the main session as a queued command `[observed]`. The transcript records a `queue-operation` (enqueue, then remove with reason `absorbed_mid_turn` and a `commandUuid`) and an `attachment` of type `queued_command`.
+- It is never streamed live as a user message `[observed]`.
+- `getSessionMessages` returns it as an SDK user message `[observed]` with:
+  - `is_meta: true` and `isQueuedCommand: true`;
+  - string content beginning `<agent-message from=…>`;
+  - an `origin` block: `kind: "peer"`, `handback: true`, `name` (here `web-fetch`), `from`, `senderTaskId`, and the report as `body`.
+- The SDK's `SDKUserMessage` type declares `origin` but not `is_meta` or `isQueuedCommand` `[docs]`.
+- Across the operator's logs on 2026-11-10 `[observed]`, native-origin user events break down as:
+  - 227 without either flag;
+  - 2 with `isQueuedCommand` alone: prompts typed ahead while a turn ran, the operator's own;
+  - 2 with `is_meta`: both this hand-back case.
+- So a history import can contain user messages that are not prompts, and only `is_meta` tells them apart `[inference]`.
+
 ## Recommendations
 
 - Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. Roundhouse should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.

@@ -1300,3 +1300,41 @@ func TestAllowSessionOnlyWhereOffered(t *testing.T) {
 		t.Errorf("delivered %+v", last)
 	}
 }
+
+// a meta user message (a subagent's hand-back) arrives only through an import,
+// as a native event with its own identity; importing it again adds nothing.
+func TestMetaMessageImportedTwiceIsRecordedOnce(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	finishTurn(rt, "a-1", "done")
+	if err := r.svc.Release(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the runtime to exit", rt.Exited)
+	r.fake.SetHistory(conv.NativeID, []*model.Event{
+		{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"},
+		{Kind: model.EventNative, Text: "meta: hand-back from web-fetch", NativeID: "meta-1"},
+	})
+	for i := 0; i < 2; i++ {
+		if err := r.svc.Resume(conv.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var metas, prompts int
+	for _, ev := range r.events(conv.ID) {
+		if ev.NativeID == "meta-1" {
+			metas++
+			if ev.Kind != model.EventNative {
+				t.Errorf("the hand-back was recorded as %s", ev.Kind)
+			}
+		}
+		if ev.Kind == model.EventUser && ev.Origin == model.OriginNative {
+			prompts++
+		}
+	}
+	if metas != 1 || prompts != 0 {
+		t.Errorf("hand-back recorded %d times; native prompts %d", metas, prompts)
+	}
+}

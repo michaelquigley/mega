@@ -29,6 +29,15 @@ type sdkMessage struct {
 	Cwd               string
 	IsError           bool
 	Event             map[string]any `dd:",+opaque,+nullable"`
+
+	// IsMeta marks a user message claude added itself, such as a subagent's
+	// hand-back, which the history reader synthesizes and the live stream
+	// never delivers. the reader spells it is_meta; isMeta is the transcript's
+	// own spelling. IsQueuedCommand alone is a prompt typed ahead.
+	IsMeta          bool           `dd:"is_meta,+nullable"`
+	IsMetaCamel     bool           `dd:"isMeta,+nullable"`
+	IsQueuedCommand bool           `dd:"isQueuedCommand,+nullable"`
+	Origin          map[string]any `dd:",+opaque,+nullable"`
 }
 
 type sdkContent struct {
@@ -73,6 +82,11 @@ func mapMessage(raw map[string]any) ([]*model.Event, error) {
 	switch {
 	case msg.Type == "assistant" && msg.ParentToolUseID == "":
 		return mapBlocks(msg, raw, assistantBlock)
+	case msg.Type == "user" && msg.ParentToolUseID == "" && (msg.IsMeta || msg.IsMetaCamel):
+		// not the operator's: claude's own meta message, such as a subagent's
+		// hand-back. kept under the native toggle with its identity, so an
+		// import stays idempotent.
+		return []*model.Event{{Kind: model.EventNative, Text: metaText(msg.Origin), NativeID: msg.UUID, Raw: raw}}, nil
 	case msg.Type == "user" && msg.ParentToolUseID == "":
 		if text, ok := msg.Message.text(); ok {
 			return []*model.Event{{Kind: model.EventUser, Text: text, NativeID: msg.UUID, Raw: raw}}, nil
@@ -87,6 +101,23 @@ func mapMessage(raw map[string]any) ([]*model.Event, error) {
 	default:
 		return []*model.Event{nativeEvent(msg, raw)}, nil
 	}
+}
+
+// metaText names a meta user message from its origin: "meta: hand-back from
+// web-fetch" for a subagent's hand-back, "meta: <kind> from <name>" or
+// "meta: <kind>" otherwise, and "user/meta" when there is no origin.
+func metaText(origin map[string]any) string {
+	kind, _ := origin["kind"].(string)
+	if kind == "" {
+		return "user/meta"
+	}
+	if handback, _ := origin["handback"].(bool); handback {
+		kind = "hand-back"
+	}
+	if name, _ := origin["name"].(string); name != "" {
+		return fmt.Sprintf("meta: %s from %s", kind, name)
+	}
+	return "meta: " + kind
 }
 
 func nativeEvent(msg *sdkMessage, raw map[string]any) *model.Event {

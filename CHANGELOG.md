@@ -32,3 +32,7 @@ FIX: Codex conversations can use MCP tools. Codex asks before running an MCP too
 
 CHANGE: Roundhouse is set in the house faces. Messages, headings, buttons and other prose are in Source Serif 4 at a slightly larger size with more room between lines. Labels are in Nordwand Mono: the conversation's facts, statuses, tool lines, request parameters, timestamps and code. Both faces are built into the binary, so the page still fetches nothing from outside your machine. The serif carries Latin only, and other scripts fall back to Georgia. The conversation column is also wider, up to 960px instead of 860px, so code and tables have more room.
 
+FIX: A subagent's report no longer shows up as a message from you. When Roundhouse read a Claude conversation's history after a restart or a terminal visit, a report a subagent handed back appeared as "You, outside Roundhouse". Those messages are now recorded as Claude's own and shown only with native events. Prompts you typed ahead while a turn was running still show as yours. Messages already recorded stay as they are.
+
+CHANGE: Text in the conversation pane is 10% larger: messages, the header, status lines, code and request cards. The sidebar and dialogs keep their size.
+

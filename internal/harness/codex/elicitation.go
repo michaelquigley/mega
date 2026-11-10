@@ -293,5 +293,5 @@ func unanswerableElicitation(p *elicitationParams) string {
 	if what == "" {
 		what = "(no message)"
 	}
-	return fmt.Sprintf("codex asked '%s' for MCP server '%s' in mode '%s', which roundhouse cannot answer: %q; interrupt the turn to go on", methodElicitation, p.ServerName, p.Mode, what)
+	return fmt.Sprintf("codex asked '%s' for MCP server '%s' in mode '%s', which roundhouse cannot answer: '%s'; interrupt the turn to go on", methodElicitation, p.ServerName, p.Mode, what)
 }

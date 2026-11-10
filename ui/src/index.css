@@ -89,6 +89,9 @@
   /* serif for what speaks; mono for what labels. */
   --serif: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
   --mono: 'Nordwand Mono', ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  /* type scale: every font size is a multiple of this. it is 1 everywhere
+     except the conversation pane, which sets it to 1.1. */
+  --fs: 1;
   color-scheme: light dark;
 }
 
@@ -132,7 +135,7 @@ th {
 }
 
 code {
-  font: 13px var(--mono);
+  font: calc(13px * var(--fs)) var(--mono);
 }
 
 /* the mono register: text that labels rather than speaks. */
@@ -153,14 +156,14 @@ code {
 }
 
 h1 {
-  font-size: 20px;
+  font-size: calc(20px * var(--fs));
   font-weight: 600;
   margin: 0 0 2px;
 }
 
 h2 {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   font-weight: 600;
   letter-spacing: 0.04em;
   margin: 0;
@@ -209,7 +212,7 @@ pre {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 4px;
-  font: 12px/1.5 var(--mono);
+  font: calc(12px * var(--fs))/1.5 var(--mono);
   margin: 6px 0 0;
   max-height: 320px;
   overflow: auto;
@@ -251,7 +254,7 @@ pre {
 }
 
 .section-head button {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   padding: 1px 8px;
 }
 
@@ -287,7 +290,7 @@ pre {
 
 .stream {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 
 .stream-disconnected {
@@ -390,7 +393,7 @@ dialog label {
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   padding: 0 6px;
 }
 
@@ -442,12 +445,12 @@ dialog label {
 
 .waiting-project {
   flex: none;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   margin: 0 0 0 auto;
 }
 
 .shortcut {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   margin: 0;
 }
 
@@ -457,7 +460,10 @@ dialog label {
   gap: 8px;
 }
 
+/* the conversation pane's type is 10% larger than the rest of the ui. */
 .conversation {
+  --fs: 1.1;
+  font-size: calc(15px * var(--fs));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -477,7 +483,7 @@ dialog label {
 
 .state {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   margin-left: auto;
 }
 
@@ -491,7 +497,7 @@ dialog label {
 
 .facts {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   margin: 2px 0 0;
   overflow-wrap: anywhere;
 }
@@ -499,7 +505,7 @@ dialog label {
 .edit summary {
   color: var(--muted);
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   margin-top: 6px;
 }
 
@@ -578,16 +584,16 @@ dialog label {
 }
 
 .markdown h3 {
-  font-size: 17px;
+  font-size: calc(17px * var(--fs));
 }
 
 .markdown h4 {
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
 }
 
 .markdown h5,
 .markdown h6 {
-  font-size: 14px;
+  font-size: calc(14px * var(--fs));
 }
 
 .markdown blockquote {
@@ -652,11 +658,11 @@ dialog label {
 
 .code-language {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 
 .code-head .copy {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   padding: 1px 8px;
 }
 
@@ -685,7 +691,7 @@ dialog label {
   border-top: 1px solid var(--line);
   color: var(--accent);
   display: block;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   text-align: left;
   width: 100%;
 }
@@ -693,7 +699,7 @@ dialog label {
 .who {
   color: var(--muted);
   display: block;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -702,13 +708,13 @@ dialog label {
 .tool,
 .native {
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--fs));
 }
 
 .tool summary,
 .native summary {
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -720,7 +726,7 @@ dialog label {
 
 .system {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   margin: 0;
 }
 
@@ -785,13 +791,13 @@ hr.turn {
   align-items: center;
   color: var(--muted);
   display: flex;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   gap: 4px;
   margin-left: auto;
 }
 
 .handoff {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   margin: 0;
 }
 
@@ -844,7 +850,7 @@ hr.turn {
 }
 
 .sessions code {
-  font-size: 11px;
+  font-size: calc(11px * var(--fs));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -886,13 +892,13 @@ hr.turn {
   color: var(--muted);
   display: flex;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   gap: 8px;
   margin-top: 6px;
 }
 
 .mode-control select {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   padding: 2px 6px;
 }
 
@@ -902,7 +908,7 @@ hr.turn {
 
 .mcp-parameters dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 
 .mcp-parameters dd {
