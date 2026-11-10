@@ -1,6 +1,6 @@
 ---
 title: background jobs
-state: building
+state: evaluating
 created: 2026-11-10
 tags: [defect, spike]
 ---

@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { starProject } from '../api'
 import { folds } from '../prefs'
 import { select, type Selection } from '../selection'
-import { streamLabels, type StreamState } from '../stream'
+import { serviceAddress, streamLabels, type Knowledge, type StreamState } from '../stream'
 import { treeGroups } from '../tree'
 import type { Conversation, Project } from '../types'
 import { AttentionMark, BackgroundLabel, Elapsed, ProjectMark } from './AttentionMark'
@@ -18,6 +18,8 @@ interface SidebarProps {
   // whether the workspace has been read at least once, so a project missing
   // from it is really gone.
   loaded: boolean
+  // what the page knows; before the first read, nothing, and it says so.
+  knowledge: Knowledge
   onRegister: () => void
   onCollapse: () => void
 }
@@ -26,7 +28,9 @@ interface SidebarProps {
 // starred first, each group by name, each project folding to its row and its
 // rollup mark. which projects are folded is a preference of this browser;
 // stars are workspace state, written through the service.
-export function Sidebar({ projects, conversations, needsYou, selection, streamState, stale, loaded, onRegister, onCollapse }: SidebarProps) {
+export function Sidebar({ projects, conversations, needsYou, selection, streamState, stale, loaded, knowledge, onRegister, onCollapse }: SidebarProps) {
+  // before the first read the page knows nothing, and says so, never "none".
+  const unknown = !loaded ? <p className="muted unknown-line">{knowledge === 'unreachable' ? `Not known: the service at ${serviceAddress()} is unreachable.` : 'Not known yet: connecting.'}</p> : null
   const folded = useSyncExternalStore(folds.subscribe, folds.get)
   const [starError, setStarError] = useState<string | null>(null)
   const isSelected = (kind: Selection['kind'], id: string) => selection?.kind === kind && selection.id === id
@@ -125,7 +129,7 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
             Ctrl+/ or n
           </span>
         </div>
-        {waiting.length === 0 ? (
+        {unknown ?? (waiting.length === 0 ? (
           <p className="muted">Nothing waiting.</p>
         ) : (
           <ul>
@@ -146,15 +150,21 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
               </li>
             ))}
           </ul>
-        )}
+        ))}
       </section>
       <section className="projects">
         <div className="section-head">
           <h2>Projects</h2>
-          <IconButton icon="create_new_folder" label="Register a project" onClick={onRegister} />
+          <IconButton
+            icon="create_new_folder"
+            label={loaded ? 'Register a project' : 'Register a project (waiting for the service)'}
+            disabled={!loaded}
+            onClick={onRegister}
+          />
         </div>
         {starError && <p className="error">{starError}</p>}
-        {projects.length === 0 && <p className="muted">No projects yet.</p>}
+        {unknown}
+        {loaded && projects.length === 0 && <p className="muted">No projects yet.</p>}
         {starred.length > 0 && (
           <ul className="project-group starred-group" aria-label="Starred projects">
             {starred.map(projectItem)}
@@ -167,7 +177,9 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
         )}
       </section>
       <footer className="side-foot">
-        <span className={`stream stream-${streamState}`}>{streamLabels[streamState]}</span>
+        <span className={`stream stream-${knowledge === 'unreachable' ? 'disconnected' : streamState}`}>
+          {knowledge === 'unreachable' ? 'Unreachable, retrying' : streamLabels[streamState]}
+        </span>
         <IconButton icon="keyboard_double_arrow_left" label="Collapse the side panel" onClick={onCollapse} />
       </footer>
     </nav>

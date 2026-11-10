@@ -1,5 +1,5 @@
 import { select } from '../selection'
-import { streamLabels, type StreamState } from '../stream'
+import { streamLabels, type Knowledge, type StreamState } from '../stream'
 import { treeGroups } from '../tree'
 import type { Conversation, Project } from '../types'
 import { ProjectMark } from './AttentionMark'
@@ -11,6 +11,8 @@ interface RailProps {
   needsYou: string[]
   streamState: StreamState
   stale: boolean
+  loaded: boolean
+  knowledge: Knowledge
   onExpand: () => void
 }
 
@@ -19,15 +21,24 @@ interface RailProps {
 // connection. nothing that signals attention or activity is lost by
 // collapsing: each project's mark is the same rollup the tree shows, working
 // arc included.
-export function Rail({ projects, conversations, needsYou, streamState, stale, onExpand }: RailProps) {
+export function Rail({ projects, conversations, needsYou, streamState, stale, loaded, knowledge, onExpand }: RailProps) {
   const { starred, rest } = treeGroups(projects)
   const waiting = needsYou.length
-  const count = waiting === 0 ? 'Nothing needs you' : `${waiting} ${waiting === 1 ? 'conversation needs' : 'conversations need'} you`
+  // before the first read the count is unknown, never zero.
+  let count = waiting === 0 ? 'Nothing needs you' : `${waiting} ${waiting === 1 ? 'conversation needs' : 'conversations need'} you`
+  if (!loaded) {
+    count = knowledge === 'unreachable' ? 'Not known: the service is unreachable' : 'Not known yet: connecting'
+  }
+  const connection = knowledge === 'unreachable' ? 'Unreachable, retrying' : streamLabels[streamState]
   return (
     <nav className="rail" aria-label="Side panel, collapsed">
       <IconButton icon="keyboard_double_arrow_right" label="Expand the side panel" onClick={onExpand} />
-      <span className={`rail-count${waiting > 0 ? ' waiting' : ''}${stale ? ' stale' : ''}`} title={stale ? `Last known: ${count.toLowerCase()}` : count} aria-label={count}>
-        {waiting}
+      <span
+        className={`rail-count${!loaded ? ' unknown' : waiting > 0 ? ' waiting' : ''}${loaded && stale ? ' stale' : ''}`}
+        title={loaded && stale ? `Last known: ${count.toLowerCase()}` : count}
+        aria-label={count}
+      >
+        {loaded ? waiting : '?'}
       </span>
       <ul className="rail-projects">
         {[...starred, ...rest].map((project) => (
@@ -47,7 +58,7 @@ export function Rail({ projects, conversations, needsYou, streamState, stale, on
           </li>
         ))}
       </ul>
-      <span className={`rail-stream stream-${streamState}`} title={streamLabels[streamState]} aria-label={streamLabels[streamState]} role="img" />
+      <span className={`rail-stream stream-${knowledge === 'unreachable' ? 'disconnected' : streamState}${loaded ? '' : ' unknown'}`} title={connection} aria-label={connection} role="img" />
     </nav>
   )
 }

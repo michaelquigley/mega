@@ -1,10 +1,8 @@
 building:
-  - background-jobs.md
+  - a-failed-load-never-renders-as-an-empty-workspace.md
 horizon:
   - ui-test-runner.md
 researching:
-  - operator-panel-expansion-behavior.md
-  - a-failed-load-never-renders-as-an-empty-workspace.md
   - path-search-in-the-input-panel.md
   - start-or-reattach-a-runtime-without-a-turn.md
   - idle-lock.md
@@ -13,6 +11,8 @@ researching:
   - dfw-daemon-mode.md
   - codex-discovery-e2e-reads-its-own-thread.md
 evaluating:
+  - operator-panel-expansion-behavior.md
+  - background-jobs.md
   - side-panel-structure.md
   - codex-can-return-to-inherit-while-running.md
   - side-panel-improvements.md

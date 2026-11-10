@@ -19,6 +19,10 @@ Typing `@` in the reply box opens a search over paths in the conversation's chec
 
 Whether each harness treats `@path` in a programmatic prompt as a file mention, as their terminals do: send `@fixture.txt` through the Claude shim and through Codex `turn/start` and see whether the file's content is attached or the text arrives literally. If a harness expands it, insert `@path` for that harness; otherwise insert the bare path. Record the observation in the capability report with versions.
 
+## ride-along
+
+From the failed-load fix: when the service answers a workspace read with an error, the never-loaded page says the service could not read the workspace, with the error, instead of "unreachable". "Unreachable" is kept for when nothing answered. The retry is unchanged.
+
 ## checks
 
 A service test for the listing against a fixture with tracked, untracked and ignored files and a symlink pointing outside; a server test for the endpoint and its result cap. The browser check with the fake shim: the list opening on `@`, filtering, keyboard picking, Escape leaving the text alone, two mentions in one draft, and the inserted text per harness.

@@ -1443,3 +1443,41 @@ hr.turn {
 .release-background li {
   list-style: disc;
 }
+
+/* before the page has read the workspace once: it says it is connecting, or
+   that the service is unreachable and it keeps trying, never that there is
+   nothing. */
+.unknown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 640px;
+}
+
+.unknown h1 {
+  margin: 0;
+}
+
+.unknown p {
+  margin: 0;
+}
+
+.unknown-unreachable h1 {
+  color: var(--error);
+}
+
+.unknown-line {
+  font-style: italic;
+}
+
+/* the rail's count before the first read: not zero, unknown. */
+.rail-count.unknown {
+  border-style: dashed;
+}
+
+/* the rail's connection dot before the first read, while connecting: an
+   empty ring. */
+.rail-stream.unknown.stream-connecting {
+  background: transparent;
+  border: 1.5px solid var(--muted);
+}

@@ -7,6 +7,15 @@ const RECONNECT_MAX_MS = 8_000
 
 export type StreamState = 'connecting' | 'connected' | 'disconnected'
 
+// Knowledge is what the page knows of the workspace: nothing yet, while it is
+// connecting or once the service has proved unreachable; the service's
+// current state; or only the last state it read (stale).
+export type Knowledge = 'connecting' | 'unreachable' | 'current' | 'stale'
+
+// serviceAddress is where the page reaches the service: the address it was
+// served from.
+export const serviceAddress = () => window.location.host
+
 export const streamLabels: Record<StreamState, string> = {
   connecting: 'Connecting',
   connected: 'Live',

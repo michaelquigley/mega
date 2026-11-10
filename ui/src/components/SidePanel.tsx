@@ -1,7 +1,7 @@
 import { useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { clampWidth, readCollapsed, readWidth, saveCollapsed, saveWidth } from '../prefs'
 import type { Selection } from '../selection'
-import type { StreamState } from '../stream'
+import type { Knowledge, StreamState } from '../stream'
 import type { Conversation, Project } from '../types'
 import { Rail } from './Rail'
 import { Sidebar } from './Sidebar'
@@ -14,6 +14,7 @@ interface SidePanelProps {
   streamState: StreamState
   stale: boolean
   loaded: boolean
+  knowledge: Knowledge
   onRegister: () => void
 }
 

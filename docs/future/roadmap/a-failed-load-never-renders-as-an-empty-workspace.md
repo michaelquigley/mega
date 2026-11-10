@@ -1,6 +1,6 @@
 ---
 title: a failed load never renders as an empty workspace
-state: researching
+state: building
 created: 2026-11-09
 tags: [defect]
 ---

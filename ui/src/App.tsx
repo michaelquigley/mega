@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getEvents, getWorkspace, readConversation } from './api'
 import { freezeClock } from './clock'
 import { parseHash, select, type Selection } from './selection'
-import { useStream } from './stream'
+import { serviceAddress, useStream, type Knowledge } from './stream'
 import { loadedThrough, merge, type ConversationLog } from './log'
 import type { StreamFrame, Workspace } from './types'
 import { AdoptDialog } from './components/AdoptDialog'
@@ -164,6 +164,33 @@ export function App() {
   }, [])
   const streamState = useStream(onOpen, onFrame, onClose)
   const stale = streamState !== 'connected' || !synced
+
+  // a workspace read that fails while the stream is up is tried again, with
+  // backoff, until one succeeds: nothing else would ask again until the
+  // service announced a change, and a page that has never loaded would wait
+  // on that forever.
+  const [retryIn, setRetryIn] = useState(0)
+  useEffect(() => {
+    if (streamState !== 'connected' || synced || loadError === null) {
+      return
+    }
+    const delay = Math.min(1000 * 2 ** retryIn, 8000)
+    const timer = window.setTimeout(() => {
+      void refresh().then((ok) => setRetryIn((n) => (ok ? 0 : n + 1)))
+    }, delay)
+    return () => window.clearTimeout(timer)
+  }, [streamState, synced, loadError, retryIn, refresh])
+
+  // what the page knows: nothing yet (connecting, or unreachable once a read
+  // or the stream has failed), the service's current state, or only the last
+  // state it read (stale). an empty workspace is shown only when a successful
+  // read returned one.
+  let knowledge: Knowledge
+  if (workspace === null) {
+    knowledge = loadError !== null || streamState === 'disconnected' ? 'unreachable' : 'connecting'
+  } else {
+    knowledge = stale ? 'stale' : 'current'
+  }
   // elapsed labels stand still while the page shows only last-known state.
   useEffect(() => freezeClock(stale), [stale])
 
@@ -278,12 +305,12 @@ export function App() {
         onAdopt={() => setAdopting(selectedProject.id)}
       />
     )
+  } else if (workspace === null) {
+    main = <Unknown knowledge={knowledge} error={loadError} />
   } else {
     main = (
       <p className="placeholder">
-        {workspace && projects.length === 0
-          ? 'Register a project from an existing checkout to begin.'
-          : 'Select a project or a conversation.'}
+        {projects.length === 0 ? 'Register a project from an existing checkout to begin.' : 'Select a project or a conversation.'}
       </p>
     )
   }
@@ -298,10 +325,11 @@ export function App() {
         streamState={streamState}
         stale={stale}
         loaded={workspace !== null}
+        knowledge={knowledge}
         onRegister={() => setRegistering(true)}
       />
       <main className="main">
-        {loadError && <p className="error">The workspace could not be read: {loadError}</p>}
+        {loadError && workspace !== null && <p className="error">The workspace could not be read: {loadError}</p>}
         {main}
       </main>
       {registering && (
@@ -361,3 +389,22 @@ function takesText(target: EventTarget | null): boolean {
     target instanceof HTMLSelectElement
   )
 }
+
+// Unknown is the main column before the page has read the workspace once: it
+// says the page is connecting, or that the service is unreachable and it is
+// still trying, and where. it never says there is nothing.
+function Unknown({ knowledge, error }: { knowledge: Knowledge; error: string | null }) {
+  const unreachable = knowledge === 'unreachable'
+  return (
+    <section className={`unknown unknown-${knowledge}`} role="status">
+      <h1>{unreachable ? 'The service is unreachable' : 'Connecting'}</h1>
+      <p>
+        {unreachable
+          ? `Roundhouse cannot reach the service at ${serviceAddress()}. It keeps trying, and your projects and conversations appear as soon as it answers.`
+          : `Reaching the service at ${serviceAddress()} to read your projects and conversations.`}
+      </p>
+      {unreachable && error && <p className="muted">Last error: {error}</p>}
+    </section>
+  )
+}
+

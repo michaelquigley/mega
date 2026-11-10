@@ -1,6 +1,6 @@
 ---
 title: operator panel expansion behavior
-state: researching
+state: evaluating
 created: 2026-11-10
 tags: [enhancement]
 ---
