@@ -39,6 +39,10 @@ function saveHeight(height: number) {
 }
 
 const maxHeight = () => Math.round(window.innerHeight * 0.6)
+
+// how close to the bottom counts as following it, as the conversation's own
+// follow-at-bottom reckons it (latest.ts).
+const followSlack = 32
 const clampHeight = (height: number) => Math.min(Math.max(height, minHeight), maxHeight())
 
 const terminalCommands: Record<string, string> = { claude: 'claude --resume', codex: 'codex resume' }
@@ -78,6 +82,15 @@ export function InputPanel(props: InputPanelProps) {
   const boxRef = useRef<HTMLTextAreaElement>(null)
   const moreRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
+  // fitted: the box has been sized once, so later changes move the view;
+  // toLatestAfterSend: a sent prompt's view change waits for the box to close.
+  const fitted = useRef(false)
+  const toLatestAfterSend = useRef(false)
+  // onLatest is a new function each render; the sizing reads the newest.
+  const latest = useRef(onLatest)
+  useEffect(() => {
+    latest.current = onLatest
+  })
 
   // the menu takes focus when it opens, and closes on Escape or on a press
   // anywhere outside it.
@@ -107,19 +120,41 @@ export function InputPanel(props: InputPanelProps) {
   // expanded, the box opens to the remembered height and grows with its
   // content to 60% of the viewport, then scrolls. collapsed, it is one line
   // showing the start of any draft.
+  //
+  // the conversation moves with the panel's top edge: when the box opens,
+  // closes, grows or is dragged, the history scrolls by exactly how far that
+  // edge moved, so the line just above the panel stays just above it. a view
+  // following the bottom stays at the bottom. after a send, once the box has
+  // closed, the view goes to the newest activity and follows it.
   const fit = useCallback(() => {
     const box = boxRef.current
     if (!box) {
       return
     }
+    const cluster = clusterRef.current
+    const scroller = cluster?.closest<HTMLElement>('.main') ?? null
+    const topBefore = cluster?.getBoundingClientRect().top ?? 0
+    const following = scroller !== null && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= followSlack
     if (!expanded) {
       box.style.height = ''
       box.scrollTop = 0
-      return
+    } else {
+      box.style.height = '0px'
+      const content = box.scrollHeight + (box.offsetHeight - box.clientHeight)
+      box.style.height = `${Math.min(Math.max(height, content), maxHeight())}px`
     }
-    box.style.height = '0px'
-    const content = box.scrollHeight + (box.offsetHeight - box.clientHeight)
-    box.style.height = `${Math.min(Math.max(height, content), maxHeight())}px`
+    if (scroller && cluster && fitted.current) {
+      if (following) {
+        scroller.scrollTop = scroller.scrollHeight
+      } else {
+        scroller.scrollTop += topBefore - cluster.getBoundingClientRect().top
+      }
+    }
+    fitted.current = true
+    if (toLatestAfterSend.current) {
+      toLatestAfterSend.current = false
+      latest.current()
+    }
   }, [expanded, height])
   useLayoutEffect(fit, [fit, draft])
   useEffect(() => {
@@ -152,8 +187,12 @@ export function InputPanel(props: InputPanelProps) {
       setExpanded(true)
     }
   }
+  // focus that goes nowhere (an answered card removed under it, the window
+  // losing focus) is not leaving: a press outside closes the box, and so does
+  // a send.
   const onBlur = (event: FocusEvent) => {
-    if (!clusterRef.current?.contains(event.relatedTarget as Node | null)) {
+    const to = event.relatedTarget as Node | null
+    if (to !== null && !clusterRef.current?.contains(to)) {
       setExpanded(false)
       setMenu(false)
     }
@@ -195,9 +234,16 @@ export function InputPanel(props: InputPanelProps) {
     if (!text || blocked) {
       return
     }
+    // a send the service refuses changes nothing: the box stays open with the
+    // draft, and the error shows.
     if (await attempt(() => sendPrompt(conversation.id, text))) {
       setDraft('')
       drafts.delete(conversation.id)
+      // sent: the box closes, focus leaves it so it stays closed, and the view
+      // goes to the newest activity, following the reply as it arrives.
+      toLatestAfterSend.current = true
+      boxRef.current?.blur()
+      setExpanded(false)
     }
   }
 
