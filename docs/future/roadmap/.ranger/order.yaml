@@ -1,5 +1,5 @@
 building:
-  - working-indicators.md
+  - side-panel-structure.md
   - operator-input-panel.md
   - conversation-view-improvements.md
   - side-panel-improvements.md
@@ -14,6 +14,9 @@ researching:
   - a-failed-load-never-renders-as-an-empty-workspace.md
   - codex-discovery-e2e-reads-its-own-thread.md
 evaluating:
+  - working-indicators.md
+  - input-panel.md
+  - conversation-structure.md
   - model-and-effort-selection.md
   - typography-follow-ups.md
   - meta-user-messages-are-not-prompts.md

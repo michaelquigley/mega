@@ -40,6 +40,11 @@ export const createProject = (name: string, checkout: string) =>
 export const renameProject = (id: string, name: string) =>
   request<Project>('PATCH', `/api/projects/${encodeURIComponent(id)}`, { name })
 
+// starring is workspace state: the service writes it, and every browser learns
+// of it through the stream's workspace_changed.
+export const starProject = (id: string, starred: boolean) =>
+  request<Project>('PATCH', `/api/projects/${encodeURIComponent(id)}`, { starred })
+
 export const removeProject = (id: string) =>
   request<void>('DELETE', `/api/projects/${encodeURIComponent(id)}`)
 

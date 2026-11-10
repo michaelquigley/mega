@@ -7,6 +7,12 @@ const RECONNECT_MAX_MS = 8_000
 
 export type StreamState = 'connecting' | 'connected' | 'disconnected'
 
+export const streamLabels: Record<StreamState, string> = {
+  connecting: 'Connecting',
+  connected: 'Live',
+  disconnected: 'Reconnecting',
+}
+
 // useStream keeps one WebSocket to the service. onOpen fires on every connection,
 // because whatever happened while disconnected can only be recovered by re-reading
 // confirmed state; the service never replays on its own. onClose fires when a

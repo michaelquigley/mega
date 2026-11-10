@@ -6,6 +6,7 @@ import addComment from '@material-design-icons/svg/filled/add_comment.svg?raw'
 import arrowDownward from '@material-design-icons/svg/filled/arrow_downward.svg?raw'
 import block from '@material-design-icons/svg/filled/block.svg?raw'
 import check from '@material-design-icons/svg/filled/check.svg?raw'
+import chevronRight from '@material-design-icons/svg/filled/chevron_right.svg?raw'
 import close from '@material-design-icons/svg/filled/close.svg?raw'
 import contentCopy from '@material-design-icons/svg/filled/content_copy.svg?raw'
 import createNewFolder from '@material-design-icons/svg/filled/create_new_folder.svg?raw'
@@ -14,12 +15,17 @@ import doneAll from '@material-design-icons/svg/filled/done_all.svg?raw'
 import download from '@material-design-icons/svg/filled/download.svg?raw'
 import edit from '@material-design-icons/svg/filled/edit.svg?raw'
 import errorOutline from '@material-design-icons/svg/filled/error_outline.svg?raw'
+import expandMore from '@material-design-icons/svg/filled/expand_more.svg?raw'
+import doubleLeft from '@material-design-icons/svg/filled/keyboard_double_arrow_left.svg?raw'
+import doubleRight from '@material-design-icons/svg/filled/keyboard_double_arrow_right.svg?raw'
 import logout from '@material-design-icons/svg/filled/logout.svg?raw'
 import moreVert from '@material-design-icons/svg/filled/more_vert.svg?raw'
 import playArrow from '@material-design-icons/svg/filled/play_arrow.svg?raw'
 import reply from '@material-design-icons/svg/filled/reply.svg?raw'
 import rocketLaunch from '@material-design-icons/svg/filled/rocket_launch.svg?raw'
 import send from '@material-design-icons/svg/filled/send.svg?raw'
+import star from '@material-design-icons/svg/filled/star.svg?raw'
+import starBorder from '@material-design-icons/svg/filled/star_border.svg?raw'
 import stop from '@material-design-icons/svg/filled/stop.svg?raw'
 import undo from '@material-design-icons/svg/filled/undo.svg?raw'
 import unfoldLess from '@material-design-icons/svg/filled/unfold_less.svg?raw'
@@ -32,6 +38,7 @@ const icons = {
   arrow_downward: arrowDownward,
   block,
   check,
+  chevron_right: chevronRight,
   close,
   content_copy: contentCopy,
   create_new_folder: createNewFolder,
@@ -40,12 +47,17 @@ const icons = {
   download,
   edit,
   error_outline: errorOutline,
+  expand_more: expandMore,
+  keyboard_double_arrow_left: doubleLeft,
+  keyboard_double_arrow_right: doubleRight,
   logout,
   more_vert: moreVert,
   play_arrow: playArrow,
   reply,
   rocket_launch: rocketLaunch,
   send,
+  star,
+  star_border: starBorder,
   stop,
   undo,
   unfold_less: unfoldLess,

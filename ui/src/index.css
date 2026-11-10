@@ -228,20 +228,119 @@ pre {
   outline-offset: 1px;
 }
 
+/* the side panel takes the width this browser remembers, or the rail's. */
 .app {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   height: 100%;
+}
+
+.side {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  position: relative;
 }
 
 .sidebar {
   background: var(--panel);
   border-right: 1px solid var(--line);
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 20px;
+  min-width: 0;
   overflow-y: auto;
   padding: 14px;
+}
+
+/* the handle on the panel's right edge sets its width, 200px to 480px. */
+.side-handle {
+  bottom: 0;
+  cursor: ew-resize;
+  position: absolute;
+  right: -3px;
+  top: 0;
+  width: 6px;
+  z-index: 2;
+}
+
+.side-handle:hover,
+.side-handle:focus-visible {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  outline: none;
+}
+
+.side-foot {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* the collapsed panel: a thin rail of what still needs seeing. */
+.rail {
+  align-items: center;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 10px 0;
+  width: 44px;
+}
+
+.rail-count {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font: calc(12px * var(--fs)) var(--mono);
+  min-width: 24px;
+  padding: 1px 6px;
+  text-align: center;
+}
+
+.rail-count.waiting {
+  background: var(--notice-bg);
+  border-color: var(--notice-line);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.rail-count.stale {
+  opacity: 0.55;
+}
+
+.rail-projects {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rail-mark {
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  line-height: 0;
+  padding: 6px;
+}
+
+.rail-mark:hover,
+.rail-mark:focus-visible {
+  background: var(--selected);
+}
+
+.rail-stream {
+  background: var(--muted);
+  border-radius: 50%;
+  height: 7px;
+  margin-top: auto;
+  width: 7px;
+}
+
+.rail-stream.stream-disconnected {
+  background: var(--error);
 }
 
 .projects {
@@ -272,13 +371,68 @@ pre {
   width: 100%;
 }
 
-.tree-item:hover {
+/* selection is the row's background alone; hover is a lighter wash of it,
+   so the selected row stands apart from the one under the pointer. */
+.tree-item:hover,
+.project-row:hover {
+  background: color-mix(in srgb, var(--selected) 55%, transparent);
+}
+
+.tree-item.selected,
+.project-row.selected {
   background: var(--selected);
 }
 
-.tree-item.selected {
-  background: var(--selected);
+/* a project row: its fold control, the project, and its star. project names
+   are always at 600; conversations below keep the body weight. */
+.project-row {
+  align-items: center;
+  border-radius: 4px;
+  display: flex;
+}
+
+.project-row .tree-item:hover {
+  background: none;
+}
+
+.project-item {
   font-weight: 600;
+  min-width: 0;
+}
+
+.project-row .icon-button {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  flex: none;
+  padding: 2px;
+}
+
+.project-row .icon svg {
+  height: 16px;
+  width: 16px;
+}
+
+/* an unstarred project's star shows on the row under the pointer or with
+   focus; a starred one always shows, in the notice colour. */
+.project-row .star:not(.starred) {
+  opacity: 0;
+}
+
+.project-row:hover .star,
+.project-row:focus-within .star,
+.project-row .star:focus-visible {
+  opacity: 1;
+}
+
+.project-row .star.starred {
+  color: var(--notice-line);
+}
+
+.starred-group {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 6px;
+  padding-bottom: 6px;
 }
 
 .muted,
@@ -398,7 +552,7 @@ dialog label {
   align-items: center;
   display: flex;
   gap: 6px;
-  padding-left: 20px;
+  padding-left: 28px;
 }
 
 .tree-label {

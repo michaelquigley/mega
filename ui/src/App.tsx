@@ -10,7 +10,7 @@ import { ConversationView } from './components/ConversationView'
 import { LaunchDialog } from './components/LaunchDialog'
 import { ProjectDetail } from './components/ProjectDetail'
 import { RegisterProjectDialog } from './components/RegisterProjectDialog'
-import { Sidebar } from './components/Sidebar'
+import { SidePanel } from './components/SidePanel'
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
@@ -290,13 +290,14 @@ export function App() {
 
   return (
     <div className="app">
-      <Sidebar
+      <SidePanel
         projects={projects}
         conversations={conversations}
         needsYou={needsYou}
         selection={selection}
         streamState={streamState}
         stale={stale}
+        loaded={workspace !== null}
         onRegister={() => setRegistering(true)}
       />
       <main className="main">

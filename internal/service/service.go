@@ -132,9 +132,29 @@ func (s *Service) RegisterProject(name, checkout string) (model.Project, error) 
 
 // RenameProject changes a project's display name.
 func (s *Service) RenameProject(id, name string) (model.Project, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return model.Project{}, newError(CodeInvalid, "name is required")
+	return s.UpdateProject(id, ProjectChange{Name: &name})
+}
+
+// ProjectChange is what an update of a project changes; a nil field is left
+// as it is.
+type ProjectChange struct {
+	Name    *string
+	Starred *bool
+}
+
+// UpdateProject changes a project's display name, its star, or both, in one
+// registry write. a star is workspace state like the name: written only here,
+// the same in every browser, and in memory only once the write is confirmed.
+func (s *Service) UpdateProject(id string, change ProjectChange) (model.Project, error) {
+	var name string
+	if change.Name != nil {
+		name = strings.TrimSpace(*change.Name)
+		if name == "" {
+			return model.Project{}, newError(CodeInvalid, "name is required")
+		}
+	}
+	if change.Name == nil && change.Starred == nil {
+		return model.Project{}, newError(CodeInvalid, "nothing to change: give a name or starred")
 	}
 	var project model.Project
 	s.mu.Lock()
@@ -144,7 +164,12 @@ func (s *Service) RenameProject(id, name string) (model.Project, error) {
 		if i < 0 {
 			return newError(CodeNotFound, fmt.Sprintf("no project '%s'", id))
 		}
-		doc.Projects[i].Name = name
+		if change.Name != nil {
+			doc.Projects[i].Name = name
+		}
+		if change.Starred != nil {
+			doc.Projects[i].Starred = *change.Starred
+		}
 		project = doc.Projects[i]
 		return nil
 	})

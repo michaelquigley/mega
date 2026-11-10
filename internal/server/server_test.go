@@ -351,3 +351,35 @@ func TestSinglePageFallbackAndAPIBoundary(t *testing.T) {
 		t.Errorf("unknown api path: %d", resp.StatusCode)
 	}
 }
+
+// PATCH takes starred beside name; either alone leaves the other as it was.
+func TestProjectStarOnTheWire(t *testing.T) {
+	f := start(t)
+	_, created := f.do(t, http.MethodPost, "/api/projects", createBody("fixture", f.checkout))
+	id := created["id"].(string)
+	if created["starred"] != false {
+		t.Fatalf("a new project: starred %v", created["starred"])
+	}
+	status, starred := f.do(t, http.MethodPatch, "/api/projects/"+id, `{"starred":true}`)
+	if status != http.StatusOK || starred["starred"] != true || starred["name"] != "fixture" {
+		t.Fatalf("star: %d %v", status, starred)
+	}
+	status, renamed := f.do(t, http.MethodPatch, "/api/projects/"+id, `{"name":"renamed"}`)
+	if status != http.StatusOK || renamed["starred"] != true || renamed["name"] != "renamed" {
+		t.Fatalf("rename kept the star: %d %v", status, renamed)
+	}
+	_, workspace := f.do(t, http.MethodGet, "/api/workspace", "")
+	if project := workspace["projects"].([]any)[0].(map[string]any); project["starred"] != true {
+		t.Errorf("workspace = %v", project)
+	}
+	if status, body := f.do(t, http.MethodPatch, "/api/projects/"+id, `{}`); status != http.StatusBadRequest {
+		t.Errorf("an empty change: %d %v", status, body)
+	}
+	if status, body := f.do(t, http.MethodPatch, "/api/projects/"+id, `{"starred":"yes"}`); status != http.StatusBadRequest {
+		t.Errorf("a star that is not a boolean: %d %v", status, body)
+	}
+	status, unstarred := f.do(t, http.MethodPatch, "/api/projects/"+id, `{"starred":false,"name":"again"}`)
+	if status != http.StatusOK || unstarred["starred"] != false || unstarred["name"] != "again" {
+		t.Errorf("both at once: %d %v", status, unstarred)
+	}
+}

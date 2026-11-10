@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"git.hq.quigley.com/research/roundhouse/internal/service"
 )
 
 // projectView is the wire form of a project. the trust notice is computed and
@@ -12,6 +13,7 @@ type projectView struct {
 	ID        string
 	Name      string
 	Checkout  string
+	Starred   bool
 	Untrusted bool
 	// InheritedPermissionMode is the claude mode the operator's settings name
 	// for the checkout, which a launch with no choice inherits; empty if none.
@@ -23,6 +25,7 @@ func newProjectView(project model.Project) *projectView {
 		ID:                      project.ID,
 		Name:                    project.Name,
 		Checkout:                project.Checkout,
+		Starred:                 project.Starred,
 		Untrusted:               project.Untrusted,
 		InheritedPermissionMode: project.InheritedPermissionMode,
 	}
@@ -39,8 +42,11 @@ type createProjectRequest struct {
 	Checkout string
 }
 
+// updateProjectRequest changes a project's name, its star, or both; a field
+// left out is left as it is.
 type updateProjectRequest struct {
-	Name string
+	Name    *string `dd:",+omitempty"`
+	Starred *bool   `dd:",+omitempty"`
 }
 
 func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +83,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	project, err := s.svc.RenameProject(r.PathValue("id"), req.Name)
+	project, err := s.svc.UpdateProject(r.PathValue("id"), service.ProjectChange{Name: req.Name, Starred: req.Starred})
 	if err != nil {
 		writeError(w, r, err)
 		return

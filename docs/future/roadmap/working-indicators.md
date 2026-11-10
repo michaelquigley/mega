@@ -1,6 +1,6 @@
 ---
 title: working indicators
-state: building
+state: evaluating
 created: 2026-11-10
 tags: [enhancement, ui, side-panel, conversation-view]
 ---

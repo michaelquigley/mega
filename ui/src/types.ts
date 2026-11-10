@@ -4,6 +4,8 @@ export interface Project {
   id: string
   name: string
   checkout: string
+  // starred projects form their own group at the top of the tree.
+  starred: boolean
   untrusted: boolean
   // the claude mode the operator's settings name for the checkout, which a
   // launch with no choice inherits; empty when none does.
