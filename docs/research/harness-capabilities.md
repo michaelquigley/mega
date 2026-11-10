@@ -429,6 +429,42 @@ Claude Code 2.1.318, SDK 0.3.318. Each probe is a one-turn `scenarios/mode-omitt
   - it stays in the starting directory outside a repository, when the root is the home directory, in a worktree (where the main checkout's root is used), or when the root, `.git` or `.claude` is not owned by the user;
   - `auto` and `bypassPermissions` in `defaultMode` don't take effect from project or local settings.
 
+## Follow-up (2026-11-09): Codex MCP tool approvals and elicitations
+
+codex-cli 0.166.0, through `probes/codex/probe.mjs`, which gained `--elicit`: a `;`-separated plan of answers to successive `mcpServer/elicitation/request` frames. The fixture `codex-rt1` gained a dependency-free stdio MCP server, `mcp/fixture-server.mjs`. Its `echo {text}` tool returns `echo: <text>` and appends to `mcp/mcp-calls.log`; its `pick_color` tool raises a typed form elicitation. It is named in a project `.codex/config.toml` as `[mcp_servers.fixture]`; the checkout is already trusted in the operator's config. The full schema bundle was regenerated with `codex app-server generate-json-schema --experimental`. It types the request's `_meta` as `true` and the response's `_meta` only as "optional client metadata", with no `persist` field anywhere, so the persistence shape below comes from the probe. Logs are `probes/codex/logs/mcp-*`.
+
+| Run | Scenario | Answers | Result |
+| --- | --- | --- | --- |
+| S1 | `mcp-accept-decline.json` | `accept`, then `decline` | the first call ran; the second did not, and its item failed |
+| S2 | `mcp-session.json` | accept with `_meta: {persist: "session"}` | the second call was not asked again, and ran |
+| S3 | `mcp-interrupt.json` | interrupt while pending, then a stale accept | resolved by the server; the tool never ran |
+| S4 | `mcp-form.json` | accept for the session, accept `pick_color`, then a form answer | session approval is per tool; the form content reached the server |
+| S5 | `mcp-always.json` | accept with `_meta: {persist: "always"}` | written into the config that defines the server |
+
+- The approval request `[observed]`. `mode` is `"form"`, with an empty `requestedSchema` (`{type: "object", properties: {}}`) and `message: "Allow the fixture MCP server to run tool \"echo\"?"`. `params` also carries `threadId`, `turnId` and `serverName: "fixture"`, and `_meta`:
+  - `codex_approval_kind: "mcp_tool_call"`;
+  - `persist: ["session", "always"]`;
+  - `tool_description` (the tool's own description);
+  - `tool_params: {text: "MCP-ALPHA"}`;
+  - `tool_params_display: [{name: "text", value: "MCP-ALPHA", display_name: "text"}]`.
+- `{action: "accept"}` with no `content` runs the tool, and the `mcpToolCall` item completes with its result (S1) `[observed]`.
+- `{action: "decline"}` stops it: the item completes `failed`, with `error.message: "user rejected MCP tool call"`, and the model went on (S1) `[observed]`. The response has no message field, so a deny reason cannot travel `[observed: schema]`.
+- "Approve for this session" is `{action: "accept", _meta: {persist: "session"}}` (S2) `[observed]`:
+  - the next call to the same tool in the same thread was not asked again, and ran;
+  - no config file changed;
+  - the approval is per tool: another tool on the same server was still asked (S4).
+- "Always" is `{action: "accept", _meta: {persist: "always"}}`, run under a scratch `CODEX_HOME` so the operator's own config could not change (S5) `[observed]`:
+  - it ran the tool and wrote `[mcp_servers.fixture.tools.echo] approval_mode = "approve"` into the config file that defines the server, here the project's `.codex/config.toml`;
+  - neither the scratch user config nor the operator's own changed;
+  - for a server defined in the operator's `~/.codex/config.toml`, the same entry would presumably land there `[inference]`;
+  - the fixture's config was restored at once.
+- `turn/interrupt` with an elicitation pending (S3) `[observed]`:
+  - the turn completed `interrupted`, and `serverRequest/resolved` for the elicitation's id followed 1 ms later;
+  - a stale accept sent 3 seconds afterwards got no reply and did not run the tool.
+- A typed form elicitation from the MCP server itself (S4) `[observed]`:
+  - it arrives with `mode: "form"`, `_meta: null`, the server's own message ("Which color do you prefer?"), and the real `requestedSchema`: `color` a string enum `["Red", "Blue"]`, `note` a string, `required: ["color"]`;
+  - `{action: "accept", content: {color: "Blue", note: "..."}}` delivered exactly that content to the server.
+
 ## Recommendations
 
 - Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. Roundhouse should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.

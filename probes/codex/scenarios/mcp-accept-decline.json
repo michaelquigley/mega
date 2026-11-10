@@ -1,0 +1,4 @@
+[
+  "Call the echo tool from the fixture MCP server with the text MCP-ALPHA, then reply with exactly what the tool returned. Nothing else.",
+  "Call the echo tool from the fixture MCP server with the text MCP-BETA, then reply with exactly what the tool returned, or with DECLINED if the call was not allowed. Nothing else."
+]

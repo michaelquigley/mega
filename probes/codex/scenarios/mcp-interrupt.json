@@ -1,0 +1,3 @@
+[
+  "Call the echo tool from the fixture MCP server with the text MCP-ZETA, then reply with exactly what the tool returned. Nothing else."
+]

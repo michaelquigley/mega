@@ -1,6 +1,6 @@
 ---
 title: Start or reattach a runtime without a turn
-state: researching
+state: horizon
 created: 2026-11-09
 tags: [runtime, claude, codex]
 ---

@@ -34,6 +34,25 @@ export interface RequestPayload {
   blocked_path?: string
   // the mode the request was raised in.
   permission_mode?: string
+  // an MCP tool approval: the server and tool, the parameters as the harness
+  // displays them, and whether the harness offers approval for the session.
+  mcp_server?: string
+  mcp_tool?: string
+  parameters?: { name: string; value: unknown; display_name?: string }[]
+  allow_session?: boolean
+  // a typed form an MCP server asked for: its message and fields.
+  message?: string
+  fields?: FormField[]
+}
+
+export interface FormField {
+  name: string
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'enum'
+  title?: string
+  description?: string
+  required: boolean
+  options?: { value: string; label: string }[]
+  default?: unknown
 }
 
 export interface Question {

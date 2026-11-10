@@ -74,7 +74,7 @@ export const getEvents = (id: string, since: number) =>
 export const sendPrompt = (id: string, text: string) => request<void>('POST', `${conversationPath(id)}/prompt`, { text })
 
 export interface Answer {
-  decision?: 'allow' | 'deny'
+  decision?: 'allow' | 'deny' | 'allow_session'
   message?: string
   answers?: Record<string, string>
 }

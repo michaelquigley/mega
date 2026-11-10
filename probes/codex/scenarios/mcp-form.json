@@ -1,0 +1,4 @@
+[
+  "Call the echo tool from the fixture MCP server with the text MCP-EPSILON, then reply with exactly what the tool returned. Nothing else.",
+  "Call the pick_color tool from the fixture MCP server, then reply with exactly what the tool returned. Nothing else."
+]

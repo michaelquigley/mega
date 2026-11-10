@@ -301,9 +301,11 @@ func TestInterruptAbortsQuestionsAtOnce(t *testing.T) {
 
 func TestUnknownServerRequestIsNeitherAnsweredNorHidden(t *testing.T) {
 	r, sink, w := testRuntime()
-	r.feed(`{"id":4,"method":"mcpServer/elicitation/request","params":{"threadId":"thread-1"}}`)
+	r.feed(`{"id":4,"method":"item/tool/somethingNew","params":{"threadId":"thread-1"}}`)
+	// an elicitation the adapter cannot even read is recorded the same way.
+	r.feed(`{"id":5,"method":"mcpServer/elicitation/request","params":{"threadId":"thread-1"}}`)
 	w.quiet(t)
-	if len(sink.requests) != 0 || len(sink.events) != 1 || !strings.Contains(sink.events[0].Text, "mcpServer/elicitation/request") {
+	if len(sink.requests) != 0 || len(sink.events) != 2 || !strings.Contains(sink.events[0].Text, "item/tool/somethingNew") || !strings.Contains(sink.events[1].Text, "mcpServer/elicitation/request") {
 		t.Errorf("requests %v, events %v", sink.requests, summary(sink.events))
 	}
 }

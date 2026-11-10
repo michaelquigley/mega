@@ -137,4 +137,9 @@ type Answer struct {
 const (
 	DecisionAllow = "allow"
 	DecisionDeny  = "deny"
+	// DecisionAllowSession allows this request and later identical ones for
+	// the rest of the native session, as the harness defines it. it is valid
+	// only for a request whose payload offers it ("allow_session": true); the
+	// service checks that before any harness sees it.
+	DecisionAllowSession = "allow_session"
 )

@@ -789,3 +789,22 @@ hr.turn {
   font-size: 12px;
   padding: 2px 6px;
 }
+
+.mcp-parameters {
+  margin: 0;
+}
+
+.mcp-parameters dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mcp-parameters dd {
+  margin: 0 0 6px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

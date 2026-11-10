@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { answerRequest, type Answer } from '../api'
-import type { PendingRequest, Question } from '../types'
+import type { FormField, PendingRequest, Question, RequestPayload } from '../types'
 
 interface RequestCardProps {
   conversationId: string
@@ -26,7 +26,9 @@ export function RequestCard({ conversationId, request }: RequestCardProps) {
 
   return (
     <section className="request-card" aria-label={request.kind === 'question' ? 'Question' : 'Approval'}>
-      {request.kind === 'question' ? (
+      {request.kind === 'question' && request.payload?.fields ? (
+        <FormQuestion payload={request.payload} sending={sending} onAnswer={(answers) => void send({ answers })} />
+      ) : request.kind === 'question' ? (
         <QuestionForm questions={request.payload?.questions ?? []} sending={sending} onAnswer={(answers) => void send({ answers })} />
       ) : (
         <PermissionForm request={request} sending={sending} onAnswer={(answer) => void send(answer)} />
@@ -51,6 +53,9 @@ function describeInput(input: Record<string, unknown> | undefined): string {
 function PermissionForm({ request, sending, onAnswer }: { request: PendingRequest; sending: boolean; onAnswer: (answer: Answer) => void }) {
   const [message, setMessage] = useState('')
   const payload = request.payload ?? {}
+  if (payload.mcp_server) {
+    return <McpApproval payload={payload} sending={sending} onAnswer={onAnswer} />
+  }
   const detail = payload.title ?? payload.description ?? payload.decision_reason
   return (
     <>
@@ -75,6 +80,139 @@ function PermissionForm({ request, sending, onAnswer }: { request: PendingReques
         </button>
       </div>
     </>
+  )
+}
+
+// McpApproval is an MCP tool approval: the server and tool, what the tool
+// does, and the parameters it would be called with. codex carries no reason
+// with a denial, so none is asked for. "for this session" appears only where
+// the harness offered it, and covers this tool only.
+function McpApproval({ payload, sending, onAnswer }: { payload: RequestPayload; sending: boolean; onAnswer: (answer: Answer) => void }) {
+  const parameters = payload.parameters ?? []
+  return (
+    <>
+      <h2>Approval: {payload.tool ?? 'MCP tool'}</h2>
+      <p className="muted">
+        MCP server <code>{payload.mcp_server}</code> wants to run its tool <code>{payload.mcp_tool || 'unknown'}</code>.
+      </p>
+      {payload.description && <p>{payload.description}</p>}
+      {parameters.length > 0 ? (
+        <dl className="mcp-parameters">
+          {parameters.map((parameter) => (
+            <div key={parameter.name}>
+              <dt>{parameter.display_name ?? parameter.name}</dt>
+              <dd>
+                <pre>{typeof parameter.value === 'string' ? parameter.value : JSON.stringify(parameter.value, null, 2)}</pre>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        payload.input && Object.keys(payload.input).length > 0 && <pre>{JSON.stringify(payload.input, null, 2)}</pre>
+      )}
+      <div className="actions">
+        <button type="button" disabled={sending} onClick={() => onAnswer({ decision: 'allow' })}>
+          Allow
+        </button>
+        {payload.allow_session && (
+          <button type="button" disabled={sending} onClick={() => onAnswer({ decision: 'allow_session' })}>
+            Allow this tool for the session
+          </button>
+        )}
+        <button type="button" disabled={sending} onClick={() => onAnswer({ decision: 'deny' })}>
+          Deny
+        </button>
+      </div>
+    </>
+  )
+}
+
+// FormQuestion is a typed form an MCP server asked for, rendered field by
+// field: a choice for an enum, a checkbox for a boolean, a number or text
+// input otherwise. every answer travels as text; the adapter types it.
+function FormQuestion({ payload, sending, onAnswer }: { payload: RequestPayload; sending: boolean; onAnswer: (answers: Record<string, string>) => void }) {
+  const fields = payload.fields ?? []
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {}
+    for (const field of fields) {
+      if (field.type === 'boolean') {
+        initial[field.name] = String(field.default === true)
+      } else if (field.default !== undefined && field.default !== null) {
+        initial[field.name] = String(field.default)
+      }
+    }
+    return initial
+  })
+  const set = (name: string, value: string) => setValues((current) => ({ ...current, [name]: value }))
+  const complete = fields.every((field) => !field.required || (values[field.name] ?? '').trim() !== '')
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    if (!complete) {
+      return
+    }
+    const answers: Record<string, string> = {}
+    for (const field of fields) {
+      answers[field.name] = (values[field.name] ?? '').trim()
+    }
+    onAnswer(answers)
+  }
+
+  return (
+    <form onSubmit={onSubmit}>
+      <h2>Question{payload.mcp_server && <> from <code>{payload.mcp_server}</code></>}</h2>
+      {payload.message && <p>{payload.message}</p>}
+      {fields.map((field) => (
+        <FormFieldInput key={field.name} field={field} value={values[field.name] ?? ''} onChange={(value) => set(field.name, value)} />
+      ))}
+      <div className="actions">
+        <button type="submit" disabled={sending || !complete}>
+          Answer
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function FormFieldInput({ field, value, onChange }: { field: FormField; value: string; onChange: (value: string) => void }) {
+  const label = (
+    <>
+      {field.title ?? field.name}
+      {field.required && <span className="muted"> (required)</span>}
+      {field.description && <span className="muted"> {field.description}</span>}
+    </>
+  )
+  if (field.type === 'enum') {
+    return (
+      <fieldset>
+        <legend>{label}</legend>
+        {(field.options ?? []).map((option) => (
+          <label key={option.value} className="option">
+            <input type="radio" name={field.name} checked={value === option.value} onChange={() => onChange(option.value)} />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </fieldset>
+    )
+  }
+  if (field.type === 'boolean') {
+    return (
+      <label className="option">
+        <input type="checkbox" checked={value === 'true'} onChange={(event) => onChange(String(event.target.checked))} />
+        <span>{label}</span>
+      </label>
+    )
+  }
+  return (
+    <label className="form-field">
+      <span>{label}</span>
+      <input
+        type={field.type === 'string' ? 'text' : 'number'}
+        step={field.type === 'integer' ? 1 : 'any'}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
   )
 }
 

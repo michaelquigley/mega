@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -33,10 +34,11 @@ const (
 // serverRequest is a request the app-server waits on, by its own JSON-RPC id,
 // which restarts at 0 on every connection and never leaves this package.
 type serverRequest struct {
-	id        any
-	method    string
-	approval  approvalParams
-	userInput []userInputQuestion
+	id          any
+	method      string
+	approval    approvalParams
+	userInput   []userInputQuestion
+	elicitation *elicitation
 }
 
 // question is the adapter's own request for an agentMessage carrying
@@ -65,6 +67,7 @@ type runtime struct {
 	interrupted map[string]bool           // turns the operator interrupted; no question of theirs may wait
 	stops       int                       // interrupts and closes so far; an answer started before one never starts a turn
 	started     map[int]proc              // processes seen under the app-server, for the exit check
+	mcpCalls    []mcpCall                 // MCP tool calls in flight, oldest first, to name the tool an approval is for
 }
 
 func newRuntime(sink harness.Sink) *runtime {
@@ -209,6 +212,8 @@ func responseFor(req *serverRequest, answer harness.Answer) any {
 			granted = req.approval.Permissions
 		}
 		return &permissionsResult{Permissions: granted, Scope: "turn"}
+	case methodElicitation:
+		return elicitationResponse(req.elicitation, answer)
 	case methodUserInput:
 		answers := make(map[string]userInputAnswer)
 		for _, q := range req.userInput {
@@ -314,13 +319,26 @@ func (r *runtime) notify(method string, params map[string]any) {
 	case "item/started":
 		n := &itemNotification{}
 		if bind(n, params) && n.Item != nil {
-			if it, err := bindItem(n.Item); err == nil && it.Type == "fileChange" {
+			if it, err := bindItem(n.Item); err == nil {
 				r.mu.Lock()
-				r.fileChanges[it.ID] = it.Changes
+				switch it.Type {
+				case "fileChange":
+					r.fileChanges[it.ID] = it.Changes
+				case "mcpToolCall":
+					r.mcpCalls = append(r.mcpCalls, mcpCall{itemID: it.ID, server: it.Server, tool: it.Tool})
+				}
 				r.mu.Unlock()
 			}
 		}
 	case "item/completed":
+		n := &itemNotification{}
+		if bind(n, params) && n.Item != nil {
+			if id, _ := n.Item["id"].(string); id != "" {
+				r.mu.Lock()
+				r.mcpCalls = slices.DeleteFunc(r.mcpCalls, func(c mcpCall) bool { return c.itemID == id })
+				r.mu.Unlock()
+			}
+		}
 		r.itemCompleted(params)
 	case "item/agentMessage/delta":
 		n := &deltaNotification{}
@@ -425,11 +443,20 @@ func (r *runtime) request(id any, method string, params map[string]any) {
 		req.userInput = p.Questions
 		kind = model.RequestQuestion
 		payload = userInputPayload(p.Questions)
+	case methodElicitation:
+		p := &elicitationParams{}
+		if !bind(p, params) {
+			r.unanswerable(fmt.Sprintf("codex asked '%s' in a form roundhouse cannot read; interrupt the turn to go on", method), params)
+			return
+		}
+		e, k, pl, ok := r.classify(p)
+		if !ok {
+			r.unanswerable(unanswerableElicitation(p), params)
+			return
+		}
+		req.elicitation, kind, payload = e, k, pl
 	default:
-		// not something roundhouse can put to the operator. it is not answered
-		// either way on the operator's behalf: the turn waits, and the record says
-		// so, until the operator interrupts it.
-		r.sink.Event(&model.Event{Kind: model.EventNative, Origin: model.OriginManaged, Text: fmt.Sprintf("codex asked '%s', which roundhouse cannot answer; interrupt the turn to go on", method), Raw: params})
+		r.unanswerable(fmt.Sprintf("codex asked '%s', which roundhouse cannot answer; interrupt the turn to go on", method), params)
 		return
 	}
 	r.mu.Lock()
@@ -437,6 +464,13 @@ func (r *runtime) request(id any, method string, params map[string]any) {
 	svc := r.sink.Request(kind, payload)
 	r.requests[svc] = req
 	r.byNative[nativeKey(id)] = svc
+}
+
+// unanswerable records a server request roundhouse cannot put to the operator.
+// it is not answered either way on the operator's behalf: the turn waits, and
+// the record says so, until the operator interrupts it.
+func (r *runtime) unanswerable(text string, params map[string]any) {
+	r.sink.Event(&model.Event{Kind: model.EventNative, Origin: model.OriginManaged, Text: text, Raw: params})
 }
 
 func (r *runtime) approvalPayload(method string, p *approvalParams) map[string]any {

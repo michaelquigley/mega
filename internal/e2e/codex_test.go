@@ -4,6 +4,9 @@ package e2e
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -208,4 +211,51 @@ func TestCodexReleaseDuringCommand(t *testing.T) {
 	if last.Status != model.StatusStopped && !strings.Contains(last.Text, "left processes running") {
 		t.Errorf("unexpected end: %+v", last)
 	}
+}
+
+// TestCodexMCPApproval calls the fixture's MCP echo tool (mcp/fixture-server.mjs,
+// named in the fixture's .codex/config.toml). codex asks through an MCP
+// elicitation; it must arrive as a permission card naming fixture/echo with
+// its parameter, the tool must not run while the card waits, and it must run
+// after Allow. the fixture server logs each call to mcp/mcp-calls.log.
+func TestCodexMCPApproval(t *testing.T) {
+	fixture := env("ROUNDHOUSE_E2E_CODEX_FIXTURE", defaultCodexFixture)
+	calls := filepath.Join(fixture, "mcp", "mcp-calls.log")
+	_ = os.Remove(calls)
+	t.Cleanup(func() { _ = os.Remove(calls) })
+	h := codex.New(codex.Config{Binary: env("ROUNDHOUSE_E2E_CODEX", "codex")})
+	svc := newE2EService(t, h)
+	project, err := svc.RegisterProject("codex-rt1", fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e mcp", "Call the echo tool from the fixture MCP server with the text MCP-E2E-7c1d, then reply with exactly what the tool returned. Nothing else.", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &session{t: t, svc: svc, id: conv.ID}
+	view := s.waitFor("the MCP approval", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
+	approval := view.Pending[0]
+	payload, _ := approval.Payload.(map[string]any)
+	if approval.Kind != model.RequestPermission || payload["tool"] != "fixture/echo" || payload["allow_session"] != true {
+		t.Fatalf("expected a permission request for fixture/echo, got %+v", approval)
+	}
+	if input, _ := payload["input"].(map[string]any); input["text"] != "MCP-E2E-7c1d" {
+		t.Errorf("input = %v", payload["input"])
+	}
+	time.Sleep(3 * time.Second)
+	if _, err := os.Stat(calls); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the tool ran before it was allowed: %v", err)
+	}
+	if err := svc.Answer(s.id, approval.ID, harness.Answer{Decision: harness.DecisionAllow}); err != nil {
+		t.Fatal(err)
+	}
+	s.idle()
+	s.expectReply("echo: MCP-E2E-7c1d")
+	logged, err := os.ReadFile(calls)
+	if err != nil || !strings.Contains(string(logged), "MCP-E2E-7c1d") {
+		t.Errorf("the fixture server logged %q (%v)", logged, err)
+	}
+	shutdown(t, svc, s)
+	t.Logf("thread %s", s.view().NativeID)
 }

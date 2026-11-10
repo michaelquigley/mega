@@ -48,3 +48,10 @@ codex app-server generate-ts --out <dir>
 - `scenarios/none.json` (`[]`) resumes a thread without starting a turn.
 
 See `NOTES.md` for the first investigation and `NOTES-followup.md` for the reconnect, suspension and steering results.
+
+## MCP elicitations (2026-11-09)
+
+- `--elicit PLAN`: answers successive `mcpServer/elicitation/request` frames from a `;`-separated plan: `accept`, `decline`, `accept-meta:<json>` (accept with that `_meta`), `form:<json>` (accept with that `content`), or `interrupt` (interrupt the turn, wait, record whether `serverRequest/resolved` followed, then send a stale accept). Every elicitation frame is logged whole.
+- The `codex-rt1` fixture's MCP server is `mcp/fixture-server.mjs`, named in the fixture's `.codex/config.toml`. Its `echo` tool logs each call to `mcp/mcp-calls.log`; its `pick_color` tool raises a typed form elicitation.
+- Scenarios: `mcp-accept-decline.json`, `mcp-session.json`, `mcp-form.json`, `mcp-interrupt.json`, `mcp-always.json`. Run `mcp-always` only under a scratch `CODEX_HOME`, and restore the fixture's `.codex/config.toml` afterwards: "always" writes an approval into the config that defines the server.
+

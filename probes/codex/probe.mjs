@@ -115,6 +115,10 @@ const approveRe = opt.approve ? new RegExp(opt.approve) : null;
 const answerRe = opt.answer ? new RegExp(opt.answer) : null;
 const approveDelay = Number(opt['approve-delay-ms'] ?? 0);
 const resolved = new Set();
+// --elicit: answers for successive mcpServer/elicitation/request frames,
+// separated by ';': accept, decline, accept-meta:<json>, form:<json>, interrupt.
+const elicitPlan = String(opt.elicit ?? '').split(';').filter(Boolean);
+let elicitCount = 0;
 onNotification(m => { if (m.method === 'serverRequest/resolved') resolved.add(JSON.stringify(m.params.requestId)); });
 
 async function handleServerRequest(m) {
@@ -179,6 +183,31 @@ async function handleServerRequest(m) {
     rec('approval_decision', { requestId: m.id, decision });
     say(`${decision} ${m.method}`);
     respond(m.id, { decision }); return;
+  }
+  if (m.method === 'mcpServer/elicitation/request') {
+    rec('elicitation_request', { requestId: m.id, params: p });
+    const step = elicitPlan[elicitCount++] ?? 'decline';
+    say(`ELICITATION id=${m.id} mode=${p.mode} server=${p.serverName} message=${JSON.stringify(p.message)} meta=${JSON.stringify(p._meta ?? null)} -> ${step}`);
+    if (step === 'interrupt') {
+      const r = await request('turn/interrupt', { threadId: currentThreadId, turnId: currentTurnId }).catch(e => ({ error: String(e) }));
+      rec('interrupt_during_elicitation', { requestId: m.id, response: r });
+      await new Promise(res => setTimeout(res, 3000));
+      const wasResolved = resolved.has(JSON.stringify(m.id));
+      rec('elicitation_state_after_interrupt', { requestId: m.id, serverRequestResolvedSeen: wasResolved });
+      say(`after interrupt: serverRequest/resolved seen for this elicitation = ${wasResolved}; sending a stale accept`);
+      respond(m.id, { action: 'accept' });
+      rec('stale_elicitation_response_sent', { requestId: m.id });
+      return;
+    }
+    let response;
+    if (step === 'accept') response = { action: 'accept' };
+    else if (step === 'decline') response = { action: 'decline' };
+    else if (step.startsWith('accept-meta:')) response = { action: 'accept', _meta: JSON.parse(step.slice('accept-meta:'.length)) };
+    else if (step.startsWith('form:')) response = { action: 'accept', content: JSON.parse(step.slice('form:'.length)) };
+    else response = { action: 'decline' };
+    rec('elicitation_response', { requestId: m.id, response });
+    respond(m.id, response);
+    return;
   }
   say(`unhandled server request ${m.method}; replying error`);
   respondError(m.id, 'probe: unhandled server request');

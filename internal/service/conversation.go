@@ -331,7 +331,7 @@ func (s *Service) Answer(conversationID, requestID string, answer harness.Answer
 		s.mu.Unlock()
 		return newError(CodeNotPending, fmt.Sprintf("request '%s' is not pending", requestID))
 	}
-	if err := validateAnswer(req.Kind, &answer); err != nil {
+	if err := validateAnswer(req, &answer); err != nil {
 		s.mu.Unlock()
 		return err
 	}
@@ -360,11 +360,18 @@ func (s *Service) Answer(conversationID, requestID string, answer harness.Answer
 	}
 }
 
-func validateAnswer(kind string, answer *harness.Answer) error {
-	switch kind {
+func validateAnswer(req *model.Request, answer *harness.Answer) error {
+	switch req.Kind {
 	case model.RequestPermission:
 		switch answer.Decision {
 		case harness.DecisionAllow:
+			answer.Message, answer.Answers = "", nil
+		case harness.DecisionAllowSession:
+			// only where the harness itself offered it: roundhouse never extends
+			// an approval on its own account.
+			if payload, _ := req.Payload.(map[string]any); payload["allow_session"] != true {
+				return newError(CodeInvalid, "this request offers no approval for the session; answer 'allow' or 'deny'")
+			}
 			answer.Message, answer.Answers = "", nil
 		case harness.DecisionDeny:
 			answer.Answers = nil
@@ -372,7 +379,7 @@ func validateAnswer(kind string, answer *harness.Answer) error {
 				answer.Message = denyMessage
 			}
 		default:
-			return newError(CodeInvalid, "a permission answer needs a decision of 'allow' or 'deny'")
+			return newError(CodeInvalid, "a permission answer needs a decision of 'allow', 'deny', or 'allow_session' where offered")
 		}
 	case model.RequestQuestion:
 		if len(answer.Answers) == 0 {

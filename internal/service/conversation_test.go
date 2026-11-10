@@ -1273,3 +1273,30 @@ func TestRemoveProjectDeletesItsConversationsLogs(t *testing.T) {
 		t.Errorf("after restart = %+v", ws)
 	}
 }
+
+// an approval for the session is accepted only where the harness offered it:
+// roundhouse never extends an approval on its own account.
+func TestAllowSessionOnlyWhereOffered(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	plain := rt.Ask(model.RequestPermission, map[string]any{"tool": "Bash"})
+	err := r.svc.Answer(conv.ID, plain, harness.Answer{Decision: harness.DecisionAllowSession})
+	wantCode(t, err, CodeInvalid)
+	if pending := r.view(conv.ID).Pending; len(pending) != 1 || pending[0].ID != plain {
+		t.Fatalf("a refused answer took the request: %+v", pending)
+	}
+	if err := r.svc.Answer(conv.ID, plain, harness.Answer{Decision: harness.DecisionDeny}); err != nil {
+		t.Fatal(err)
+	}
+
+	offered := rt.Ask(model.RequestPermission, map[string]any{"tool": "fixture/echo", "allow_session": true})
+	if err := r.svc.Answer(conv.ID, offered, harness.Answer{Decision: harness.DecisionAllowSession}); err != nil {
+		t.Fatal(err)
+	}
+	deliveries := rt.Deliveries()
+	if last := deliveries[len(deliveries)-1]; last.Answer.Decision != harness.DecisionAllowSession {
+		t.Errorf("delivered %+v", last)
+	}
+}

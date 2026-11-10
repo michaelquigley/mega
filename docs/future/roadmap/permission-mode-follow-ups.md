@@ -1,6 +1,6 @@
 ---
 title: Permission mode follow-ups
-state: building
+state: evaluating
 created: 2026-11-09
 tags: [permissions, claude]
 ---
