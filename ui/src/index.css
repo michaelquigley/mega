@@ -548,11 +548,15 @@ dialog label {
   justify-content: flex-end;
 }
 
+/* a conversation row is indented one level: its mark starts under its
+   project's name, past the fold control (20px), the row's padding (8px), the
+   project's mark (11px) and the gap after it (6px). the row itself, and so its
+   selection and hover, still spans the panel. */
 .tree-children .tree-item {
   align-items: center;
   display: flex;
   gap: 6px;
-  padding-left: 28px;
+  padding-left: 45px;
 }
 
 .tree-label {
@@ -1002,9 +1006,12 @@ hr.turn {
   margin-bottom: 4px;
 }
 
+/* a choice: its control beside its text, in a dialog too, where labels
+   otherwise stack. */
 .option {
   align-items: baseline;
   display: flex;
+  flex-direction: row;
   gap: 8px;
 }
 
@@ -1328,4 +1335,55 @@ hr.turn {
   box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
   color: var(--accent);
   pointer-events: auto;
+}
+
+/* a message block's copy controls sit at its top right, shown on hover or
+   when one has focus, so the column stays quiet. */
+.message {
+  position: relative;
+}
+
+.block-copy {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  position: absolute;
+  right: 6px;
+  top: 6px;
+}
+
+.message:hover .block-copy,
+.block-copy:focus-within {
+  opacity: 1;
+}
+
+.block-copy .icon-button,
+.tool-output .copy {
+  background: var(--bg);
+  border-color: var(--line);
+  color: var(--muted);
+  padding: 2px 4px;
+}
+
+.block-copy .icon-button:hover,
+.tool-output .copy:hover {
+  color: var(--text);
+}
+
+.block-copy .icon svg,
+.tool-output .copy .icon svg {
+  height: 16px;
+  width: 16px;
+}
+
+/* an expanded tool result: the output scrolls in its box; its copy control
+   stays at the box's top right and takes all of it. */
+.tool-output {
+  position: relative;
+}
+
+.tool-output .copy {
+  position: absolute;
+  right: 6px;
+  top: 6px;
 }

@@ -4,25 +4,20 @@ building:
   - conversation-view-improvements.md
   - side-panel-improvements.md
 horizon:
-  - start-or-reattach-a-runtime-without-a-turn.md
   - ui-test-runner.md
 researching:
+  - background-jobs.md
+  - operator-panel-expansion-behavior.md
   - codex-can-return-to-inherit-while-running.md
   - idle-lock.md
   - favicon.md
   - dfw-daemon-mode.md
   - a-failed-load-never-renders-as-an-empty-workspace.md
   - codex-discovery-e2e-reads-its-own-thread.md
+  - start-or-reattach-a-runtime-without-a-turn.md
 evaluating:
+  - copy-per-block.md
   - working-indicators.md
   - input-panel.md
-  - conversation-structure.md
   - model-and-effort-selection.md
-  - typography-follow-ups.md
   - meta-user-messages-are-not-prompts.md
-  - typography.md
-  - mcp-approval-for-codex.md
-  - permission-mode-follow-ups.md
-  - auto-mode-in-claude-code.md
-  - no-clipped-messages.md
-  - markdown.md

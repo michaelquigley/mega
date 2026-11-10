@@ -260,18 +260,15 @@ func (r *runtime) turnStart(ctx context.Context, threadID, uuid, body string) *t
 	return &turnStartParams{ThreadID: threadID, Input: text(body), ClientUserMessageID: uuid, Model: chosenModel, Effort: chosenEffort}
 }
 
-// SetModel stores the operator's choice for the next turn/start; nothing is
-// sent until then, so it is always deferred. codex reports the change with
-// thread/settings/updated when that turn starts.
+// SetModel stores the operator's choice for the next turn/start, inherit
+// included; nothing is sent until then, so it is always deferred. codex
+// reports the change with thread/settings/updated when that turn starts.
 func (r *runtime) SetModel(model, effort string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if model != "" {
-		r.model = model
-	}
-	if effort != "" {
-		r.effort = effort
-	}
+	// the choice replaces the stored one whole: an empty field is inherit,
+	// sent as the config's current value by every later turn/start.
+	r.model, r.effort = model, effort
 	return true, nil
 }
 

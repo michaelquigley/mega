@@ -72,8 +72,9 @@ func TestEveryTurnStartCarriesTheStoredChoice(t *testing.T) {
 			t.Errorf("turn %s carried %v %v", text, params["model"], params["effort"])
 		}
 	}
-	// an effort alone keeps the model.
-	if _, err := r.SetModel("", "medium"); err != nil {
+	// the service sends the whole choice; a change of effort alone carries
+	// the model as it was.
+	if _, err := r.SetModel("gpt-b", "medium"); err != nil {
 		t.Fatal(err)
 	}
 	if params = prompt("four"); params["model"] != "gpt-b" || params["effort"] != "medium" {
@@ -218,5 +219,30 @@ func TestOverriddenThreadSetBackToInheritSendsTheConfig(t *testing.T) {
 	}
 	if turns := sent("turn/start"); len(turns) != 2 || turns[1]["model"] != "gpt-b" || turns[1]["effort"] != "low" {
 		t.Errorf("the next turn set back to inherit = %v", turns[len(turns)-1])
+	}
+}
+
+// a running thread set back to inherit sends the config's values from its
+// next turn, as an inherit launch would: an empty field is inherit, not "as
+// before".
+func TestRunningThreadSetBackToInheritSendsTheConfigNextTurn(t *testing.T) {
+	r, _, w := testRuntime()
+	if _, err := r.SetModel("", ""); err != nil {
+		t.Fatal(err)
+	}
+	w.quiet(t)
+	result := make(chan error, 1)
+	go func() { result <- r.Prompt("svc-1", "next") }()
+	read := w.sent(t)
+	if read["method"] != "config/read" {
+		t.Fatalf("sent %v before the turn", read["method"])
+	}
+	r.feed(fmt.Sprintf(`{"id":%v,"result":{"config":{"model":"gpt-a","model_reasoning_effort":"high"}}}`, read["id"]))
+	frame := r.reply(t, w, "turn/start", `{"turn":{"id":"turn-1","status":"inProgress","items":[]}}`)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	if p := frame["params"].(map[string]any); p["model"] != "gpt-a" || p["effort"] != "high" {
+		t.Errorf("the turn after inherit carried %v %v", p["model"], p["effort"])
 	}
 }

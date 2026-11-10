@@ -201,6 +201,50 @@ func TestRunningCodexChangeAppliesOnTheNextTurnOnly(t *testing.T) {
 	}
 }
 
+// a running codex conversation can return to inherit: stored, deferred to
+// the next prompt like any codex change, and shown as the next prompt's
+// inherit until a turn begun after it ends.
+func TestRunningCodexCanReturnToInherit(t *testing.T) {
+	r, codex := modelRig(t)
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one", LaunchChoice{Model: "gpt-b", Effort: "low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := codex.Last()
+	startedOn(rt, "gpt-b", "low")
+	finishTurn(rt, "a-1", "done")
+	if outcome := r.setModel(conv.ID, "", ""); outcome != ModelNextPrompt {
+		t.Fatalf("outcome = %q", outcome)
+	}
+	if got := rt.ModelChanges(); !slices.Equal(got, []string{"/"}) {
+		t.Errorf("passed to the runtime: %v", got)
+	}
+	view := r.view(conv.ID)
+	if view.Model != "" || view.Effort != "" || !view.ModelNextInherit || !view.EffortNextInherit || view.ModelNext != "" {
+		t.Errorf("after inherit: stored %q %q, next inherit %v %v (%q)", view.Model, view.Effort, view.ModelNextInherit, view.EffortNextInherit, view.ModelNext)
+	}
+	if view.Facts.Model != "gpt-b" {
+		t.Errorf("the live model moved before codex reported: %q", view.Facts.Model)
+	}
+	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
+		t.Fatal(err)
+	}
+	reportModel(rt, "gpt-a", "medium")
+	finishTurn(rt, "a-2", "done")
+	view = r.view(conv.ID)
+	if view.ModelNextInherit || view.EffortNextInherit || view.Facts.Model != "gpt-a" {
+		t.Errorf("after the next turn: next inherit %v %v, live %q", view.ModelNextInherit, view.EffortNextInherit, view.Facts.Model)
+	}
+	// claude stays refused.
+	claudeConv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{Model: "opus"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startedOn(r.fake.Last(), "claude-opus-5-5", "")
+	_, err = r.svc.SetModel(claudeConv.ID, "", "")
+	wantCode(t, err, CodeInvalid)
+}
+
 func TestRefusedModelChangePutsTheChoiceBack(t *testing.T) {
 	r, _ := modelRig(t)
 	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{Model: "opus"})

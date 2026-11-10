@@ -8,6 +8,7 @@ import block from '@material-design-icons/svg/filled/block.svg?raw'
 import check from '@material-design-icons/svg/filled/check.svg?raw'
 import chevronRight from '@material-design-icons/svg/filled/chevron_right.svg?raw'
 import close from '@material-design-icons/svg/filled/close.svg?raw'
+import code from '@material-design-icons/svg/filled/code.svg?raw'
 import contentCopy from '@material-design-icons/svg/filled/content_copy.svg?raw'
 import createNewFolder from '@material-design-icons/svg/filled/create_new_folder.svg?raw'
 import deleteIcon from '@material-design-icons/svg/filled/delete.svg?raw'
@@ -20,6 +21,7 @@ import doubleLeft from '@material-design-icons/svg/filled/keyboard_double_arrow_
 import doubleRight from '@material-design-icons/svg/filled/keyboard_double_arrow_right.svg?raw'
 import logout from '@material-design-icons/svg/filled/logout.svg?raw'
 import moreVert from '@material-design-icons/svg/filled/more_vert.svg?raw'
+import notes from '@material-design-icons/svg/filled/notes.svg?raw'
 import playArrow from '@material-design-icons/svg/filled/play_arrow.svg?raw'
 import reply from '@material-design-icons/svg/filled/reply.svg?raw'
 import rocketLaunch from '@material-design-icons/svg/filled/rocket_launch.svg?raw'
@@ -40,6 +42,7 @@ const icons = {
   check,
   chevron_right: chevronRight,
   close,
+  code,
   content_copy: contentCopy,
   create_new_folder: createNewFolder,
   delete: deleteIcon,
@@ -52,6 +55,7 @@ const icons = {
   keyboard_double_arrow_right: doubleRight,
   logout,
   more_vert: moreVert,
+  notes,
   play_arrow: playArrow,
   reply,
   rocket_launch: rocketLaunch,

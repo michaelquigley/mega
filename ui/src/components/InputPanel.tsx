@@ -8,7 +8,7 @@ import { ActivityLine } from './ActivityLine'
 import { ModeControl, ModelControl } from './Controls'
 import { Dialog } from './Dialog'
 import { Icon, IconButton } from './Icon'
-import { CopyButton } from './Markdown'
+import { CopyButton } from './Copy'
 import { RequestCard } from './RequestCard'
 
 // drafts stay in the browser, per conversation, and never reach the service.

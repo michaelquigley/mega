@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { ConversationEvent, PendingRequest } from '../types'
 import { Spinner } from './AttentionMark'
+import { BlockCopy, CopyButton } from './Copy'
 import { Markdown } from './Markdown'
 
 interface EventListProps {
@@ -50,6 +51,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
       case 'user':
         return (
           <div key={event.seq} className="message user">
+            <BlockCopy source={event.text ?? ''} />
             <span className="who">{event.origin === 'native' ? 'You, outside Roundhouse' : 'You'}</span>
             <Markdown text={event.text ?? ''} />
           </div>
@@ -57,6 +59,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
       case 'assistant':
         return (
           <div key={event.seq} className="message assistant">
+            <BlockCopy source={event.text ?? ''} />
             {event.origin === 'native' && <span className="who">From outside Roundhouse</span>}
             <Markdown text={event.text ?? ''} />
           </div>
@@ -80,7 +83,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
                   </span>
                 ))}
             </summary>
-            {result?.text && <pre>{result.text}</pre>}
+            {result?.text && <ToolOutput text={result.text} />}
           </details>
         )
       }
@@ -91,7 +94,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
         return (
           <details key={event.seq} className="tool">
             <summary>Tool result</summary>
-            {event.text && <pre>{event.text}</pre>}
+            {event.text && <ToolOutput text={event.text} />}
           </details>
         )
       case 'request': {
@@ -205,3 +208,14 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
 }
 
 const actionKinds = new Set<ConversationEvent['kind']>(['tool_use', 'tool_result', 'native', 'request', 'request_resolved'])
+
+// ToolOutput is an expanded tool result: the output, scrolling inside its
+// box, with one control that copies all of it, whatever the box shows.
+function ToolOutput({ text }: { text: string }) {
+  return (
+    <div className="tool-output">
+      <CopyButton text={text} label="Copy the output" />
+      <pre>{text}</pre>
+    </div>
+  )
+}

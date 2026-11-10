@@ -48,7 +48,11 @@ type conversationView struct {
 	// next prompt carries.
 	ModelNext  string `dd:",+omitempty"`
 	EffortNext string `dd:",+omitempty"`
-	Pending    []*requestView
+	// ModelNextInherit and EffortNextInherit say the next prompt returns that
+	// field to inherit (codex only).
+	ModelNextInherit  bool `dd:",+omitempty"`
+	EffortNextInherit bool `dd:",+omitempty"`
+	Pending           []*requestView
 }
 
 type requestView struct {
@@ -81,6 +85,8 @@ func newConversationView(conv service.ConversationView) *conversationView {
 		EffortChoice:         conv.Effort,
 		ModelNext:            conv.ModelNext,
 		EffortNext:           conv.EffortNext,
+		ModelNextInherit:     conv.ModelNextInherit,
+		EffortNextInherit:    conv.EffortNextInherit,
 		Pending:              make([]*requestView, 0, len(conv.Pending)),
 	}
 	if conv.Facts != nil {

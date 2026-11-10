@@ -1,6 +1,6 @@
 ---
 title: copy per block
-state: inbox
+state: evaluating
 created: 2026-11-10
 tags: [enhancement, ui, conversation-view]
 ---
@@ -22,6 +22,10 @@ Fifth slice of the look-and-feel cluster: each block in the conversation can be 
 - **An expanded code block stays expanded when its reply lands.** The landed message replaces the streamed one and the block collapses again; the expanded state should survive the swap.
 - **The adopt dialog's radio button sits beside its session text**, not above it.
 - **Codex can return to inherit while running** (the `codex-can-return-to-inherit-while-running` card): inherit is selectable on a running Codex conversation and applies at the next prompt like any other Codex change, with the bar showing "next prompt". Claude stays refused.
+
+## Ride-along from the side panel slice
+
+- **Conversations are indented under their project.** Since the fold chevron was added, a conversation's mark sits exactly under its project's mark, so the tree reads as a flat list. Indent conversation rows one level, so a conversation's mark starts under the project's name. The row's selection and hover background still span the panel's full width; only the content moves. The needs-you list is not a tree and stays flush.
 
 ## Checks
 

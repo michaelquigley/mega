@@ -1,6 +1,7 @@
 import { memo, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { CopyButton } from './Copy'
 import { IconButton } from './Icon'
 
 // Markdown renders message text: assistant replies, the streaming delta, and
@@ -83,8 +84,13 @@ const collapsedLines = 40
 // control, and the code in a monospace block. no highlighting. a long block is
 // collapsed to its first lines by height alone, so the whole block stays in
 // the page, and copy always takes the whole source.
+// expanded holds the code blocks the reader expanded, for the page's life, so
+// a block expanded while its reply streams is still expanded once the reply
+// lands and is rendered afresh. a block is known by its language and its first
+// lines, which are final once it is long enough to collapse.
+const expanded = new Set<string>()
+
 function CodeBlock({ children, node }: { children?: ReactNode } & ExtraProps) {
-  const [expanded, setExpanded] = useState(false)
   const code = (node?.children ?? []).find((child) => child.type === 'element' && child.tagName === 'code') as
     | HastNode
     | undefined
@@ -95,42 +101,31 @@ function CodeBlock({ children, node }: { children?: ReactNode } & ExtraProps) {
   const source = code ? textOf(code).replace(/\n$/, '') : ''
   const lines = source.split('\n').length
   const long = lines > collapsedLines
+  const key = `${language ?? ''}\n${source.split('\n').slice(0, collapsedLines).join('\n')}`
+  const [open, setOpen] = useState(() => expanded.has(key))
+  const toggle = () => {
+    if (open) {
+      expanded.delete(key)
+    } else {
+      expanded.add(key)
+    }
+    setOpen(!open)
+  }
   return (
     <div className="code-block">
       <div className="code-head">
         <span className="code-language">{language ?? ''}</span>
         <CopyButton text={source} />
       </div>
-      <pre className={long && !expanded ? 'collapsed' : undefined}>{children}</pre>
+      <pre className={long && !open ? 'collapsed' : undefined}>{children}</pre>
       {long && (
         <IconButton
           className="code-toggle"
-          icon={expanded ? 'unfold_less' : 'unfold_more'}
-          label={expanded ? `Show only the first ${collapsedLines} lines` : `Show all ${lines} lines`}
-          onClick={() => setExpanded(!expanded)}
+          icon={open ? 'unfold_less' : 'unfold_more'}
+          label={open ? `Show only the first ${collapsedLines} lines` : `Show all ${lines} lines`}
+          onClick={toggle}
         />
       )}
     </div>
-  )
-}
-
-export function CopyButton({ text }: { text: string }) {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setState('copied')
-    } catch {
-      setState('failed')
-    }
-    window.setTimeout(() => setState('idle'), 1500)
-  }
-  return (
-    <IconButton
-      className="copy"
-      icon={state === 'copied' ? 'check' : state === 'failed' ? 'error_outline' : 'content_copy'}
-      label={state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy'}
-      onClick={() => void copy()}
-    />
   )
 }

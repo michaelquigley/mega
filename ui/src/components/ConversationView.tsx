@@ -147,11 +147,13 @@ function effortFact(conversation: Conversation): string | undefined {
 // stored choice the next launch passes.
 function nextPrompt(conversation: Conversation): string | undefined {
   const running = !!conversation.model
-  const model = running ? conversation.model_next : conversation.model_choice
+  const model = running ? (conversation.model_next_inherit ? 'inherit' : conversation.model_next) : conversation.model_choice
   const effort = running
     ? conversation.harness === 'claude'
       ? undefined
-      : conversation.effort_next
+      : conversation.effort_next_inherit
+        ? 'inherit'
+        : conversation.effort_next
     : conversation.effort_choice
   const parts = [model, effort && `effort ${effort}`].filter(Boolean)
   return parts.length > 0 ? `next prompt: ${parts.join(', ')}` : undefined

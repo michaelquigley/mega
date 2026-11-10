@@ -101,6 +101,9 @@ export interface Conversation {
   // a change asked for while running that the next prompt carries.
   model_next?: string
   effort_next?: string
+  // the next prompt returns that field to inherit (codex only).
+  model_next_inherit?: boolean
+  effort_next_inherit?: boolean
   pending: PendingRequest[]
 }
 

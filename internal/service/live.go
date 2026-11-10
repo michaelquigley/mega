@@ -47,9 +47,12 @@ type ConversationView struct {
 	AttentionAt time.Time
 
 	// ModelNext and EffortNext are a change asked for while running that the
-	// next prompt carries; empty once that turn has ended.
-	ModelNext  string
-	EffortNext string
+	// next prompt carries; empty once that turn has ended. ModelNextInherit
+	// and EffortNextInherit say the change is to inherit (codex only).
+	ModelNext         string
+	EffortNext        string
+	ModelNextInherit  bool
+	EffortNextInherit bool
 }
 
 // live is the in-memory side of one conversation. the pending set lives here
@@ -72,8 +75,8 @@ type live struct {
 	// nextModel and nextEffort are a change asked for while running, shown as
 	// the next prompt's until a turn begun after the change ends. nextSent is
 	// whether such a turn has begun.
-	nextModel  string
-	nextEffort string
+	nextModel  pendingSetting
+	nextEffort pendingSetting
 	nextSent   bool
 
 	// session is a native session this conversation created that the registry
@@ -262,7 +265,9 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 		view.TurnStartedAt = l.turnStartedAt
 	}
 	view.Facts = l.facts
-	view.ModelNext, view.EffortNext = l.nextModel, l.nextEffort
+	view.ModelNext, view.EffortNext = l.nextModel.value, l.nextEffort.value
+	view.ModelNextInherit = l.nextModel.set && l.nextModel.value == ""
+	view.EffortNextInherit = l.nextEffort.set && l.nextEffort.value == ""
 	view.Pending = make([]model.Request, 0, len(l.pending))
 	view.PendingAt = make(map[string]time.Time, len(l.pending))
 	for _, req := range l.pending {
@@ -452,7 +457,7 @@ func (k *sink) Event(ev *model.Event) {
 		if l.nextSent {
 			// a model or effort asked for has had its prompt; from here the
 			// harness's report stands alone.
-			l.nextModel, l.nextEffort, l.nextSent = "", "", false
+			l.nextModel, l.nextEffort, l.nextSent = pendingSetting{}, pendingSetting{}, false
 		}
 		s.endTurnLocked(l)
 		s.changed()
@@ -621,7 +626,7 @@ func (k *sink) Exited(err error) {
 		l.turnActive, l.turnStartedAt, l.facts = false, time.Time{}, nil
 		// a change asked of this runtime dies with it; the next launch
 		// passes the stored choice.
-		l.nextModel, l.nextEffort, l.nextSent = "", "", false
+		l.nextModel, l.nextEffort, l.nextSent = pendingSetting{}, pendingSetting{}, false
 	}); err != nil {
 		dl.Errorf("the stop of '%s' could not be recorded; it stays recorded running: %v", l.id, err)
 		return
@@ -640,4 +645,11 @@ func (l *live) beginTurn(at time.Time) {
 	}
 	l.turnActive, l.turnStartedAt = true, at
 	l.nextSent = true
+}
+
+// pendingSetting is one side of a change asked for while running: set, with
+// the value asked for, which empty means inherit.
+type pendingSetting struct {
+	value string
+	set   bool
 }

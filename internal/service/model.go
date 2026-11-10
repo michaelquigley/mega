@@ -188,7 +188,12 @@ func (s *Service) SetModel(conversationID, chosenModel, effort string) (ModeOutc
 		s.mu.Unlock()
 		return ModeOutcome{}, newError(CodeConflict, "the runtime is still starting")
 	}
-	if (chosenModel == "" && conv.Model != "") || (effort == "" && conv.Effort != "" && s.offersEffort(conv.Harness, chosenModel)) {
+	// codex can return to inherit while running: its adapter sends the
+	// config's current values on every turn, so inherit takes effect at the
+	// next prompt like any other change. claude cannot: its reset calls go to
+	// claude code's built-in defaults, not the operator's settings.
+	inheritRunning := conv.Harness == model.HarnessCodex
+	if !inheritRunning && ((chosenModel == "" && conv.Model != "") || (effort == "" && conv.Effort != "" && s.offersEffort(conv.Harness, chosenModel))) {
 		s.mu.Unlock()
 		return ModeOutcome{}, newError(CodeInvalid, "inherit can be chosen only while no runtime runs; pick a model and effort, or release first")
 	}
@@ -212,10 +217,10 @@ func (s *Service) SetModel(conversationID, chosenModel, effort string) (ModeOutc
 		// until a turn begun from here ends, the header shows what was asked
 		// for as the next prompt's; the harness's report then stands alone.
 		if chosenModel != conv.Model {
-			l.nextModel = chosenModel
+			l.nextModel = pendingSetting{value: chosenModel, set: true}
 		}
 		if effort != conv.Effort {
-			l.nextEffort = effort
+			l.nextEffort = pendingSetting{value: effort, set: true}
 		}
 		l.nextSent = false
 		s.changed()
@@ -232,7 +237,7 @@ func (s *Service) SetModel(conversationID, chosenModel, effort string) (ModeOutc
 			dl.Errorf("putting back the recorded effort of '%s': %v", conversationID, err)
 		}
 		if chosenModel != conv.Model {
-			l.nextModel, l.nextSent = chosenModel, false
+			l.nextModel, l.nextSent = pendingSetting{value: chosenModel, set: true}, false
 		}
 		s.changed()
 		return ModeOutcome{Outcome: ModeRefused, Message: switchErr.Error()}, nil

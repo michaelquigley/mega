@@ -19,6 +19,7 @@
 //                    both are answered
 //   tool MS          a Bash call to `go test ./...` that runs for MS, then
 //                    its result and one assistant message, "done"
+//   output N         a Bash call whose result is N numbered lines, then "done"
 //   busy MS          a busy turn: a sentence, three tool calls of MS each, a
 //                    reply with a fenced code block, then a permission
 //                    request; the turn ends once it is answered
@@ -131,7 +132,7 @@ const delta = (text) =>
 const end = (subtype = 'success') =>
   keep({ type: 'result', subtype, is_error: subtype !== 'success', uuid: randomUUID(), session_id: session })
 // toolCall records a tool call, waits ms as if it ran, then records its result.
-async function toolCall(name, input, ms) {
+async function toolCall(name, input, ms, result = 'ok') {
   const id = 'tu-' + randomUUID().slice(0, 8)
   keep({
     type: 'assistant',
@@ -146,7 +147,7 @@ async function toolCall(name, input, ms) {
     uuid: randomUUID(),
     session_id: session,
     parent_tool_use_id: null,
-    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] },
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: result }] },
   })
 }
 const filler = (i) =>
@@ -192,6 +193,11 @@ async function turn(text) {
     ask('echo second')
   } else if (verb === 'tool') {
     await toolCall('Bash', { command: 'go test ./...' }, Number(a) || 1000)
+    say('done')
+    end()
+  } else if (verb === 'output') {
+    const lines = Array.from({ length: Number(a) || 100 }, (_, i) => `line ${i + 1} of the output`)
+    await toolCall('Bash', { command: 'seq 1 100' }, 200, lines.join('\n'))
     say('done')
     end()
   } else if (verb === 'busy') {

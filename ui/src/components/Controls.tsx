@@ -52,9 +52,9 @@ export function ModeControl({
 // ModelControl changes a conversation's model and effort. while the runtime
 // runs (live) it asks the harness: claude applies a change from the next
 // response, codex with the next prompt. otherwise it stores the choice for the
-// next launch. while live, inherit cannot be picked again once left. it shows
-// the stored choice; the header shows what the harness reports. the change
-// goes with Apply, and says when it applies while it waits for it.
+// next launch. while live, claude cannot pick inherit again once left; codex
+// can. it shows the stored choice; the header shows what the harness reports.
+// the change goes with Apply, and says when it applies while it waits for it.
 export function ModelControl({
   conversation,
   projectId,
@@ -70,6 +70,10 @@ export function ModelControl({
   const stored = { model: conversation.model_choice ?? '', effort: conversation.effort_choice ?? '' }
   const [draft, setDraft] = useState(stored)
   const live = conversation.state === 'running' && !!conversation.model
+  // inherit may always be chosen with no runtime; while running only for
+  // codex, which sends the config's values from the next prompt. claude has
+  // no way back to the operator's settings mid-session.
+  const inheritable = !live || conversation.harness === 'codex'
   const changed = draft.model !== stored.model || draft.effort !== stored.effort
   let when = 'Applies at the next launch.'
   if (live) {
@@ -82,8 +86,8 @@ export function ModelControl({
         models={models}
         model={draft.model}
         effort={draft.effort}
-        inheritModel={!live || stored.model === ''}
-        inheritEffort={!live || stored.effort === ''}
+        inheritModel={inheritable || stored.model === ''}
+        inheritEffort={inheritable || stored.effort === ''}
         disabled={disabled}
         onChange={(model, effort) => setDraft({ model, effort })}
       />
