@@ -1,6 +1,6 @@
 ---
 title: mcp approval for codex
-state: building
+state: evaluating
 created: 2026-11-09
 tags: [codex, requests, mcp]
 ---

@@ -1,17 +1,19 @@
 building:
-  - mcp-approval-for-codex.md
+  - typography.md
 horizon:
   - start-without-a-turn.md
   - ui-test-runner.md
 researching:
-  - typography.md
+  - model-and-effort-selection.md
   - conversation-view-improvements.md
   - side-panel-improvements.md
   - operator-input-panel.md
   - favicon.md
   - dfw-daemon-mode.md
   - empty-never-means-unreachable.md
+  - e2e-discovery-own-thread.md
 evaluating:
+  - mcp-approval-for-codex.md
   - permission-mode-follow-ups.md
   - auto-mode-in-claude-code.md
   - no-clipped-messages.md

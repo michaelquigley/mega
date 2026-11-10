@@ -1,6 +1,6 @@
 ---
 title: Codex discovery e2e reads its own thread
-state: inbox
+state: researching
 created: 2026-11-10
 tags: [testing, codex]
 ---
