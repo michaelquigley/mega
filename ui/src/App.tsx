@@ -14,6 +14,7 @@ import { SidePanel } from './components/SidePanel'
 import { ShutdownBanner } from './components/Gate'
 import { pendingReason, shutDownReason } from './gate'
 import { missingReason } from './checkout'
+import { showTab, tabState } from './favicon'
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
@@ -242,8 +243,13 @@ export function App() {
   // what it last read, and says so instead.
   const ready = !!gate?.armed && gate.idle && shutDownAt === null && !stale
   const wasReady = useRef<boolean | null>(null)
+  // the tab: the needs-you mark and count while anything waits on the
+  // operator, live only; the shutdown gate's title wins while it applies.
+  const waitingCount = workspace?.needs_you.length ?? 0
   useEffect(() => {
-    document.title = ready ? 'Ready to shut down · metawoo mega' : 'metawoo mega'
+    showTab(tabState(waitingCount, ready, stale || workspace === null))
+  }, [waitingCount, ready, stale, workspace])
+  useEffect(() => {
     if (workspace === null) {
       return
     }

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- metawoo mega, needs you: the hub inverted on the notice gold. -->
+  <rect width="64" height="64" rx="13" fill="#d9b75b"/>
+  <g fill="#24231f">
+    <circle cx="32.00" cy="13.00" r="6.5"/>
+    <circle cx="51.97" cy="27.51" r="6.5"/>
+    <circle cx="44.34" cy="50.99" r="6.5"/>
+    <circle cx="19.66" cy="50.99" r="6.5"/>
+    <circle cx="12.03" cy="27.51" r="6.5"/>
+  </g>
+  <circle cx="32" cy="34" r="9" fill="#24231f"/>
+</svg>

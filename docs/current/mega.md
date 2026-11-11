@@ -381,6 +381,14 @@ The shutdown gate shows in these phases:
 - **Last known.** While the page shows only what it last read (the stream down, or a read failed), the banner, footer and rail prefix the gate with "Last known:". Shut down is withheld and Cancel disabled, and the tab title loses its ready mark. A notification is raised only from a current read. All of it returns once a read on the current connection succeeds.
 - **Shut down.** The page that asked shows "Shutting down" while runtimes are released, then "mega was shut down from this page at" the time, says it keeps trying, and its footer reads "Shut down from here, retrying". Its controls give that as their reason, and the expected failed reads are not shown as errors. It recovers by itself: the first workspace read that finds the gate unarmed (only a new service can say so) clears it. Other pages show the service gone as any loss of connection does: last known, "Reconnecting".
 
+The page's mark is the hub: one gold centre with five light points around it, on the dark tone, for many agents and one operator. It is `ui/public/favicon.svg`, linked from `ui/index.html` as `image/svg+xml`. Its proportions are set to read at 16 pixels, where each point lands as a clean two-pixel dot clear of the centre. The tab has two states:
+- **Nothing needs you.** The mark, and the title "metawoo mega".
+- **Something needs you.** While the needs-you list is not empty, the mark inverts: `ui/public/favicon-needs-you.svg`, the same mark on the notice gold with a dark centre and points. The title gains the count, "(2) metawoo mega". The list holds requests and unread output alike, so an answered request still counts until its reply is read.
+
+The page swaps the icon link between the two as `data:` URLs built into its bundle, so a swap fetches nothing. The shutdown gate's "Ready to shut down · metawoo mega" title takes precedence while it applies; the icon still follows the list. While the page shows only last-known state (the stream down, or no read yet), it shows the plain mark and no count, since neither can be said to be live.
+
+PNG renderings of both states, for the daemon's tray and desktop integration, are checked in under `cmd/mega/`: `desktop-icon-{32,48,192,512}.png` and a 128-pixel `tray-icon.png`, each with a `-needs-you` twin. `cmd/mega/render-icons.mjs` renders them through headless Chromium, and `cmd/mega/icons.md` records the command. They are renderings of the SVGs, never edited by hand.
+
 ## Not built, and what to watch
 
 - Refinements named but not built: SQLite if queries outgrow scanning a file (the registry stays a readable file regardless); contract-first generation of the API and its TypeScript types once the surface settles; one shared Codex app-server per environment, which would also allow live `codex --remote` attach.
