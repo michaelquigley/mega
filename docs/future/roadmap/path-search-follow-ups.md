@@ -1,6 +1,6 @@
 ---
 title: path search follow-ups
-state: inbox
+state: researching
 created: 2026-11-10
 tags: [enhancement]
 ---

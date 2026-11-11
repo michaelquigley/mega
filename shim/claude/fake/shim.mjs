@@ -33,6 +33,13 @@
 //                    MS, then landed as one assistant message
 //   anything else    one assistant message, "ok"
 //
+// with --idle (a launch with no prompt coming) it sends no system/init until
+// the first prompt, as claude does, and reports ready with its version and
+// model instead, as ../shim.mjs does. otherwise it sends system/init at once.
+// if a file named stall-ready exists in the directory it runs in, an --idle
+// launch reports nothing at all, as a claude that never answers initialize,
+// so the adapter's idle timeout can be seen to stop it.
+//
 // like claude, it starts in --permission-mode (or 'default' when none is
 // passed), re-reports system/init with the current mode at the start of every
 // turn, and switches on set_permission_mode, confirming with
@@ -172,7 +179,13 @@ const init = () =>
       cwd,
     },
   })
-init()
+if (rest.includes('--idle')) {
+  if (!existsSync(join(store, 'stall-ready'))) {
+    out({ type: 'ready', version: 'fake', model: current })
+  }
+} else {
+  init()
+}
 
 async function turn(text) {
   const newline = text.indexOf('\n')

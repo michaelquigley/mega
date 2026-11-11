@@ -42,6 +42,10 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 		s.mu.Unlock()
 		return ConversationView{}, newError(CodeUnavailable, "the service is shutting down")
 	}
+	if err := s.refuseNewWorkLocked(); err != nil {
+		s.mu.Unlock()
+		return ConversationView{}, err
+	}
 	if _, ok := s.harnesses[harnessName]; !ok {
 		s.mu.Unlock()
 		return ConversationView{}, newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", harnessName))
@@ -84,7 +88,7 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 		return s.view(conv.ID), err
 	}
 	s.mu.Unlock()
-	err = s.startRuntime(conv.ID, l)
+	err = s.startRuntime(conv.ID, l, false)
 	if err != nil {
 		return s.view(conv.ID), err
 	}
@@ -104,6 +108,10 @@ func (s *Service) Prompt(conversationID, text string) error {
 	s.mu.Lock()
 	conv, l, err := s.idleCheckLocked(conversationID)
 	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.refuseNewWorkLocked(); err != nil {
 		s.mu.Unlock()
 		return err
 	}
@@ -137,21 +145,80 @@ func (s *Service) Prompt(conversationID, text string) error {
 	conv.NativeID = l.sessionOf(conv)
 	s.mu.Unlock()
 
-	if conv.NativeID != "" {
-		if _, err := s.importHistory(conv, l); err != nil {
-			s.mu.Lock()
-			l.busy = false
-			if recordErr := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read, so no runtime was started: %v", err)}, "", nil); recordErr != nil {
-				dl.Errorf("%v", recordErr)
-			}
-			s.mu.Unlock()
-			return err
-		}
+	if err := s.importBeforeLaunch(conv, l); err != nil {
+		return err
 	}
-	if err := s.startRuntime(conversationID, l); err != nil {
+	if err := s.startRuntime(conversationID, l, false); err != nil {
 		return err
 	}
 	return s.send(conversationID, text)
+}
+
+// Start starts a runtime for a stopped conversation and sends nothing: the
+// operator's gesture to have it running, its MCP servers connected and its
+// settings taking changes at once. like a prompt to a stopped conversation, it
+// first brings the cache up to date with anything written natively, then
+// resumes the exact session. a conversation with no session is refused, since
+// only its opening prompt may start one; so is an unsupervised one, which
+// Resume settles first.
+func (s *Service) Start(conversationID string) error {
+	s.mu.Lock()
+	conv, l, err := s.idleCheckLocked(conversationID)
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.refuseNewWorkLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if l.runtime != nil {
+		s.mu.Unlock()
+		return newError(CodeConflict, "the conversation already has a runtime")
+	}
+	conv.NativeID = l.sessionOf(conv)
+	if conv.NativeID == "" {
+		// a launch whose session went unrecorded is refused as a prompt would
+		// refuse it; otherwise there is no session yet.
+		fresh, err := s.freshAllowedLocked(l)
+		s.mu.Unlock()
+		switch {
+		case err != nil:
+			return err
+		case !fresh:
+			return errSessionUnknown
+		}
+		return newError(CodeConflict, "the conversation has no session yet; its opening prompt starts one")
+	}
+	if err := s.beginStartLocked(l); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+
+	if err := s.importBeforeLaunch(conv, l); err != nil {
+		return err
+	}
+	return s.startRuntime(conversationID, l, true)
+}
+
+// importBeforeLaunch brings the cache up to date with the native session
+// before a runtime resumes it, after beginStartLocked. a failure ends the
+// start, recorded, with no runtime launched. callers do not hold s.mu.
+func (s *Service) importBeforeLaunch(conv model.Conversation, l *live) error {
+	if conv.NativeID == "" {
+		return nil
+	}
+	if _, err := s.importHistory(conv, l); err != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		l.busy = false
+		if recordErr := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read, so no runtime was started: %v", err)}, "", nil); recordErr != nil {
+			dl.Errorf("%v", recordErr)
+		}
+		return err
+	}
+	return nil
 }
 
 // idleCheckLocked finds a conversation that can take an operator action that
@@ -196,10 +263,12 @@ func (s *Service) beginStartLocked(l *live) error {
 // unsupervised rather than silently stopped. it shows starting until the
 // runtime reports the session it holds. the launch itself runs without s.mu,
 // because a harness may report to its sink before Launch returns; busy keeps
-// other starts, resumes and prompts away meanwhile. callers do not hold s.mu.
-func (s *Service) startRuntime(conversationID string, l *live) error {
+// other starts, resumes and prompts away meanwhile. idle is a start with no
+// prompt following. callers do not hold s.mu.
+func (s *Service) startRuntime(conversationID string, l *live, idle bool) error {
 	s.mu.Lock()
 	h, spec, inc, err := s.prepareLaunchLocked(conversationID, l)
+	spec.Idle = idle
 	if err != nil {
 		l.busy = false
 		s.failedLaunch(l, err, true)
@@ -213,6 +282,8 @@ func (s *Service) startRuntime(conversationID string, l *live) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	l.busy = false
+	refused := l.refused
+	l.refused = nil
 	if err != nil {
 		if l.inc == inc {
 			l.inc = nil
@@ -244,6 +315,12 @@ func (s *Service) startRuntime(conversationID string, l *live) error {
 		return fmt.Errorf("the runtime for '%s' exited as it started", conversationID)
 	}
 	l.runtime = rt
+	if refused != nil {
+		// it reported another session than the one it was launched for while
+		// launching: recorded and stopped now, and no prompt follows.
+		s.beginStopLocked(l, refused)
+		return newError(CodeConflict, refused.Text)
+	}
 	if bindErr != nil {
 		// the conversation cannot record its session yet; stop the runtime
 		// rather than run one the registry does not know.

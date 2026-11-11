@@ -1,6 +1,6 @@
 ---
 title: start or reattach a runtime without a turn
-state: researching
+state: evaluating
 created: 2026-11-09
 tags: [feature, spike]
 ---

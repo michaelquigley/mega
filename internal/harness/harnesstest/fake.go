@@ -31,8 +31,11 @@ type Harness struct {
 	deferred   bool // runtimes take a model change with the next prompt, as codex does
 	modelLists int
 	exitEarly  bool
-	launched   int
-	reads      []string // native ids History was asked for, in order
+	// duringLaunch runs with each new runtime before Launch returns, as an
+	// adapter that reports to its sink while launching does.
+	duringLaunch func(*Runtime)
+	launched     int
+	reads        []string // native ids History was asked for, in order
 }
 
 // New returns a fake harness registered under name.
@@ -55,6 +58,14 @@ func (h *Harness) OnLaunch(fn func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.onLaunch = fn
+}
+
+// DuringLaunch runs fn with each new runtime before Launch returns, so a test
+// can report through the sink as an adapter may while launching.
+func (h *Harness) DuringLaunch(fn func(*Runtime)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.duringLaunch = fn
 }
 
 // SetCatalog scripts what Models returns.
@@ -189,6 +200,9 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	h.runtimes = append(h.runtimes, r)
 	if h.exitEarly {
 		r.Exit(errors.New("exited while starting"))
+	}
+	if h.duringLaunch != nil {
+		h.duringLaunch(r)
 	}
 	return r, nil
 }

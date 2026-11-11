@@ -147,21 +147,24 @@ func (s *Service) harnessModeChanged(l *live, ev *model.Event) {
 	if ev.Facts != nil {
 		mode = ev.Facts.PermissionMode
 	}
-	if err := s.transition(l, ev, l.state, func() { l.setMode(mode) }); err != nil {
+	inherited := ev.Facts != nil && ev.Facts.ModeInherited
+	if err := s.transition(l, ev, l.state, func() { l.setMode(mode, inherited) }); err != nil {
 		dl.Errorf("%v", err)
 	}
 }
 
-// setMode replaces the shown facts with a copy carrying mode. the facts the
-// started event delivered are never mutated, since that event may still be on
-// its way to subscribers. a changed mode is no longer the one the operator's
-// settings chose.
-func (l *live) setMode(mode string) {
+// setMode replaces the shown facts with a copy carrying mode, as the harness
+// reported or confirmed it, so no longer only requested. the facts the started
+// event delivered are never mutated, since that event may still be on its way
+// to subscribers. a changed mode is no longer the one the operator's settings
+// chose; a first report of the inherited mode says it still is.
+func (l *live) setMode(mode string, inherited bool) {
 	if l.facts == nil {
 		return
 	}
 	facts := *l.facts
 	facts.PermissionMode = mode
-	facts.ModeInherited = false
+	facts.ModeInherited = inherited
+	facts.ModeRequested = false
 	l.facts = &facts
 }

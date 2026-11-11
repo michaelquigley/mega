@@ -222,7 +222,18 @@ func matchPaths(checkout string, paths []string, q string, limit int) []string {
 			matches = append(matches, pathMatch{path: p, basename: basename})
 		}
 	}
+	browsing := len(fragments) == 0
 	slices.SortFunc(matches, func(a, b pathMatch) int {
+		// with nothing typed after the @, hidden entries (a segment starting
+		// with a dot, such as .claude/) come after everything else.
+		if browsing {
+			if ha, hb := hidden(a.path), hidden(b.path); ha != hb {
+				if hb {
+					return -1
+				}
+				return 1
+			}
+		}
 		if a.basename != b.basename {
 			if a.basename {
 				return -1
@@ -240,7 +251,7 @@ func matchPaths(checkout string, paths []string, q string, limit int) []string {
 		if len(out) == limit {
 			break
 		}
-		if !insideCheckout(checkout, root, m.path) {
+		if !offered(checkout, root, m.path) {
 			continue
 		}
 		out = append(out, m.path)
@@ -276,15 +287,26 @@ func resolvedRoot(checkout string) string {
 	return root
 }
 
-// insideCheckout is false for a path that is a symbolic link resolving outside
-// the checkout, or resolving nowhere. git and the walk descend no link, so
-// only a path's last segment can be one.
-func insideCheckout(checkout, root, rel string) bool {
+// hidden is whether any segment of a path starts with a dot.
+func hidden(rel string) bool {
+	for _, segment := range strings.Split(strings.TrimSuffix(rel, "/"), "/") {
+		if strings.HasPrefix(segment, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// offered is false for a path that no longer exists in the working tree (a
+// file git still tracks but that was deleted, or a directory only such files
+// implied) and for a symbolic link resolving outside the checkout, or
+// resolving nowhere. git and the walk descend no link, so only a path's last
+// segment can be one. it reads names and link targets, never contents.
+func offered(checkout, root, rel string) bool {
 	full := filepath.Join(checkout, filepath.FromSlash(strings.TrimSuffix(rel, "/")))
 	info, err := os.Lstat(full)
 	if err != nil {
-		// gone since the listing, or deleted but still tracked: offered by name.
-		return true
+		return false
 	}
 	if info.Mode()&fs.ModeSymlink == 0 {
 		return true

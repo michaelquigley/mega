@@ -23,6 +23,7 @@ import logout from '@material-design-icons/svg/filled/logout.svg?raw'
 import moreVert from '@material-design-icons/svg/filled/more_vert.svg?raw'
 import notes from '@material-design-icons/svg/filled/notes.svg?raw'
 import playArrow from '@material-design-icons/svg/filled/play_arrow.svg?raw'
+import powerSettingsNew from '@material-design-icons/svg/filled/power_settings_new.svg?raw'
 import reply from '@material-design-icons/svg/filled/reply.svg?raw'
 import rocketLaunch from '@material-design-icons/svg/filled/rocket_launch.svg?raw'
 import send from '@material-design-icons/svg/filled/send.svg?raw'
@@ -57,6 +58,7 @@ const icons = {
   more_vert: moreVert,
   notes,
   play_arrow: playArrow,
+  power_settings_new: powerSettingsNew,
   reply,
   rocket_launch: rocketLaunch,
   send,

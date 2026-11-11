@@ -1,16 +1,17 @@
 building:
-  - a-failed-load-never-renders-as-an-empty-workspace.md
+  - shutdown.md
 horizon:
   - ui-test-runner.md
 researching:
-  - path-search-in-the-input-panel.md
-  - start-or-reattach-a-runtime-without-a-turn.md
-  - idle-lock.md
+  - path-search-follow-ups.md
   - roundhouse-mega.md
   - favicon.md
   - dfw-daemon-mode.md
   - codex-discovery-e2e-reads-its-own-thread.md
 evaluating:
+  - start-or-reattach-a-runtime-without-a-turn.md
+  - path-search-in-the-input-panel.md
+  - a-failed-load-never-renders-as-an-empty-workspace.md
   - operator-panel-expansion-behavior.md
   - background-jobs.md
   - side-panel-structure.md

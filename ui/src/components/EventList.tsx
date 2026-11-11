@@ -116,6 +116,12 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
       }
       case 'runtime':
         if (event.status === 'mode_changed') {
+          // claude's first report after a start with no prompt, naming the
+          // mode that was requested: the header dropping "(requested)" is
+          // the change, so the history draws no row.
+          if (event.facts?.mode_confirmed) {
+            return null
+          }
           return (
             <p key={event.seq} className="system">
               Permission mode {event.facts?.permission_mode ?? 'changed'}

@@ -412,3 +412,86 @@ func TestClaudeModelAndEffort(t *testing.T) {
 	shutdown(t, svc, s)
 	t.Logf("session %s ran %s", view.NativeID, view.Facts.Model)
 }
+
+// startedSession releases a conversation that has had its first turn, starts
+// it again with no prompt, and checks the start resumed the same session and
+// opened no turn.
+func startedSession(t *testing.T, svc *service.Service, s *session) service.ConversationView {
+	t.Helper()
+	before := s.view()
+	if err := svc.Release(s.id); err != nil {
+		t.Fatal(err)
+	}
+	s.waitFor("the release", func(v service.ConversationView) bool {
+		return v.Runtime == model.RuntimeNone && v.State == model.RuntimeNone
+	})
+	evs, err := svc.Events(s.id, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Start(s.id); err != nil {
+		t.Fatal(err)
+	}
+	view := s.waitFor("the start", func(v service.ConversationView) bool { return v.State == service.StateRunning && v.Facts != nil })
+	// claude's idle report carries no session until claude sends one; codex
+	// reports it with thread/resume. either way it is the session resumed.
+	if view.TurnActive || view.NativeID != before.NativeID || (view.Facts.Session != "" && view.Facts.Session != before.NativeID) {
+		t.Fatalf("started: turn %v, session %q (facts %q), want %q", view.TurnActive, view.NativeID, view.Facts.Session, before.NativeID)
+	}
+	// a few idle seconds: nothing is sent, so no message, tool call or turn
+	// arrives. the harness's own bookkeeping may (claude-rt1's SessionStart
+	// hook reports as native events).
+	time.Sleep(5 * time.Second)
+	after, err := svc.Events(s.id, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range after[len(evs):] {
+		switch ev.Kind {
+		case model.EventUser, model.EventAssistant, model.EventToolUse, model.EventToolResult, model.EventTurnEnd:
+			t.Errorf("an idle start recorded %s %q", ev.Kind, ev.Text)
+		}
+	}
+	if v := s.view(); v.TurnActive || v.Attention == model.AttentionRunning {
+		t.Errorf("idle after a start: turn %v, attention %q", v.TurnActive, v.Attention)
+	}
+	return view
+}
+
+// TestClaudeStartWithoutPrompt starts a released conversation with no
+// prompt: the runtime resumes the exact session and holds idle, reporting its
+// version and model, with the launch mode requested; a mode switch is
+// confirmed at once; the next prompt is answered in the same session.
+func TestClaudeStartWithoutPrompt(t *testing.T) {
+	fixture := env("ROUNDHOUSE_E2E_CLAUDE_FIXTURE", defaultFixture)
+	svc := newE2EService(t, newClaudeHarness(t))
+	project, err := svc.RegisterProject("claude-rt1", fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e start", markerPrompt, service.LaunchChoice{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &session{t: t, svc: svc, id: conv.ID}
+	s.idle()
+	view := startedSession(t, svc, s)
+	if view.Facts.Version == "" || view.Facts.Model == "" || !view.Facts.ModeRequested || view.Facts.PermissionMode == "" {
+		t.Errorf("idle facts = %+v", view.Facts)
+	}
+	outcome, err := svc.SetPermissionMode(s.id, "acceptEdits")
+	if err != nil || outcome.Outcome != service.ModeConfirmed {
+		t.Fatalf("idle mode switch: %+v, %v", outcome, err)
+	}
+	if f := s.view().Facts; f.PermissionMode != "acceptEdits" || f.ModeRequested {
+		t.Errorf("after the switch: %+v", f)
+	}
+	s.prompt("Reply with the word BETA-START-9e1f. Nothing else.")
+	s.idle()
+	s.expectReply("BETA-START-9e1f")
+	if v := s.view(); v.NativeID != view.NativeID || v.State != service.StateRunning || v.Facts.PermissionMode != "acceptEdits" {
+		t.Errorf("after the prompt: session %q, facts %+v", v.NativeID, v.Facts)
+	}
+	shutdown(t, svc, s)
+	t.Logf("session %s started idle on %s %s", view.NativeID, view.Facts.Version, view.Facts.Model)
+}

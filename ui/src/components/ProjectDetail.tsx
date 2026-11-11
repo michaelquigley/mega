@@ -11,9 +11,11 @@ interface ProjectDetailProps {
   stale: boolean
   onLaunch: () => void
   onAdopt: () => void
+  // why new work waits, or null: launches and adoptions wait, and say so.
+  heldBy: string | null
 }
 
-export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt }: ProjectDetailProps) {
+export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt, heldBy }: ProjectDetailProps) {
   const [name, setName] = useState(project.name)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -53,8 +55,8 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
         <div className="section-head">
           <h2>Conversations</h2>
           <span className="section-actions">
-            <IconButton icon="download" label="Adopt a session" onClick={onAdopt} />
-            <IconButton icon="add_comment" label="New conversation" onClick={onLaunch} />
+            <IconButton icon="download" label={heldBy ??  'Adopt a session'} disabled={heldBy !== null} onClick={onAdopt} />
+            <IconButton icon="add_comment" label={heldBy ??  'New conversation'} disabled={heldBy !== null} onClick={onLaunch} />
           </span>
         </div>
         {conversations.length === 0 ? (

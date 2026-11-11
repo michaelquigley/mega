@@ -315,3 +315,34 @@ func TestCodexModelAndEffort(t *testing.T) {
 	shutdown(t, svc, s)
 	t.Logf("thread %s ran %s at %s", view.NativeID, view.Facts.Model, view.Facts.Effort)
 }
+
+// TestCodexStartWithoutPrompt starts a released conversation with no prompt:
+// thread/resume holds the exact thread idle and reports what codex runs; the
+// next prompt is answered in the same thread.
+func TestCodexStartWithoutPrompt(t *testing.T) {
+	fixture := env("ROUNDHOUSE_E2E_CODEX_FIXTURE", defaultCodexFixture)
+	h := codex.New(codex.Config{Binary: env("ROUNDHOUSE_E2E_CODEX", "codex")})
+	svc := newE2EService(t, h)
+	project, err := svc.RegisterProject("codex-rt1", fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e start", codexMarkerPrompt, service.LaunchChoice{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &session{t: t, svc: svc, id: conv.ID}
+	s.idle()
+	view := startedSession(t, svc, s)
+	if view.Facts.Version == "" || view.Facts.Model == "" || view.Facts.ModeRequested {
+		t.Errorf("idle facts = %+v", view.Facts)
+	}
+	s.prompt("Reply with the word BETA-START-9e1f. Do not run any commands. Nothing else.")
+	s.idle()
+	s.expectReply("BETA-START-9e1f")
+	if v := s.view(); v.NativeID != view.NativeID || v.Facts.Session != view.NativeID {
+		t.Errorf("after the prompt: thread %q, facts %+v", v.NativeID, v.Facts)
+	}
+	shutdown(t, svc, s)
+	t.Logf("thread %s started idle on %s %s", view.NativeID, view.Facts.Version, view.Facts.Model)
+}

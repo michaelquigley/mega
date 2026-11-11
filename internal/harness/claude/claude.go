@@ -96,12 +96,24 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	if spec.Effort != "" {
 		args = append(args, "--effort", spec.Effort)
 	}
+	// with no prompt following, claude sends no system/init until a turn
+	// starts; the shim reports what claude answers without one.
+	if spec.Idle {
+		args = append(args, "--idle")
+	}
 	cmd, err := h.command(context.Background(), args...)
 	if err != nil {
 		// the shim was never started, so no session can exist.
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 	}
-	r, err := start(cmd, nativeID, sink, inherited)
+	// the mode the session starts in, as roundhouse asked for it: the one
+	// passed, or the one the operator's settings name when none is. an idle
+	// launch reports it until claude does.
+	launchMode := mode
+	if inherited {
+		launchMode = h.InheritedPermissionMode(spec.Cwd)
+	}
+	r, err := start(cmd, nativeID, sink, inherited, launchMode, spec.Idle)
 	if err != nil {
 		return nil, err
 	}

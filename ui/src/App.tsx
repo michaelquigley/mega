@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, getEvents, getWorkspace, readConversation } from './api'
+import { ApiError, armShutdown, cancelShutdown, getEvents, getWorkspace, readConversation, shutDown } from './api'
 import { freezeClock } from './clock'
 import { parseHash, select, type Selection } from './selection'
 import { serviceAddress, useStream, type Knowledge } from './stream'
@@ -11,6 +11,8 @@ import { LaunchDialog } from './components/LaunchDialog'
 import { ProjectDetail } from './components/ProjectDetail'
 import { RegisterProjectDialog } from './components/RegisterProjectDialog'
 import { SidePanel } from './components/SidePanel'
+import { ShutdownBanner } from './components/Gate'
+import { pendingReason, shutDownReason } from './gate'
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
@@ -18,6 +20,12 @@ export function App() {
   // answered: the last failed workspace read was answered by the service with
   // an error, rather than reaching nothing.
   const [answered, setAnswered] = useState(false)
+  // shutDownAt: when this page's shutdown was accepted. it stands until a read
+  // finds the gate unarmed, which only a new service can say: the gate is
+  // memory, and a restart is what clears it.
+  const [shutDownAt, setShutDownAt] = useState<Date | null>(null)
+  const [gateBusy, setGateBusy] = useState(false)
+  const [gateError, setGateError] = useState<string | null>(null)
   const [selection, setSelection] = useState<Selection | null>(parseHash)
   const [registering, setRegistering] = useState(false)
   const [launching, setLaunching] = useState<string | null>(null)
@@ -74,6 +82,9 @@ export function App() {
           if (number === state.sent) {
             setWorkspace(fetched)
             setLoadError(null)
+            if (fetched.shutdown && !fetched.shutdown.armed) {
+              setShutDownAt(null)
+            }
             ok = true
             if (sentOn === connection.current) {
               setSynced(true)
@@ -205,6 +216,48 @@ export function App() {
   // elapsed labels stand still while the page shows only last-known state.
   useEffect(() => freezeClock(stale), [stale])
 
+  // the shutdown gate. while armed, new work waits; at idle the page says so
+  // in its title and with a notification, once, so nobody has to watch.
+  const gate = workspace?.shutdown
+  const heldBy = shutDownAt !== null ? shutDownReason : gate?.armed ? pendingReason : null
+  const gateAction = async (action: () => Promise<void>, asking = false): Promise<boolean> => {
+    if (asking && 'Notification' in window && Notification.permission === 'default') {
+      // asked on the press that arms, the one gesture the page gets.
+      void Notification.requestPermission().catch(() => undefined)
+    }
+    setGateError(null)
+    setGateBusy(true)
+    try {
+      await action()
+      return true
+    } catch (failure) {
+      setGateError(failure instanceof Error ? failure.message : String(failure))
+      return false
+    } finally {
+      setGateBusy(false)
+    }
+  }
+  // ready only on a current read: a page that has lost the service knows only
+  // what it last read, and says so instead.
+  const ready = !!gate?.armed && gate.idle && shutDownAt === null && !stale
+  const wasReady = useRef<boolean | null>(null)
+  useEffect(() => {
+    document.title = ready ? 'Ready to shut down · roundhouse' : 'roundhouse'
+    if (workspace === null) {
+      return
+    }
+    // a page that opens on an idle gate is already showing it; only the
+    // change to idle is announced.
+    if (wasReady.current === false && ready && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('roundhouse', { body: 'Every agent is idle. Shut down from the banner when you are ready.', tag: 'roundhouse-shutdown' })
+      } catch {
+        // a browser that refuses notifications still has the title and banner.
+      }
+    }
+    wasReady.current = ready
+  }, [ready, workspace])
+
   const projects = workspace?.projects ?? []
   const conversations = workspace?.conversations ?? []
   const needsYou = workspace?.needs_you ?? []
@@ -303,6 +356,7 @@ export function App() {
         log={log && log.id === selectedConversation.id ? log : null}
         stale={stale}
         onRemoved={() => select({ kind: 'project', id: selectedConversation.project_id })}
+        heldBy={heldBy}
       />
     )
   } else if (selectedProject) {
@@ -314,6 +368,7 @@ export function App() {
         stale={stale}
         onLaunch={() => setLaunching(selectedProject.id)}
         onAdopt={() => setAdopting(selectedProject.id)}
+        heldBy={heldBy}
       />
     )
   } else if (workspace === null) {
@@ -338,9 +393,30 @@ export function App() {
         loaded={workspace !== null}
         knowledge={knowledge}
         onRegister={() => setRegistering(true)}
+        gate={gate}
+        shutDownAt={shutDownAt}
+        gateBusy={gateBusy}
+        onArm={() => void gateAction(armShutdown, true)}
+        onCancelShutdown={() => void gateAction(cancelShutdown)}
       />
       <main className="main">
-        {loadError && workspace !== null && <p className="error">The workspace could not be read: {loadError}</p>}
+        <ShutdownBanner
+          gate={gate}
+          shutDownAt={shutDownAt}
+          connected={streamState === 'connected'}
+          stale={stale}
+          busy={gateBusy}
+          error={gateError}
+          onShutDown={() =>
+            void gateAction(shutDown).then((ok) => {
+              if (ok) {
+                setShutDownAt(new Date())
+              }
+            })
+          }
+          onCancel={() => void gateAction(cancelShutdown)}
+        />
+        {loadError && workspace !== null && shutDownAt === null && <p className="error">The workspace could not be read: {loadError}</p>}
         {main}
       </main>
       {registering && (

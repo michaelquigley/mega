@@ -94,6 +94,15 @@ type RuntimeFacts struct {
 	// ModeInherited is whether roundhouse passed no permission mode, so the
 	// operator's native settings chose it.
 	ModeInherited bool `dd:",+omitempty"`
+	// ModeRequested is whether PermissionMode is only the mode roundhouse
+	// launched with, not yet reported by the harness: claude reports its mode
+	// at a turn's start, and a runtime started with no prompt has had none.
+	ModeRequested bool `dd:",+omitempty"`
+	// ModeConfirmed marks a mode report that only confirms the mode the
+	// launch requested: recorded, as the harness's first word on the mode,
+	// but it changes nothing except that the mode is no longer only
+	// requested, so the history draws no row for it.
+	ModeConfirmed bool `dd:",+omitempty"`
 	// Effort is the effort level the harness reports, where it reports one
 	// (codex does; claude does not).
 	Effort string `dd:",+omitempty"`

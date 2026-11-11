@@ -69,4 +69,14 @@ Fixture repository used: `/home/michael/Repos/q/research/roundhouse-fixtures/cla
 
 ## `@path` mentions (2026-11-10)
 
-`mention.mjs --cwd DIR --log logs/x.jsonl [--plain]` sends one prompt asking for the exact contents of `@fixture.txt`, with the file tools disallowed and every permission denied. It records whether the reply carries the file's content and whether any message before the reply does. `--plain` names the file without the `@`, as a control.
+`mention.mjs --cwd DIR --log logs/x.jsonl [--plain]` sends one prompt asking for the exact contents of `@fixture.txt`, with the file tools disallowed and every permission denied. It records whether the reply carries the file's content and whether any message before the reply does. `--plain` names the file without the `@`, as a control. `--file NAME` mentions another file, and `--form bare|quoted|escaped` writes the mention as `@name`, `@"name"` or with each space backslash-escaped, for a name with spaces.
+
+## Idle resume (2026-11-10)
+
+`idle-resume.mjs --cwd DIR --log logs/x.jsonl [--hold SECONDS] [--session UUID] [--mcp SCRIPT] [--then-prompt] [--facts] [--set-mode MODE] [--hook] [--mode MODE]` seeds a fresh session with one short turn, unless `--session` names one. It then resumes the session with streaming input and sends nothing for `--hold` seconds (300 by default). It records every message, `initializationResult()`, `mcpServerStatus()`, the transcript's size and mtime, and the memory of every process below it. At the end it closes input and times the exit.
+- `--mcp` passes a stdio MCP server for this query only.
+- `--facts` asks `getContextUsage({detail: 'summary'})` for the model.
+- `--set-mode` switches the permission mode while idle.
+- `--hook` registers an observing `SessionStart` callback.
+- `--mode` passes a launch mode.
+- `--then-prompt` sends one prompt before closing.

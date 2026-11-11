@@ -4,8 +4,9 @@ import { folds } from '../prefs'
 import { select, type Selection } from '../selection'
 import { connectionLabel, failing, serviceAddress, type Knowledge, type StreamState } from '../stream'
 import { treeGroups } from '../tree'
-import type { Conversation, Project } from '../types'
+import type { Conversation, Project, ShutdownGate } from '../types'
 import { AttentionMark, BackgroundLabel, Elapsed, ProjectMark } from './AttentionMark'
+import { FooterGate } from './Gate'
 import { IconButton } from './Icon'
 
 interface SidebarProps {
@@ -22,13 +23,20 @@ interface SidebarProps {
   knowledge: Knowledge
   onRegister: () => void
   onCollapse: () => void
+  gate: ShutdownGate | undefined
+  shutDownAt: Date | null
+  gateBusy: boolean
+  onArm: () => void
+  onCancelShutdown: () => void
 }
 
 // Sidebar is the expanded side panel: the needs-you list, then the projects,
 // starred first, each group by name, each project folding to its row and its
 // rollup mark. which projects are folded is a preference of this browser;
 // stars are workspace state, written through the service.
-export function Sidebar({ projects, conversations, needsYou, selection, streamState, stale, loaded, knowledge, onRegister, onCollapse }: SidebarProps) {
+export function Sidebar(props: SidebarProps) {
+  const { projects, conversations, needsYou, selection, streamState, stale, loaded, knowledge, onRegister, onCollapse } = props
+  const { gate, shutDownAt, gateBusy, onArm, onCancelShutdown } = props
   // before the first read the page knows nothing, and says so, never "none".
   const unknownText =
     knowledge === 'unreachable'
@@ -182,9 +190,17 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
           </ul>
         )}
       </section>
+      {!shutDownAt && <FooterGate gate={gate} stale={stale} busy={gateBusy} onCancel={onCancelShutdown} />}
       <footer className="side-foot">
-        <span className={`stream stream-${failing(knowledge) ? 'disconnected' : streamState}`}>{connectionLabel(knowledge, streamState)}</span>
-        <IconButton icon="keyboard_double_arrow_left" label="Collapse the side panel" onClick={onCollapse} />
+        <span className={`stream stream-${failing(knowledge) || (shutDownAt && streamState !== 'connected') ? 'disconnected' : streamState}`}>
+          {shutDownAt && streamState !== 'connected' ? 'Shut down from here, retrying' : connectionLabel(knowledge, streamState)}
+        </span>
+        <span className="side-foot-actions">
+          {!gate?.armed && !shutDownAt && (
+            <IconButton icon="power_settings_new" label="Shut down when every agent is idle" disabled={gateBusy || !loaded || stale} onClick={onArm} />
+          )}
+          <IconButton icon="keyboard_double_arrow_left" label="Collapse the side panel" onClick={onCollapse} />
+        </span>
       </footer>
     </nav>
   )

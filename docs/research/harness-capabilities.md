@@ -565,9 +565,60 @@ Whether a prompt sent the way roundhouse sends it treats `@path` as a file menti
 - The v2 `UserInput` union also has a `mention {name, path}` item. Passing `{name: "fixture.txt", path: <absolute path>}` beside the text did not attach the file either `[observed]`: it was stored as a `mention` item and the reply was `NOT-ATTACHED`. What that item is for was not established here.
 - The terminal's `@` is a file-search picker. What it sends was not observed in this probe.
 
+### A path with spaces (Claude Code 2.1.318, Agent SDK 0.3.318)
+
+The same probe, with `--file 'spaced name.txt' --form bare|quoted|escaped`. A temporary untracked `spaced name.txt` was written in `claude-rt1` and removed afterwards. Logs are `probes/claude/logs/mention-spaced-{bare,quoted,escaped}.*`.
+
+- `@spaced name.txt`, bare, did not attach `[observed]`. No tool ran, and the reply was `NOT-ATTACHED`.
+- `@spaced\ name.txt`, the space backslash-escaped, did not attach either `[observed]`.
+- `@"spaced name.txt"`, quoted, attached `[observed]`: the reply was the file's exact content, with no tool call.
+
 ### Consequence
 
-The path search keeps the leading `@` for Claude, where it attaches the file. For Codex it inserts the bare relative path, which the agent reads with its own tools under its own permissions.
+The path search keeps the leading `@` for Claude, where it attaches the file, and quotes a path that contains whitespace (`@"a b.txt"`), the one form that attaches it. For Codex it inserts the bare relative path, spaces and all, which the agent reads with its own tools under its own permissions.
+
+## Follow-up (2026-11-10): a runtime started with no prompt
+
+What a resumed session does when nothing is sent, for the Start control. Both probes seed a fresh session with one short turn, resume it with no prompt, and hold it idle. Throughout, they record every message, the transcript or rollout file, and the memory of every process the runtime started. They then close input and time the exit. Memory is resident set size (RSS) and proportional set size (PSS) from `/proc`; PSS divides shared pages among the processes sharing them, so it is the fairer cost per runtime.
+
+### Claude Code 2.1.318, Agent SDK 0.3.318
+
+`probes/claude/idle-resume.mjs`, on `claude-rt1`. Logs are `probes/claude/logs/idle-resume{,-prompt,-hook-none,-hook-plan}.*`. The first run held for 300 s with a stdio MCP server passed for that query only (the `codex-rt1` fixture server). A second run resumed the same session for 30 s, switched the mode while idle, and then sent one prompt. Two short runs registered an SDK `SessionStart` callback.
+
+- A resumed session with streaming input and no prompt holds idle for the whole hold `[observed]`. Nothing arrives on the stream except the checkout's own `SessionStart:resume` hook frames (`hook_started`, `hook_response`), each carrying the session id.
+- No `system/init` arrives until a turn starts `[observed]`. The first prompt's turn brings it, with the same `session_id`, the model and the mode.
+- The SDK still answers without a turn `[observed]`:
+  - `initializationResult()` in about 0.5 s, with `claude_code_version`;
+  - `getContextUsage({detail: 'summary'})` in about 60 ms, with the session's `model` (`claude-opus-5-5`);
+  - `mcpServerStatus()`.
+
+  Neither the initialize reply nor anything else reports the permission mode. An SDK `SessionStart` callback registered in `options.hooks` was not called on resume.
+- MCP servers connect with no turn `[observed]`. The passed fixture server was `connected` with its two tools within about 3 s. The operator's user-scope servers connected too, and the claude.ai connectors went from `pending` to `connected` or `needs-auth`. They stayed connected at the end of the hold.
+- An idle `setPermissionMode('acceptEdits')` is confirmed in about 5 ms, and a `system/status` frame with `permissionMode: acceptEdits` follows `[observed]`. The next turn's `system/init` reports `acceptEdits`.
+- An idle resume writes nothing to the transcript `[observed]`. The size and line count were unchanged through the hold; only the mtime moved, by under a second, at the resume.
+- Closing input on a never-prompted resumed session ends it promptly `[observed]`: the stream ended and every process was gone within about 0.3 to 0.5 s, with no message after the close. On exit the CLI appended two bookkeeping lines to the transcript, `mode` and `cost-state`, and no message. With a prompt answered first, the close behaved the same.
+- Idle memory, sampled at 5, 30, 60, 120 and 300 s `[observed]`:
+  - the CLI: about 220 to 235 MB RSS, 145 to 180 MB PSS, drifting down over the hold;
+  - the probe's own Node process, a stand-in for the shim: about 81 MB RSS, 47 to 53 MB PSS;
+  - each MCP server is its own process: here `lore` about 10 MB PSS, `terminus` about 8 MB, the Node fixture server 14 to 20 MB.
+
+  One prompt took the CLI to about 248 MB RSS, 172 MB PSS.
+
+### codex-cli 0.166.0
+
+`probes/codex/idle-resume.mjs`, on `codex-rt1`. Logs are `probes/codex/logs/idle-resume.*`. One app-server seeded the thread and exited. A second app-server sent `thread/resume` and no `turn/start`, and held for 300 s.
+
+- `thread/resume` answered in about 0.6 s with the model, effort, approval policy and CLI version, and the thread `idle` with its one prior turn `[observed]`. This agrees with X4 and the earlier idle row.
+- MCP startup is reported with no turn: `mcpServer/startupStatus/updated` for each configured server within about 0.6 s `[observed]`. `thread/status/changed` (idle), `thread/tokenUsage/updated`, `thread/goal/cleared` and `account/updated` follow. Nothing more arrived during the hold.
+- An idle resume writes nothing to the rollout `[observed]`: size and mtime unchanged through the hold and after the exit.
+- Closing stdin ends the app-server at once: exit code 0 in about 20 ms, every child gone with it `[observed]`.
+- Idle memory, sampled at 5, 30, 60, 120 and 300 s `[observed]`:
+  - the app-server: about 235 to 290 MB RSS, 165 to 215 MB PSS, peaking near a minute;
+  - its MCP servers and plugins, each its own process: 5 to 28 MB PSS apiece (`lore`, `codebase-memory-mcp`, `terminus`, the Node fixture server, a computer-use plugin's Node and its REPL), about 70 MB together here.
+
+### What this permits
+
+An idle runtime can be held for either harness. It is started by exact id, costs no turn, and writes no message. Its MCP servers connect, and it takes a mode, model or effort change at once. Each idle runtime costs about 200 to 250 MB PSS with its MCP servers, depending on how many servers the operator configures. A handful is reasonable on `fortyfive`; twenty would be several gigabytes, which is why Start is a gesture per conversation and nothing starts on its own. Claude reports no permission mode until a turn, so roundhouse shows the launch mode as requested until Claude's first report (Michael's choice, 2026-11-10).
 
 ## Recommendations
 

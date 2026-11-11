@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/michaelquigley/df/dd"
@@ -38,6 +39,8 @@ type shimFrame struct {
 	Suggestions    any    `dd:",+opaque,+nullable"`
 	Mode           string `dd:",+nullable"`
 	Error          string `dd:",+nullable"`
+	Version        string `dd:",+nullable"`
+	Model          string `dd:",+nullable"`
 }
 
 // command frames sent to the shim.
@@ -100,18 +103,27 @@ type runtime struct {
 	answers   map[string]chan error  // sdk requestId -> the answer waiting for the shim's verdict
 	modes     map[string]*modeSwitch // mode switch id -> the switch waiting for the shim's reply
 	nextMode  int
-	inherited bool   // no permission mode was passed; the operator's settings chose it
-	reqModel  string // the model last passed or confirmed; empty if none was chosen
-	reqEffort string // the effort last passed or confirmed; empty if none was chosen
-	liveModel string // the model as system/init last reported it
+	inherited bool // no permission mode was passed; the operator's settings chose it
+	// launchMode is the mode the launch asked for: the one passed, or the one
+	// the operator's settings name.
+	launchMode string
+	reqModel   string // the model last passed or confirmed; empty if none was chosen
+	reqEffort  string // the effort last passed or confirmed; empty if none was chosen
+	liveModel  string // the model as system/init last reported it
 	// backgroundSeen is when each background task still running was first
 	// seen, by task id.
 	backgroundSeen map[string]time.Time
 	mode           string // the permission mode as last reported or confirmed
-	started        bool   // the first init has been reported
-	interrupted    bool   // an interrupt was sent during the current turn
-	gone           bool   // the shim's output has ended
-	failure        string // the shim's last error frame
+	// modeRequested: mode is only what the launch asked for, as an idle
+	// launch reports it, until claude reports or confirms one.
+	modeRequested bool
+	started       bool // the first init, or an idle launch's ready, has been reported
+	// unverified: an idle launch, whose ready reports no session, has not yet
+	// seen claude report one; the first is checked against nativeID.
+	unverified  bool
+	interrupted bool   // an interrupt was sent during the current turn
+	gone        bool   // the shim's output has ended
+	failure     string // the shim's last error frame
 }
 
 // errExited fails an answer whose runtime ended before the shim confirmed it.
@@ -119,7 +131,7 @@ var errExited = errors.New("the claude runtime exited before the answer was conf
 
 // start runs the shim. each failure here comes before or while starting the
 // shim process, so no session can exist and each is marked not started.
-func start(cmd *exec.Cmd, nativeID string, sink harness.Sink, inherited bool) (*runtime, error) {
+func start(cmd *exec.Cmd, nativeID string, sink harness.Sink, inherited bool, launchMode string, idle bool) (*runtime, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
@@ -136,19 +148,57 @@ func start(cmd *exec.Cmd, nativeID string, sink harness.Sink, inherited bool) (*
 		return nil, fmt.Errorf("%w: starting claude shim: %w", harness.ErrNotStarted, err)
 	}
 	r := &runtime{
-		nativeID:  nativeID,
-		cmd:       cmd,
-		stdin:     stdin,
-		sink:      sink,
-		requests:  make(map[string]string),
-		byNative:  make(map[string]string),
-		answers:   make(map[string]chan error),
-		modes:     make(map[string]*modeSwitch),
-		inherited: inherited,
+		nativeID:   nativeID,
+		cmd:        cmd,
+		stdin:      stdin,
+		sink:       sink,
+		requests:   make(map[string]string),
+		byNative:   make(map[string]string),
+		answers:    make(map[string]chan error),
+		modes:      make(map[string]*modeSwitch),
+		inherited:  inherited,
+		launchMode: launchMode,
+		// an idle launch has no first init to carry the session to the
+		// service before it shows the runtime started; the first session
+		// claude reports, from its very first frame, is checked here instead.
+		unverified: idle,
 	}
 	go logStderr(nativeID, stderr)
 	go r.read(stdout)
+	if idle {
+		time.AfterFunc(idleReadyTimeout, r.readyOverdue)
+	}
 	return r, nil
+}
+
+// idleReadyTimeout bounds how long a start with no prompt waits for claude to
+// answer: past it, the runtime is stopped, so the conversation is left with
+// no runtime and can be started again rather than starting for ever. the
+// shim's own wait on initialize is 30 seconds, inside this one.
+var idleReadyTimeout = time.Minute
+
+// readyOverdue stops an idle launch that has not reported started in time:
+// the reason is kept for the exit, and the shim's process group (the shim,
+// claude, and anything claude started) is killed, since claude never answered
+// and nothing of the session was written. its exit is reported as for any
+// runtime, and the service records the error.
+func (r *runtime) readyOverdue() {
+	r.mu.Lock()
+	if r.started || r.gone || r.cmd == nil || r.cmd.Process == nil {
+		r.mu.Unlock()
+		return
+	}
+	reason := fmt.Sprintf("claude did not answer within %s of a start with no prompt, so the runtime was stopped", idleReadyTimeout)
+	if r.failure != "" {
+		reason = r.failure + "; " + reason
+	}
+	r.failure = reason
+	pid := r.cmd.Process.Pid
+	r.mu.Unlock()
+	dl.Warnf("claude shim for '%s': %s", r.nativeID, reason)
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
+		dl.Warnf("stopping claude shim for '%s': %v", r.nativeID, err)
+	}
 }
 
 func (r *runtime) NativeID() string {
@@ -417,8 +467,10 @@ func (r *runtime) handle(line []byte) {
 		delete(r.modes, frame.ID)
 		changed := false
 		if ok && frame.Error == "" {
-			changed = r.mode != waiting.mode
+			// a confirmed switch is a report, even to the mode requested.
+			changed = r.mode != waiting.mode || r.modeRequested
 			r.mode = waiting.mode
+			r.modeRequested = false
 		}
 		r.mu.Unlock()
 		if !ok {
@@ -435,9 +487,54 @@ func (r *runtime) handle(line []byte) {
 			r.sink.Event(modeChanged(waiting.mode, "confirmed by claude; applies from the next tool call"))
 		}
 		waiting.done <- nil
+	case "ready":
+		r.ready(frame)
 	case "interrupted", "exit":
 	default:
 		dl.Debugf("unknown frame '%s' from claude shim for '%s'", frame.Type, r.nativeID)
+	}
+}
+
+// ready is an idle launch's report that the session is up: claude's version
+// and model, answered without a turn. it shows the runtime started, with the
+// mode the launch asked for marked as requested, since claude reports its mode
+// only at a turn's start. a first init that came sooner has already done so.
+func (r *runtime) ready(frame *shimFrame) {
+	r.mu.Lock()
+	if r.started {
+		r.mu.Unlock()
+		return
+	}
+	r.started = true
+	r.mode = r.launchMode
+	r.modeRequested = r.launchMode != ""
+	if frame.Model != "" {
+		r.liveModel = frame.Model
+	}
+	// no session: claude has reported none yet. the first message that
+	// carries one is checked against the session resumed.
+	facts := &model.RuntimeFacts{
+		Model:          frame.Model,
+		Version:        frame.Version,
+		PermissionMode: r.launchMode,
+		ModeInherited:  r.inherited,
+		ModeRequested:  r.launchMode != "",
+	}
+	r.mu.Unlock()
+	r.sink.Event(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Origin: model.OriginManaged, Text: "started with no prompt", Facts: facts})
+}
+
+// verifySession checks the first session claude reports in an idle launch,
+// before or after its ready, against the session resumed. a different one is reported as
+// the session the runtime started on, so the service's guard records the
+// error and stops it, as it does for a first init that disagrees.
+func (r *runtime) verifySession(reported string) {
+	r.mu.Lock()
+	check := r.unverified
+	r.unverified = false
+	r.mu.Unlock()
+	if check && reported != r.nativeID {
+		r.sink.Event(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Origin: model.OriginManaged, Text: "claude reported another session", Facts: &model.RuntimeFacts{Session: reported}})
 	}
 }
 
@@ -449,6 +546,9 @@ func (r *runtime) event(raw map[string]any) {
 	if err != nil {
 		dl.Warnf("claude shim for '%s': %v", r.nativeID, err)
 		return
+	}
+	if msg.SessionID != "" {
+		r.verifySession(msg.SessionID)
 	}
 	if msg.Type == "system" && msg.Subtype == "background_tasks_changed" {
 		// the whole current list of background work; the native event is
@@ -466,8 +566,10 @@ func (r *runtime) event(raw map[string]any) {
 		first := !r.started
 		r.started = true
 		previous := r.mode
+		requested := r.modeRequested
 		if msg.PermissionMode != "" {
 			r.mode = msg.PermissionMode
+			r.modeRequested = false
 		}
 		previousModel := r.liveModel
 		if msg.Model != "" {
@@ -480,7 +582,19 @@ func (r *runtime) event(raw map[string]any) {
 			// switch or any change of its own: the one writer of the live model.
 			r.sink.Event(&model.Event{Kind: model.EventRuntime, Status: model.StatusModelChanged, Origin: model.OriginManaged, Text: "reported by claude", Facts: &model.RuntimeFacts{Model: msg.Model}})
 		}
-		if !first && msg.PermissionMode != "" && msg.PermissionMode != previous {
+		switch {
+		case !first && msg.PermissionMode != "" && requested:
+			// the first turn after an idle launch: claude's own report replaces
+			// the mode the launch only requested, the same one or not.
+			same := msg.PermissionMode == previous
+			r.sink.Event(&model.Event{
+				Kind:   model.EventRuntime,
+				Status: model.StatusModeChanged,
+				Origin: model.OriginManaged,
+				Text:   "reported by claude at the first turn",
+				Facts:  &model.RuntimeFacts{PermissionMode: msg.PermissionMode, ModeInherited: same && inherited, ModeConfirmed: same},
+			})
+		case !first && msg.PermissionMode != "" && msg.PermissionMode != previous:
 			// claude re-reports init at the start of every turn. a mode that
 			// differs from the last one known changed inside the session, as
 			// when plan mode is left.

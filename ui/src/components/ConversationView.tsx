@@ -11,6 +11,8 @@ interface ConversationViewProps {
   log: ConversationLog | null
   stale: boolean
   onRemoved: () => void
+  // why new work waits, or null: prompts and starts wait, and say so.
+  heldBy: string | null
 }
 
 const stateLabels: Record<Conversation['state'], string> = {
@@ -25,7 +27,7 @@ const stateLabels: Record<Conversation['state'], string> = {
 // ConversationView is one conversation: a read-only header of identity and
 // what the harness reports, the history, and the input panel pinned below
 // it, where every control and every pending request lives.
-export function ConversationView({ conversation, project, log, stale, onRemoved }: ConversationViewProps) {
+export function ConversationView({ conversation, project, log, stale, onRemoved, heldBy }: ConversationViewProps) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [showNative, setShowNative] = useState(false)
@@ -71,8 +73,7 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
             effortFact(conversation),
             conversation.version && `v${conversation.version}`,
             conversation.mode,
-            conversation.permission_mode &&
-              `permissions: ${conversation.permission_mode}${conversation.permission_mode_inherited ? ' (inherited)' : ''}`,
+            conversation.permission_mode && `permissions: ${conversation.permission_mode}${modeQualifier(conversation)}`,
             // the stored choice is intent for the next launch; shown when there
             // is no live mode, or apart from it when they differ.
             conversation.permission_mode_choice &&
@@ -124,9 +125,18 @@ export function ConversationView({ conversation, project, log, stale, onRemoved 
         onRemoved={onRemoved}
         newer={newer}
         onLatest={toLatest}
+        heldBy={heldBy}
       />
     </article>
   )
+}
+
+// modeQualifier says where the running mode came from: the operator's
+// settings, and whether claude has reported it yet or it is only what the
+// launch asked for.
+function modeQualifier(conversation: Conversation): string {
+  const notes = [conversation.permission_mode_inherited && 'inherited', conversation.permission_mode_requested && 'requested'].filter(Boolean)
+  return notes.length > 0 ? ` (${notes.join(', ')})` : ''
 }
 
 // effortFact is the effort in the header: as codex reports it, or for claude,

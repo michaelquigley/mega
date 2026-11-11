@@ -73,7 +73,11 @@ type live struct {
 	inc       *incarnation // the current runtime's identity; nil when none
 	busy      bool         // a start or a resume is under way
 	releasing bool         // the current runtime has been asked to stop
-	switching bool         // a permission mode or model change is waiting on the runtime
+	// refused is a wrong-session report that arrived while the runtime was
+	// still launching, with no runtime yet to stop; the launch applies it as
+	// soon as Launch returns, before any prompt.
+	refused   *model.Event
+	switching bool // a permission mode or model change is waiting on the runtime
 
 	// nextModel and nextEffort are a change asked for while running, shown as
 	// the next prompt's until a turn begun after the change ends. nextSent is
@@ -517,14 +521,30 @@ func (k *sink) started(ev *model.Event) {
 	}
 	bound := l.sessionOf(conv)
 	if ev.Facts != nil && ev.Facts.Session != "" && bound != "" && ev.Facts.Session != bound {
-		s.beginStopLocked(l, &model.Event{
+		refusal := &model.Event{
 			Status: model.StatusError,
 			Text:   fmt.Sprintf("the runtime reported session '%s', but this conversation is bound to '%s'; stopping it", ev.Facts.Session, bound),
-		})
+		}
+		if l.runtime == nil {
+			// still launching (an adapter may report before Launch returns):
+			// held until the runtime is in hand, never dropped.
+			if l.refused == nil {
+				l.refused = refusal
+			}
+			return
+		}
+		s.beginStopLocked(l, refusal)
 		return
 	}
 	facts := ev.Facts
-	if err := s.transition(l, ev, StateRunning, func() { l.facts = facts }); err != nil {
+	// a release asked for before the runtime reported (an idle start's report
+	// can take half a second) keeps the stopping it recorded: the runtime is
+	// on its way out, and only its exit settles it.
+	state := StateRunning
+	if l.releasing || l.refused != nil {
+		state = l.state
+	}
+	if err := s.transition(l, ev, state, func() { l.facts = facts }); err != nil {
 		dl.Errorf("%v", err)
 	}
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"time"
 
 	"git.hq.quigley.com/research/roundhouse/internal/model"
 	"git.hq.quigley.com/research/roundhouse/internal/service"
@@ -35,6 +36,26 @@ type workspaceView struct {
 	Projects      []*projectView
 	Conversations []*conversationView
 	NeedsYou      []string
+	Shutdown      *shutdownView
+}
+
+// shutdownView is the "shut down when idle" gate: whether it is armed, since
+// when, whether nothing is in the way, and what is, by conversation and kind.
+type shutdownView struct {
+	Armed    bool
+	ArmedAt  time.Time `dd:",+omitempty"`
+	Idle     bool
+	Blockers []*blockerView
+}
+
+type blockerView struct {
+	ConversationID string
+	ProjectID      string
+	Name           string
+	Turn           bool
+	Requests       int
+	Background     int
+	Settling       string `dd:",+omitempty"`
 }
 
 type createProjectRequest struct {
@@ -55,6 +76,15 @@ func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
 		Projects:      make([]*projectView, 0, len(workspace.Projects)),
 		Conversations: make([]*conversationView, 0, len(workspace.Conversations)),
 		NeedsYou:      workspace.NeedsYou,
+		Shutdown: &shutdownView{
+			Armed:    workspace.Gate.Armed,
+			ArmedAt:  workspace.Gate.ArmedAt,
+			Idle:     workspace.Gate.Idle(),
+			Blockers: make([]*blockerView, 0, len(workspace.Gate.Blockers)),
+		},
+	}
+	for _, b := range workspace.Gate.Blockers {
+		view.Shutdown.Blockers = append(view.Shutdown.Blockers, &blockerView{ConversationID: b.ConversationID, ProjectID: b.ProjectID, Name: b.Name, Turn: b.Turn, Requests: b.Requests, Background: b.Background, Settling: b.Settling})
 	}
 	for _, project := range workspace.Projects {
 		view.Projects = append(view.Projects, newProjectView(project))

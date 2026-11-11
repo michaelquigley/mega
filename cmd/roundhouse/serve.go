@@ -92,8 +92,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
-		<-ctx.Done()
-		dl.Infof("shutting down")
+		// a signal, or a shutdown the operator asked for from the gate once
+		// every agent was idle: the same orderly stop either way.
+		select {
+		case <-ctx.Done():
+			dl.Infof("shutting down")
+		case <-svc.ShutdownRequested():
+			dl.Infof("shutting down, as asked from the workspace once every agent was idle")
+		}
 		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), releaseTimeout)
 		svc.Shutdown(releaseCtx)
 		cancelRelease()

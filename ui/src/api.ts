@@ -116,6 +116,10 @@ export const releaseConversation = (id: string) => request<void>('POST', `${conv
 
 export const resumeConversation = (id: string) => request<void>('POST', `${conversationPath(id)}/resume`)
 
+// startRuntime starts a stopped conversation's runtime on its session, sending
+// nothing.
+export const startRuntime = (id: string) => request<void>('POST', `${conversationPath(id)}/start`)
+
 export interface DiscoveredSession {
   native_id: string
   preview: string
@@ -138,3 +142,10 @@ export const adoptSession = (projectId: string, harness: string, nativeId: strin
 
 export const readConversation = (id: string, seq: number) =>
   request<void>('POST', `${conversationPath(id)}/read`, { seq })
+
+// the "shut down when idle" gate. arm and cancel are announced to every page;
+// shut down is refused unless armed and idle, and then stops the service as a
+// signal does.
+export const armShutdown = () => request<void>('POST', '/api/shutdown/arm')
+export const cancelShutdown = () => request<void>('POST', '/api/shutdown/cancel')
+export const shutDown = () => request<void>('POST', '/api/shutdown')

@@ -99,6 +99,10 @@ export interface Conversation {
   // confirmed it, and whether the operator's settings chose it.
   permission_mode?: string
   permission_mode_inherited: boolean
+  // permission_mode_requested: the running mode is only the one the runtime
+  // was launched with; claude reports its mode at a turn's start, and a
+  // runtime started with no prompt has had none.
+  permission_mode_requested?: boolean
   // the recorded choice every launch passes; empty is roundhouse's default.
   permission_mode_choice: string
   // the recorded model and effort every launch (and, for codex, every prompt)
@@ -145,6 +149,29 @@ export interface Workspace {
   conversations: Conversation[]
   // the conversations waiting on the operator, in the order to take them.
   needs_you: string[]
+  // the "shut down when idle" gate and what is in its way.
+  shutdown?: ShutdownGate
+}
+
+// Blocker is one conversation holding the shutdown gate, by kind.
+export interface Blocker {
+  conversation_id: string
+  project_id: string
+  name: string
+  turn: boolean
+  requests: number
+  background: number
+  // settling: a runtime starting, or a conversation resuming.
+  settling?: string
+}
+
+// ShutdownGate is held by the service in memory: armed, since when, whether
+// nothing is in the way, and what is.
+export interface ShutdownGate {
+  armed: boolean
+  armed_at?: string
+  idle: boolean
+  blockers: Blocker[]
 }
 
 export type EventKind =
@@ -169,7 +196,9 @@ export interface ConversationEvent {
   tool?: string
   tool_use_id?: string
   req?: { id: string; kind: string; payload?: RequestPayload | null; outcome?: string }
-  facts?: { session?: string; model?: string; effort?: string; version?: string; permission_mode?: string; cwd?: string }
+  // mode_confirmed: a mode report that only confirms the mode a start with no
+  // prompt requested; recorded, never drawn.
+  facts?: { session?: string; model?: string; effort?: string; version?: string; permission_mode?: string; mode_confirmed?: boolean; cwd?: string }
   raw?: unknown
 }
 

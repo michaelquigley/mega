@@ -24,15 +24,25 @@ export function mentionAt(text: string, caret: number): { start: number; query: 
   return { start, query: text.slice(start + 1, caret) }
 }
 
+// mentionText is how a picked path is written. for a harness that attaches
+// mentioned files it keeps the @, and a path with whitespace is quoted, the
+// only form claude attaches for it (capability report, 2026-11-10); otherwise
+// it is the bare path.
+export function mentionText(path: string, keepAt: boolean): string {
+  if (!keepAt) {
+    return path
+  }
+  return /\s/.test(path) ? `@"${path}"` : `@${path}`
+}
+
 // insertPath puts a picked path in place of the @-word at start, through the
-// end of that word, followed by a space. the leading @ stays only where the
-// harness attaches mentioned files.
+// end of that word, followed by a space, written as mentionText says.
 export function insertPath(text: string, start: number, path: string, keepAt: boolean): { text: string; caret: number } {
   let end = start
   while (end < text.length && !/\s/.test(text[end])) {
     end++
   }
-  const inserted = `${keepAt ? '@' : ''}${path}`
+  const inserted = mentionText(path, keepAt)
   const rest = text.slice(end)
   const spaced = rest === '' || !/^\s/.test(rest) ? ' ' : ''
   return { text: text.slice(0, start) + inserted + spaced + rest, caret: start + inserted.length + 1 }

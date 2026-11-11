@@ -35,6 +35,9 @@ type conversationView struct {
 	// PermissionModeInherited is whether the running mode came from the
 	// operator's settings because roundhouse passed none.
 	PermissionModeInherited bool
+	// PermissionModeRequested is whether the running mode is only the one the
+	// runtime was launched with, not yet reported by the harness.
+	PermissionModeRequested bool `dd:",+omitempty"`
 	// PermissionModeChoice is the recorded choice every launch passes; empty
 	// is roundhouse's default.
 	PermissionModeChoice string
@@ -104,6 +107,7 @@ func newConversationView(conv service.ConversationView) *conversationView {
 	if conv.Facts != nil {
 		view.Model, view.Version, view.PermissionMode = conv.Facts.Model, conv.Facts.Version, conv.Facts.PermissionMode
 		view.PermissionModeInherited = conv.Facts.ModeInherited
+		view.PermissionModeRequested = conv.Facts.ModeRequested
 		view.Effort = conv.Facts.Effort
 	}
 	for _, job := range conv.Background {
@@ -364,6 +368,11 @@ func (s *Server) setModel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) release(w http.ResponseWriter, r *http.Request) {
 	s.command(w, r, s.svc.Release(r.PathValue("id")))
+}
+
+// start launches a stopped conversation's runtime with no prompt.
+func (s *Server) start(w http.ResponseWriter, r *http.Request) {
+	s.command(w, r, s.svc.Start(r.PathValue("id")))
 }
 
 func (s *Server) resume(w http.ResponseWriter, r *http.Request) {

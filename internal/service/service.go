@@ -37,6 +37,9 @@ type Workspace struct {
 	// NeedsYou lists the conversations waiting on the operator, in the order
 	// to take them: pending requests first, then unread output, oldest first.
 	NeedsYou []string
+
+	// Gate is the "shut down when idle" state and what is in its way.
+	Gate Gate
 }
 
 // Service owns the registry, the event logs, the runtimes and their pending
@@ -53,6 +56,7 @@ type Service struct {
 	closed      bool
 	catalogs    catalogs  // model lists, per harness, for the service's life
 	paths       pathCache // checkout listings, held briefly
+	gate        shutdownGate
 }
 
 // New returns a service over reg. it recovers from the previous run before
@@ -67,6 +71,7 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 		harnesses:   make(map[string]harness.Harness),
 		live:        make(map[string]*live),
 		subs:        make(map[*Subscription]struct{}),
+		gate:        shutdownGate{requested: make(chan struct{})},
 	}
 	if s.isUntrusted == nil {
 		s.isUntrusted = func(string) bool { return false }
@@ -90,14 +95,19 @@ func (s *Service) Workspace() Workspace {
 	s.mu.Lock()
 	doc := s.reg.Snapshot()
 	conversations := make([]ConversationView, 0, len(doc.Conversations))
+	gate := Gate{Armed: s.gate.armed, ArmedAt: s.gate.armedAt}
 	for _, conv := range doc.Conversations {
-		conversations = append(conversations, s.viewLocked(conv))
+		view := s.viewLocked(conv)
+		conversations = append(conversations, view)
+		if b, ok := blockerOf(view, s.busyLocked(conv.ID)); ok {
+			gate.Blockers = append(gate.Blockers, b)
+		}
 	}
 	s.mu.Unlock()
 	for i := range doc.Projects {
 		s.applyTrust(&doc.Projects[i])
 	}
-	return Workspace{Projects: doc.Projects, Conversations: conversations, NeedsYou: needsYou(conversations)}
+	return Workspace{Projects: doc.Projects, Conversations: conversations, NeedsYou: needsYou(conversations), Gate: gate}
 }
 
 // RegisterProject adds an existing checkout to the workspace. an empty name

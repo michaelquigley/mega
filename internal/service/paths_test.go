@@ -207,3 +207,61 @@ func TestPathListingWalksANonGitCheckout(t *testing.T) {
 		t.Errorf("search offers the outside link: %v", got)
 	}
 }
+
+// a file git still tracks but that was deleted from the working tree is not
+// offered, nor is a directory only such files imply.
+func TestDeletedTrackedFilesAreNotOffered(t *testing.T) {
+	svc := tempService(t)
+	root := pathsCheckout(t)
+	write(t, root, "gone/old.txt", "old")
+	git(t, root, "add", "gone/old.txt")
+	if err := os.RemoveAll(filepath.Join(root, "gone")); err != nil {
+		t.Fatal(err)
+	}
+	project, err := svc.RegisterProject("paths", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all := svc.paths.listing(root, time.Now()); !slices.Contains(all, "gone/old.txt") {
+		t.Fatalf("git no longer lists the deleted file, so this test proves nothing: %v", all)
+	}
+	for _, q := range []string{"old", "gone", ""} {
+		got, err := svc.Paths(project.ID, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(got, "gone/old.txt") || slices.Contains(got, "gone/") {
+			t.Errorf("q %q offers the deleted file: %v", q, got)
+		}
+	}
+}
+
+// with nothing typed after the @, hidden entries come last; typed, they rank
+// as any other.
+func TestEmptyQueryRanksHiddenEntriesLast(t *testing.T) {
+	svc := tempService(t)
+	root := pathsCheckout(t)
+	write(t, root, ".claude/settings.json", "{}")
+	project, err := svc.RegisterProject("paths", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Paths(project.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstHidden := slices.IndexFunc(got, hidden)
+	if firstHidden < 0 || slices.ContainsFunc(got[firstHidden:], func(p string) bool { return !hidden(p) }) {
+		t.Errorf("hidden entries are not last: %v", got)
+	}
+	if got[0] != "src/" && got[0] != "util/" {
+		t.Errorf("the shortest visible path leads: %v", got)
+	}
+	typed, err := svc.Paths(project.ID, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(typed) == 0 || typed[0] != ".claude/" {
+		t.Errorf("typed, a hidden match ranks as any other: %v", typed)
+	}
+}

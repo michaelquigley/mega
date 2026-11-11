@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from 'react'
-import { interruptConversation, releaseConversation, removeConversation, resumeConversation, sendPrompt, setModel, setPermissionMode, updateConversation } from '../api'
+import { interruptConversation, releaseConversation, removeConversation, resumeConversation, sendPrompt, setModel, setPermissionMode, startRuntime, updateConversation } from '../api'
 import { harnesses } from '../harnesses'
 import type { ConversationLog } from '../log'
 import type { Conversation, Project } from '../types'
@@ -63,6 +63,9 @@ interface InputPanelProps {
   onRemoved: () => void
   newer: boolean
   onLatest: () => void
+  // why new work waits (a shutdown armed, or done from this page), or null:
+  // Send and Start wait, and say so.
+  heldBy: string | null
 }
 
 type Open = 'release' | 'rename' | 'remove' | null
@@ -74,7 +77,7 @@ type Open = 'release' | 'rename' | 'remove' | null
 // current pending set; the history keeps only a row for each. the reply box
 // is one line at rest and opens while focus is anywhere in the cluster.
 export function InputPanel(props: InputPanelProps) {
-  const { conversation, project, log, stale, busy, error, attempt, showNative, onShowNative, onRemoved, newer, onLatest } = props
+  const { conversation, project, log, stale, busy, error, attempt, showNative, onShowNative, onRemoved, newer, onLatest, heldBy } = props
   const [draft, setDraft] = useState(() => drafts.get(conversation.id) ?? '')
   const [expanded, setExpanded] = useState(false)
   const [height, setHeight] = useState(readHeight)
@@ -126,7 +129,7 @@ export function InputPanel(props: InputPanelProps) {
   const activity = describeActivity(conversation, log, stale)
   // the placeholder says what is true: the activity line's own words while a
   // prompt cannot be sent.
-  const placeholder = blocked && activity ? activity.text : 'Reply (Ctrl+Enter to send)'
+  const placeholder = blocked && activity ? activity.text : heldBy ??  'Reply (Ctrl+Enter to send)'
 
   // expanded, the box opens to the remembered height and grows with its
   // content to 60% of the viewport, then scrolls. collapsed, it is one line
@@ -282,6 +285,10 @@ export function InputPanel(props: InputPanelProps) {
 
   const settling = state === 'starting' || state === 'stopping' || state === 'resuming'
   const canResume = (state === 'none' || state === 'unsupervised') && !!conversation.native_id
+  // start: a stopped conversation with a session to resume, sending nothing.
+  // never while unsupervised, which Resume settles first, and never on its
+  // own: only this gesture starts a runtime without a prompt.
+  const canStart = state === 'none' && !!conversation.native_id
   const terminal =
     conversation.native_id && terminalCommands[conversation.harness]
       ? `cd ${project.checkout} && ${terminalCommands[conversation.harness]} ${conversation.native_id}`
@@ -356,7 +363,20 @@ export function InputPanel(props: InputPanelProps) {
         <PathList search={search} id={listId} />
         <div className="control-bar">
           <div className="bar-start">
-            <IconButton type="submit" icon="send" label="Send (Ctrl+Enter)" disabled={busy || blocked || draft.trim() === ''} />
+            <IconButton
+              type="submit"
+              icon="send"
+              label={heldBy ??  'Send (Ctrl+Enter)'}
+              disabled={busy || blocked || draft.trim() === '' || heldBy !== null}
+            />
+            {canStart && (
+              <IconButton
+                icon="power_settings_new"
+                label={heldBy ??  'Start the runtime on this session, sending nothing'}
+                disabled={busy || heldBy !== null}
+                onClick={() => void attempt(() => startRuntime(conversation.id))}
+              />
+            )}
             {hasRuntime && (active || pending.length > 0) && (
               <IconButton icon="stop" label="Interrupt" disabled={busy} onClick={() => void attempt(() => interruptConversation(conversation.id))} />
             )}

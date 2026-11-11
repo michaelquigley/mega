@@ -14,6 +14,8 @@
 //                item/completed MS later, outside the turn (codex-cli 0.166.0)
 //   anything     a reply of "ok"
 // turn/interrupt resolves a pending elicitation and ends the turn interrupted.
+// thread/resume with no turn/start holds the thread idle until a prompt, as
+// codex does, so a start with no prompt needs nothing more.
 //
 // models: model/list offers fake-large (low to high, the default) and
 // fake-small (low and medium); config/read says the checkout inherits

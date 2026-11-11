@@ -1,7 +1,8 @@
 import { select } from '../selection'
 import { connectionLabel, failing, type Knowledge, type StreamState } from '../stream'
 import { treeGroups } from '../tree'
-import type { Conversation, Project } from '../types'
+import type { Conversation, Project, ShutdownGate } from '../types'
+import { RailGate } from './Gate'
 import { ProjectMark } from './AttentionMark'
 import { IconButton } from './Icon'
 
@@ -14,6 +15,8 @@ interface RailProps {
   loaded: boolean
   knowledge: Knowledge
   onExpand: () => void
+  gate: ShutdownGate | undefined
+  shutDownAt: Date | null
 }
 
 // Rail is the collapsed side panel: the control to expand, how many
@@ -21,7 +24,7 @@ interface RailProps {
 // connection. nothing that signals attention or activity is lost by
 // collapsing: each project's mark is the same rollup the tree shows, working
 // arc included.
-export function Rail({ projects, conversations, needsYou, streamState, stale, loaded, knowledge, onExpand }: RailProps) {
+export function Rail({ projects, conversations, needsYou, streamState, stale, loaded, knowledge, onExpand, gate, shutDownAt }: RailProps) {
   const { starred, rest } = treeGroups(projects)
   const waiting = needsYou.length
   // before the first read the count is unknown, never zero.
@@ -34,7 +37,8 @@ export function Rail({ projects, conversations, needsYou, streamState, stale, lo
           ? 'Not known: the service could not read the workspace'
           : 'Not known yet: connecting'
   }
-  const connection = connectionLabel(knowledge, streamState)
+  const down = shutDownAt !== null && streamState !== 'connected'
+  const connection = down ? 'Shut down from here, retrying' : connectionLabel(knowledge, streamState)
   return (
     <nav className="rail" aria-label="Side panel, collapsed">
       <IconButton icon="keyboard_double_arrow_right" label="Expand the side panel" onClick={onExpand} />
@@ -45,6 +49,7 @@ export function Rail({ projects, conversations, needsYou, streamState, stale, lo
       >
         {loaded ? waiting : '?'}
       </span>
+      {!shutDownAt && <RailGate gate={gate} stale={stale} onExpand={onExpand} />}
       <ul className="rail-projects">
         {[...starred, ...rest].map((project) => (
           <li key={project.id}>
@@ -63,7 +68,7 @@ export function Rail({ projects, conversations, needsYou, streamState, stale, lo
           </li>
         ))}
       </ul>
-      <span className={`rail-stream stream-${failing(knowledge) ? 'disconnected' : streamState}${loaded ? '' : ' unknown'}`} title={connection} aria-label={connection} role="img" />
+      <span className={`rail-stream stream-${failing(knowledge) || down ? 'disconnected' : streamState}${loaded ? '' : ' unknown'}`} title={connection} aria-label={connection} role="img" />
     </nav>
   )
 }

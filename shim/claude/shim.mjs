@@ -3,7 +3,7 @@
 // and the claude agent sdk, speaking one JSON object per line on stdio.
 //
 //   node shim.mjs run --cwd DIR (--session-id UUID | --resume UUID) --exec PATH
-//        [--permission-mode MODE] [--model MODEL] [--effort LEVEL]
+//        [--permission-mode MODE] [--model MODEL] [--effort LEVEL] [--idle]
 //   node shim.mjs models --cwd DIR --exec PATH
 //   node shim.mjs messages --session UUID --cwd DIR
 //   node shim.mjs list --cwd DIR
@@ -19,6 +19,7 @@
 //   {"type":"permission_mode_set","id":...,"mode":...,"error":...}  it did not
 //   {"type":"model_set","id":...,"model":...[,"error":...]}
 //   {"type":"effort_set","id":...,"effort":...[,"error":...]}
+//   {"type":"ready","version":...,"model":...}  --idle only: claude answered initialize
 //   {"type":"error","message":...}
 //   {"type":"exit","code":N}
 // run, service to shim:
@@ -36,6 +37,11 @@
 // with no --permission-mode the option is left out so claude's own settings
 // decide. setting sources stay the default, so approvals reach the operator
 // and project settings load as they would in a terminal.
+//
+// --idle is a launch with no prompt coming. claude sends no system/init until
+// a turn starts, so the shim reports what claude answers without one: its
+// version from the initialize reply and the session's model from
+// getContextUsage's summary, which runs no turn (capability report, 2.1.318).
 
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
@@ -170,6 +176,7 @@ export async function run(opt, sdk, io) {
   let code = 0;
   try {
     q = sdk.query({ prompt: input.iterate(), options });
+    if (opt.idle) void ready(q, emit);
     for await (const msg of q) emit({ type: 'event', msg });
   } catch (e) {
     emit({ type: 'error', message: String(e?.message ?? e) });
@@ -178,6 +185,27 @@ export async function run(opt, sdk, io) {
   lines.close();
   emit({ type: 'exit', code });
   return code;
+}
+
+// readyTimeout bounds each question ready asks; what is not answered in time
+// is reported empty.
+const readyTimeout = 30000;
+
+// ready reports an idle session up once claude has answered initialize, with
+// its version and the session's model. the model is a courtesy, empty if
+// unanswered; an initialize that fails or times out is reported as an error and
+// no ready, so the runtime is never shown started on no answer from claude.
+async function ready(q, emit) {
+  const bounded = p => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error(`no answer within ${readyTimeout / 1000}s`)), readyTimeout).unref?.())]);
+  const [init, usage] = await Promise.all([
+    bounded(q.initializationResult()).then(r => ({ ok: r ?? {} }), e => ({ error: e })),
+    bounded(q.getContextUsage({ detail: 'summary' })).catch(() => ({})),
+  ]);
+  if (init.error) {
+    emit({ type: 'error', message: `idle launch: claude did not answer initialize: ${init.error?.message ?? init.error}` });
+    return;
+  }
+  emit({ type: 'ready', version: init.ok.claude_code_version ?? '', model: usage?.model ?? '' });
 }
 
 export async function messages(opt, sdk, io) {

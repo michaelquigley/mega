@@ -3,6 +3,7 @@
 // programmatic prompt as a file mention, as its terminal does.
 //
 //   node mention.mjs --cwd DIR --log logs/x.jsonl [--exec PATH] [--plain]
+//                    [--file NAME] [--form bare|quoted|escaped]
 //
 // sends one prompt naming @fixture.txt with every file-reading tool
 // disallowed, so the model can only answer if the mention attached the file.
@@ -21,12 +22,18 @@ for (let i = 0; i < argv.length; i++) {
   else { opt[argv[i].slice(2)] = next; i++ }
 }
 const cwd = resolve(opt.cwd ?? '.')
-const content = readFileSync(join(cwd, 'fixture.txt'), 'utf8').trim()
+// --file names the file to mention (fixture.txt by default); --form says how
+// the mention is written: bare (@name), quoted (@"name") or escaped
+// (@name with each space backslashed), for a name with spaces.
+const file = typeof opt.file === 'string' ? opt.file : 'fixture.txt'
+const content = readFileSync(join(cwd, file), 'utf8').trim()
+const form = typeof opt.form === 'string' ? opt.form : 'bare'
+const mention = { bare: `@${file}`, quoted: `@"${file}"`, escaped: `@${file.replaceAll(' ', '\\ ')}` }[form]
 const log = createWriteStream(opt.log ?? `logs/mention-${Date.now()}.jsonl`)
 const t0 = Date.now()
 const rec = (kind, data) => log.write(JSON.stringify({ ms: Date.now() - t0, kind, ...data }) + '\n')
 // --plain names the file without the @, as a control.
-const prompt = `Reply with the exact contents of ${opt.plain ? '' : '@'}fixture.txt and nothing else. If you cannot see its contents, reply NOT-ATTACHED.`
+const prompt = `Reply with the exact contents of ${opt.plain ? file : mention} and nothing else. If you cannot see its contents, reply NOT-ATTACHED.`
 const q = query({
   prompt,
   options: {

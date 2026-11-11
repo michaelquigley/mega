@@ -58,7 +58,11 @@ function fakeSdk(seen) {
       };
       gen.applyFlagSettings = async settings => { (seen.flags ??= []).push(settings); };
       gen.supportedModels = async () => [{ value: 'opus', displayName: 'Opus', supportedEffortLevels: ['low', 'high'] }];
-      gen.initializationResult = async () => ({ claude_code_version: '2.1.318' });
+      gen.initializationResult = async () => {
+        if (seen.initFails) throw new Error('cli gone');
+        return { claude_code_version: '2.1.318' };
+      };
+      gen.getContextUsage = async opts => { seen.usage = opts; return { model: 'claude-opus-5-5' }; };
       gen.setPermissionMode = async mode => {
         if (mode === 'refuse') throw new Error('unsupported mode');
         seen.modes.push(mode);
@@ -176,3 +180,39 @@ test('passes model and effort, switches both on request, and lists models idle',
   assert.equal(seen3.prompts.length, 0, 'the models command sends no prompt');
 });
 
+
+test('an idle launch reports ready without a prompt, and takes one later', async () => {
+  const h = harness();
+  const seen = { prompts: [], modes: [] };
+  const done = main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude', '--resume', 's-6', '--idle'], fakeSdk(seen), h.io);
+  const ready = await h.next(f => f.type === 'ready');
+  assert.deepEqual(ready, { type: 'ready', version: '2.1.318', model: 'claude-opus-5-5' });
+  assert.deepEqual(seen.usage, { detail: 'summary' }, 'the model comes from the summary, which runs no turn');
+  assert.equal(seen.prompts.length, 0, 'ready sends no prompt');
+  assert.equal(seen.options.resume, 's-6');
+  h.send({ type: 'prompt', uuid: 'u-1', text: 'go' });
+  await h.next(f => f.type === 'request');
+  assert.equal(seen.prompts.length, 1);
+  h.send({ type: 'close' });
+  h.send({ type: 'answer', id: 'req-1', decision: 'deny' });
+  assert.equal(await done, 0);
+
+  const h2 = harness();
+  const seen2 = { prompts: [], modes: [] };
+  const done2 = main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude', '--session-id', 's-7'], fakeSdk(seen2), h2.io);
+  await h2.next(f => f.type === 'event');
+  h2.send({ type: 'close' });
+  assert.equal(await done2, 0);
+  assert.equal(h2.frames.some(f => f.type === 'ready'), false, 'a launch with a prompt coming reports no ready');
+});
+
+test('an idle launch whose initialize fails reports an error and no ready', async () => {
+  const h = harness();
+  const seen = { prompts: [], modes: [], initFails: true };
+  const done = main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude', '--resume', 's-8', '--idle'], fakeSdk(seen), h.io);
+  const error = await h.next(f => f.type === 'error');
+  assert.match(error.message, /did not answer initialize: cli gone/);
+  assert.equal(h.frames.some(f => f.type === 'ready'), false);
+  h.send({ type: 'close' });
+  assert.equal(await done, 0);
+});

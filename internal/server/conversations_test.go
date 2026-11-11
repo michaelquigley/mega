@@ -409,3 +409,107 @@ func TestBackgroundOnTheWire(t *testing.T) {
 		t.Errorf("after the list emptied: %v", got["background"])
 	}
 }
+
+// start answers 202 and launches idle on the conversation's session; a second
+// start, and one for an unknown conversation, are refused. the requested mode
+// reaches the wire.
+func TestStartOnTheWire(t *testing.T) {
+	f := start(t)
+	id, rt := f.startConversation(t)
+	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID()}})
+	path := "/api/conversations/" + id
+	if status, _ := f.do(t, http.MethodPost, path+"/release", ""); status != http.StatusAccepted {
+		t.Fatalf("release: %d", status)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for f.conversation(t, id)["state"] != "none" {
+		if time.Now().After(deadline) {
+			t.Fatal("the runtime never stopped")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if status, body := f.do(t, http.MethodPost, path+"/start", ""); status != http.StatusAccepted {
+		t.Fatalf("start: %d %v", status, body)
+	}
+	next := f.fake.Last()
+	if next == rt || !next.Spec.Idle || next.Spec.NativeID != rt.NativeID() || len(next.Prompts()) != 0 {
+		t.Fatalf("launched %+v with %d prompts", next.Spec, len(next.Prompts()))
+	}
+	next.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID(), PermissionMode: "default", ModeRequested: true}})
+	conv := f.conversation(t, id)
+	if conv["state"] != "running" || conv["turn_active"] != false || conv["permission_mode"] != "default" || conv["permission_mode_requested"] != true {
+		t.Errorf("after start: %v", conv)
+	}
+	if status, body := f.do(t, http.MethodPost, path+"/start", ""); status != http.StatusConflict || body["code"] != "conflict" {
+		t.Errorf("second start: %d %v", status, body)
+	}
+	if status, _ := f.do(t, http.MethodPost, "/api/conversations/nope/start", ""); status != http.StatusNotFound {
+		t.Errorf("unknown conversation: %d", status)
+	}
+}
+
+// the gate's endpoints: arm, cancel and shut down, with their refusal codes,
+// the gate on the workspace read, and the loopback guard in front.
+func TestShutdownGateOnTheWire(t *testing.T) {
+	f := start(t)
+	id, rt := f.startConversation(t)
+	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID()}})
+
+	if status, body := f.do(t, http.MethodPost, "/api/shutdown", ""); status != http.StatusConflict || body["code"] != "conflict" {
+		t.Errorf("shut down unarmed: %d %v", status, body)
+	}
+	foreign, err := http.NewRequest(http.MethodPost, f.url+"/api/shutdown/arm", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign.Header.Set("Origin", "http://evil.example")
+	if resp, err := http.DefaultClient.Do(foreign); err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a foreign origin arming: %v %v", resp.StatusCode, err)
+	}
+	if status, _ := f.do(t, http.MethodPost, "/api/shutdown/arm", ""); status != http.StatusAccepted {
+		t.Fatalf("arm: %d", status)
+	}
+	_, workspace := f.do(t, http.MethodGet, "/api/workspace", "")
+	gate, _ := workspace["shutdown"].(map[string]any)
+	blockers, _ := gate["blockers"].([]any)
+	if gate["armed"] != true || gate["idle"] != false || gate["armed_at"] == nil || len(blockers) != 1 {
+		t.Fatalf("gate = %v", gate)
+	}
+	if b := blockers[0].(map[string]any); b["conversation_id"] != id || b["turn"] != true || b["requests"] != float64(0) {
+		t.Errorf("blocker = %v", b)
+	}
+	if status, body := f.do(t, http.MethodPost, "/api/conversations/"+id+"/prompt", jsonBody(map[string]string{"text": "more"})); status != http.StatusConflict || body["code"] != "shutdown_pending" {
+		t.Errorf("prompt while armed: %d %v", status, body)
+	}
+	if status, body := f.do(t, http.MethodPost, "/api/shutdown", ""); status != http.StatusConflict || body["code"] != "conflict" {
+		t.Errorf("shut down while a turn runs: %d %v", status, body)
+	}
+	if status, _ := f.do(t, http.MethodPost, "/api/shutdown/cancel", ""); status != http.StatusAccepted {
+		t.Fatalf("cancel: %d", status)
+	}
+	_, workspace = f.do(t, http.MethodGet, "/api/workspace", "")
+	if gate := workspace["shutdown"].(map[string]any); gate["armed"] != false {
+		t.Errorf("cancelled gate = %v", gate)
+	}
+
+	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"})
+	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	if status, _ := f.do(t, http.MethodPost, "/api/shutdown/arm", ""); status != http.StatusAccepted {
+		t.Fatalf("arm again: %d", status)
+	}
+	_, workspace = f.do(t, http.MethodGet, "/api/workspace", "")
+	if gate := workspace["shutdown"].(map[string]any); gate["idle"] != true {
+		t.Fatalf("gate at idle = %v", gate)
+	}
+	if status, body := f.do(t, http.MethodPost, "/api/shutdown", ""); status != http.StatusAccepted {
+		t.Fatalf("shut down: %d %v", status, body)
+	}
+	select {
+	case <-f.svc.ShutdownRequested():
+	case <-time.After(time.Second):
+		t.Fatal("the shutdown was not requested")
+	}
+	if status, body := f.do(t, http.MethodPost, "/api/shutdown/cancel", ""); status != http.StatusServiceUnavailable || body["code"] != "unavailable" {
+		t.Errorf("cancel after the shutdown was accepted: %d %v", status, body)
+	}
+}

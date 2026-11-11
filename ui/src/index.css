@@ -1532,3 +1532,145 @@ hr.turn {
   background: transparent;
   border: 1.5px solid var(--muted);
 }
+
+/* the shutdown gate. while armed, a banner across the top of the main column
+   says what it waits for, and at idle offers the shutdown; on the page that
+   shut the service down it says so until the service is back. */
+.gate-banner {
+  align-items: flex-start;
+  background: var(--notice-bg);
+  border: 1px solid var(--notice-line);
+  border-radius: 6px;
+  display: flex;
+  gap: 12px;
+  margin: -8px 0 16px;
+  max-width: 960px;
+  padding: 10px 14px;
+  position: sticky;
+  /* the main column's top padding: stuck to the column's very top edge, so
+     nothing scrolled behind it shows above. */
+  top: -24px;
+  z-index: 2;
+}
+
+.gate-banner.idle {
+  background: var(--panel);
+  border-color: var(--accent);
+}
+
+.gate-banner.shut-down {
+  background: var(--panel);
+  border-color: var(--line);
+}
+
+.gate-banner > .icon {
+  margin-top: 2px;
+}
+
+.gate-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gate-body p {
+  margin: 0;
+}
+
+.gate-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.gate-blockers {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.gate-blockers li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+}
+
+.gate-blockers a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.gate-kinds {
+  color: var(--muted);
+}
+
+/* a request is the operator's to answer: nothing else will clear it. */
+.gate-kinds.yours {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* the armed gate above the side panel's footer. */
+.side-gate {
+  background: var(--notice-bg);
+  border: 1px solid var(--notice-line);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  font-size: calc(13px * var(--fs, 1));
+  gap: 4px;
+  margin-top: auto;
+  padding: 6px 8px;
+}
+
+.side-gate.idle {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+
+.side-gate-head {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.side-gate + .side-foot {
+  margin-top: 0;
+}
+
+.side-foot-actions {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+
+/* the armed gate on the collapsed rail: how many hold it, or a check. */
+.rail-gate {
+  align-items: center;
+  background: var(--notice-bg);
+  border: 1px solid var(--notice-line);
+  border-radius: 10px;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  font: calc(12px * var(--fs, 1)) var(--mono);
+  gap: 2px;
+  padding: 3px 4px;
+}
+
+.rail-gate.idle {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+
+/* the gate as last read by a page that has lost the service. */
+.gate-banner.stale,
+.side-gate.stale,
+.rail-gate.stale {
+  opacity: 0.7;
+}

@@ -91,6 +91,10 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 		s.mu.Unlock()
 		return ConversationView{}, newError(CodeUnavailable, "the service is shutting down")
 	}
+	if err := s.refuseNewWorkLocked(); err != nil {
+		s.mu.Unlock()
+		return ConversationView{}, err
+	}
 	if s.heldLocked(harnessName)[nativeID] {
 		s.mu.Unlock()
 		return ConversationView{}, newError(CodeConflict, fmt.Sprintf("session '%s' was adopted meanwhile", nativeID))

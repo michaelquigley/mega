@@ -63,7 +63,11 @@ func (s *Server) api() http.Handler {
 	mux.HandleFunc("POST /api/conversations/{id}/model", s.setModel)
 	mux.HandleFunc("POST /api/conversations/{id}/release", s.release)
 	mux.HandleFunc("POST /api/conversations/{id}/resume", s.resume)
+	mux.HandleFunc("POST /api/conversations/{id}/start", s.start)
 	mux.HandleFunc("POST /api/conversations/{id}/read", s.read)
+	mux.HandleFunc("POST /api/shutdown/arm", s.armShutdown)
+	mux.HandleFunc("POST /api/shutdown/cancel", s.cancelShutdown)
+	mux.HandleFunc("POST /api/shutdown", s.shutDown)
 	mux.HandleFunc("GET /api/stream", s.stream)
 	return mux
 }
@@ -96,7 +100,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSON(w, r, http.StatusBadRequest, &errorBody{Code: code, Message: err.Error()})
 	case service.CodeNotFound:
 		writeJSON(w, r, http.StatusNotFound, &errorBody{Code: code, Message: err.Error()})
-	case service.CodeConflict, service.CodeNotPending:
+	case service.CodeConflict, service.CodeNotPending, service.CodeShutdownPending:
 		writeJSON(w, r, http.StatusConflict, &errorBody{Code: code, Message: err.Error()})
 	case service.CodeUnavailable:
 		writeJSON(w, r, http.StatusServiceUnavailable, &errorBody{Code: code, Message: err.Error()})
@@ -120,4 +124,20 @@ func readJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 		return false
 	}
 	return true
+}
+
+// armShutdown arms "shut down when idle"; cancelShutdown lifts it. both are
+// announced through workspace_changed.
+func (s *Server) armShutdown(w http.ResponseWriter, r *http.Request) {
+	s.command(w, r, s.svc.ArmShutdown())
+}
+
+func (s *Server) cancelShutdown(w http.ResponseWriter, r *http.Request) {
+	s.command(w, r, s.svc.CancelShutdown())
+}
+
+// shutDown asks for the orderly stop, refused unless armed and idle; once
+// accepted, the process stops as it does on SIGINT and exits 0.
+func (s *Server) shutDown(w http.ResponseWriter, r *http.Request) {
+	s.command(w, r, s.svc.ShutDown())
 }

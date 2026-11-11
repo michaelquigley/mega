@@ -114,6 +114,10 @@ type Spec struct {
 	// roundhouse's default: the mode the operator's native settings name,
 	// inherited by passing none, else the manual mode.
 	PermissionMode string
+	// Idle is a launch with no prompt following it: the operator started the
+	// runtime on its own. an adapter whose harness reports nothing until a
+	// turn starts reports what it can without one.
+	Idle bool
 }
 
 // Sink receives a runtime's output. calls arrive in order from one goroutine
