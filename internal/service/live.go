@@ -8,10 +8,10 @@ import (
 
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/events"
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
-	"git.hq.quigley.com/research/roundhouse/internal/registry"
+	"github.com/michaelquigley/mega/internal/events"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
+	"github.com/michaelquigley/mega/internal/registry"
 )
 
 // transient runtime states the service reports alongside the recorded ones.
@@ -331,7 +331,7 @@ func (l *live) sessionOf(conv model.Conversation) string {
 // errSessionUnknown refuses to start a fresh session for a conversation whose
 // earlier launch may have created one that neither the registry nor the log
 // recorded.
-var errSessionUnknown = newError(CodeConflict, "this conversation launched before but its session could not be recorded, so roundhouse will not start another in its place; find the session under 'Adopt a session' and adopt it into a new conversation")
+var errSessionUnknown = newError(CodeConflict, "this conversation launched before but its session could not be recorded, so mega will not start another in its place; find the session under 'Adopt a session' and adopt it into a new conversation")
 
 // freshAllowedLocked reports whether the log proves no native session can
 // exist for the conversation: no launch has started, or every launch that

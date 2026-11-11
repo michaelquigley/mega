@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"git.hq.quigley.com/research/roundhouse/internal/durable"
+	"github.com/michaelquigley/mega/internal/durable"
 )
 
 // ErrLocked reports that another process holds the data directory.
-var ErrLocked = errors.New("data directory is held by another roundhouse instance")
+var ErrLocked = errors.New("data directory is held by another mega instance")
 
 // Lock is an exclusive hold on a data directory. the port bind only keeps
 // same-port instances apart; this keeps a second writer off the registry and

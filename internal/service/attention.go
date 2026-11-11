@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"slices"
 
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // Read moves the conversation's reading position to seq, never back and never

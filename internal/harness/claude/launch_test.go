@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
+	"github.com/michaelquigley/mega/internal/harness"
 )
 
 // each claude launch failure comes before or while starting the shim, so each

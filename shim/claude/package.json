@@ -1,9 +1,9 @@
 {
-  "name": "roundhouse-claude-shim",
+  "name": "mega-claude-shim",
   "private": true,
   "type": "module",
   "version": "0.0.1",
-  "description": "policy-free stdio bridge between the roundhouse service and the claude agent sdk",
+  "description": "policy-free stdio bridge between the mega service and the claude agent sdk",
   "scripts": {
     "test": "node --test"
   },

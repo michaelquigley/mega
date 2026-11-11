@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"time"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
-	"git.hq.quigley.com/research/roundhouse/internal/service"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
+	"github.com/michaelquigley/mega/internal/service"
 )
 
 // conversationView is the wire form of a conversation: its recorded identity,
@@ -33,13 +33,13 @@ type conversationView struct {
 	Version        string `dd:",+omitempty"`
 	PermissionMode string `dd:",+omitempty"`
 	// PermissionModeInherited is whether the running mode came from the
-	// operator's settings because roundhouse passed none.
+	// operator's settings because mega passed none.
 	PermissionModeInherited bool
 	// PermissionModeRequested is whether the running mode is only the one the
 	// runtime was launched with, not yet reported by the harness.
 	PermissionModeRequested bool `dd:",+omitempty"`
 	// PermissionModeChoice is the recorded choice every launch passes; empty
-	// is roundhouse's default.
+	// is mega's default.
 	PermissionModeChoice string
 	// ModelChoice and EffortChoice are the recorded choice every launch (and,
 	// for codex, every prompt) passes; empty inherits.

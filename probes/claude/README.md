@@ -80,3 +80,7 @@ Fixture repository used: `/home/michael/Repos/q/research/roundhouse-fixtures/cla
 - `--hook` registers an observing `SessionStart` callback.
 - `--mode` passes a launch mode.
 - `--then-prompt` sends one prompt before closing.
+
+## Moved store (2026-11-11)
+
+`moved-store.mjs --cwd NEWPATH --session UUID --log logs/x.jsonl` checks a session after its checkout was copied to `NEWPATH` and a copy of its store directory was moved to the name `NEWPATH` maps to; the caller does both. It reads the session back through `listSessions` and `getSessionMessages` from `NEWPATH`, then resumes it by id with one prompt asking for its earlier replies. It records the answering session, the reply, and where the transcript grew.

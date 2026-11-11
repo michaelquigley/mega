@@ -46,7 +46,7 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
       {project.untrusted && (
         <p className="notice" role="note">
           Claude has not been trusted in this checkout, so it ignores the project&apos;s permission
-          rules. Run <code>claude</code> here once and accept the trust dialog; Roundhouse will not
+          rules. Run <code>claude</code> here once and accept the trust dialog; mega will not
           accept it for you.
         </p>
       )}
@@ -88,7 +88,7 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
         {confirming ? (
           <>
             <p>
-              Roundhouse forgets this project and its conversations: its own copy of their history and their
+              mega forgets this project and its conversations: its own copy of their history and their
               reading positions are deleted. The checkout and the native sessions stay untouched, and the sessions
               can be adopted again if the checkout is registered again.
             </p>

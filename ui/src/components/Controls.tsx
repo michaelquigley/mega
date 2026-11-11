@@ -9,7 +9,7 @@ import { ModelPicker } from './ModelPicker'
 // runtime runs (live) it switches the session; otherwise it stores the choice
 // for the next launch, and an empty choice shows as not chosen. it shows
 // the mode the service last confirmed, so a change shows only once recorded. a
-// mode inherited from the operator's settings that roundhouse does not offer
+// mode inherited from the operator's settings that mega does not offer
 // is shown as it is, and cannot be chosen again once left.
 export function ModeControl({
   live,

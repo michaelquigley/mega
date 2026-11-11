@@ -6,8 +6,8 @@ import (
 
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/model"
-	"git.hq.quigley.com/research/roundhouse/internal/registry"
+	"github.com/michaelquigley/mega/internal/model"
+	"github.com/michaelquigley/mega/internal/registry"
 )
 
 // recover settles what the previous run left. nothing is replayed: a request

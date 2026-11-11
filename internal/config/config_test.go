@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,7 +25,7 @@ func TestDefaultsFollowXDG(t *testing.T) {
 	if cfg.Listen != "127.0.0.1:8470" {
 		t.Errorf("listen = %q", cfg.Listen)
 	}
-	want := filepath.Join(root, "data", "roundhouse")
+	want := filepath.Join(root, "data", "mega")
 	if cfg.Data != want {
 		t.Errorf("data = %q, want %q", cfg.Data, want)
 	}
@@ -37,12 +39,12 @@ func TestDefaultsFollowXDG(t *testing.T) {
 
 func TestConfigFileThenDataFlag(t *testing.T) {
 	root := isolate(t)
-	dir := filepath.Join(root, "config", "roundhouse")
+	dir := filepath.Join(root, "config", "mega")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	body := "listen: 127.0.0.1:9999\ndata: /from/file\n"
-	if err := os.WriteFile(filepath.Join(dir, "roundhouse.yaml"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "mega.yaml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load("", "")
@@ -106,7 +108,7 @@ func TestListenMustBeLoopback(t *testing.T) {
 func TestClaudeDefaultsMergeWithFile(t *testing.T) {
 	root := isolate(t)
 	t.Setenv("HOME", root)
-	path := filepath.Join(t.TempDir(), "roundhouse.yaml")
+	path := filepath.Join(t.TempDir(), "mega.yaml")
 	if err := os.WriteFile(path, []byte("claude:\n  shim: ~/shim/claude\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -121,5 +123,49 @@ func TestClaudeDefaultsMergeWithFile(t *testing.T) {
 	}
 	if cfg.Claude != want {
 		t.Errorf("claude = %+v, want %+v", cfg.Claude, want)
+	}
+}
+
+// the default data directory is refused while it is missing and the old
+// project's sits beside it, and nothing is created; an explicit one, from the
+// flag or the file, is not; nor is the default once moved, or with nothing to
+// move.
+func TestDefaultDataRefusedUntilTheWorkspaceIsMoved(t *testing.T) {
+	root := isolate(t)
+	legacy := filepath.Join(root, "data", "roundhouse")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load("", "")
+	if !errors.Is(err, ErrNotMoved) || !strings.Contains(err.Error(), "docs/future/mega-cutover.md") || !strings.Contains(err.Error(), legacy) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "data", "mega")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the refusal created the new data directory: %v", err)
+	}
+
+	scratch := filepath.Join(t.TempDir(), "scratch-data")
+	if cfg, err := Load("", scratch); err != nil || cfg.Data != scratch {
+		t.Errorf("--data: %v %v", cfg, err)
+	}
+	file := filepath.Join(t.TempDir(), "mega.yaml")
+	if err := os.WriteFile(file, []byte("data: "+scratch+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err := Load(file, ""); err != nil || cfg.Data != scratch {
+		t.Errorf("data from the file: %v %v", cfg, err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(root, "data", "mega"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load("", ""); err != nil {
+		t.Errorf("once moved: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "data")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load("", ""); err != nil {
+		t.Errorf("nothing to move: %v", err)
 	}
 }

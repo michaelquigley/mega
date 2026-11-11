@@ -47,7 +47,7 @@ export function ShutdownBanner({ gate, shutDownAt, connected, stale, busy, error
             </>
           ) : (
             <>
-              <strong>Roundhouse was shut down from this page at {clockTime(shutDownAt)}</strong>
+              <strong>mega was shut down from this page at {clockTime(shutDownAt)}</strong>
               <p>The page keeps trying, and the workspace comes back by itself when the service starts again.</p>
             </>
           )}
@@ -84,7 +84,7 @@ export function ShutdownBanner({ gate, shutDownAt, connected, stale, busy, error
         {error && <p className="error">{error}</p>}
       </div>
       <div className="gate-actions">
-        {gate.idle && !stale && <IconButton icon="power_settings_new" label="Shut down roundhouse now" word="Shut down" disabled={busy} onClick={onShutDown} />}
+        {gate.idle && !stale && <IconButton icon="power_settings_new" label="Shut down mega now" word="Shut down" disabled={busy} onClick={onShutDown} />}
         <IconButton icon="close" label="Cancel the shutdown" word="Cancel" disabled={busy || stale} onClick={onCancel} />
       </div>
     </section>

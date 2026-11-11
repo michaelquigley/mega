@@ -1,10 +1,10 @@
-# Roundhouse
+# mega
 
-Roundhouse is a project-oriented workspace for working directly with a gang of heterogeneous coding agents across development environments. It is not an autonomous coordinator or a replacement coding harness. The spec is `docs/future/roundhouse.md`; the system as built is `docs/current/roundhouse.md`; the harness evidence both lean on is `docs/research/harness-capabilities.md`, with the rerunnable probes under `probes/`. The first-slice work order was retired when its last stage gated; its decisions live in `docs/current/`, and git history has the document.
+mega is a project-oriented workspace for working directly with a gang of heterogeneous coding agents across development environments. It is not an autonomous coordinator or a replacement coding harness. The spec is `docs/future/mega.md`; the system as built is `docs/current/mega.md`; the harness evidence both lean on is `docs/research/harness-capabilities.md`, with the rerunnable probes under `probes/`. The first-slice work order was retired when its last stage gated; its decisions live in `docs/current/`, and git history has the document.
 
 ## Current assignment
 
-The first slice is built: the environment service alone on `fortyfive`, reached on localhost, with Claude and Codex adapters and attention. Michael is now using it daily, and work proceeds in polish rounds driven by what he finds: batches of related items on one surface, each reviewed by terminus to `clean` against the canon rubric before handoff, with the same stop-and-ask rule for anything that needs a decision. Look-and-feel items go straight into a batch; a discovery that changes what roundhouse should do goes to the spec first. Everything the spec defers stays deferred; new ideas go to the roadmap, not into a batch.
+The first slice is built: the environment service alone on `fortyfive`, reached on localhost, with Claude and Codex adapters and attention. Michael is now using it daily, and work proceeds in polish rounds driven by what he finds: batches of related items on one surface, each reviewed by terminus to `clean` against the canon rubric before handoff, with the same stop-and-ask rule for anything that needs a decision. Look-and-feel items go straight into a batch; a discovery that changes what mega should do goes to the spec first. Everything the spec defers stays deferred; new ideas go to the roadmap, not into a batch.
 
 Read the most recent entries in `docs/journal/` on arrival. The investigation that produced the capability report is complete; do not reopen it unless a change contradicts a recorded observation, in which case record the new observation with its version.
 
@@ -15,7 +15,9 @@ Read the most recent entries in `docs/journal/` on arrival. The investigation th
 - Preserve native permission behavior. Never weaken a harness's permissions, set trust flags on Michael's behalf, or bypass an approval to make a test pass.
 - Test against disposable repositories and newly created sessions only. Do not alter, adopt, interrupt, or delete real-work sessions. The fixtures live under `/home/michael/Repos/q/research/roundhouse-fixtures/`.
 - Do not upgrade harnesses, change global configuration, or expose network listeners beyond loopback without Michael's approval.
-- Michael runs his own roundhouse on the default port (8470) and the default data directory. Scratch runs, browser scripts and e2e use another port and a `--data` directory under scratch, never his service or his data. Leave his processes alone.
+- Michael runs his own mega on the default port (8470) and the default data directory. Scratch runs, browser scripts and e2e use another port and a `--data` directory under scratch, never his service or his data. Leave his processes alone.
+- Until the cutover in `docs/future/mega-cutover.md` is done, the instance Michael runs is the previous build under the project's old name, with its old data directory. Never install or start the new binary on the default data directory before then; mega refuses to start there while the old directory is still in place.
+- The e2e round trips take their fixtures from the environment and skip when unset. Michael's values: `MEGA_E2E_CLAUDE_FIXTURE=/home/michael/Repos/q/research/roundhouse-fixtures/claude-rt1` and `MEGA_E2E_CODEX_FIXTURE=/home/michael/Repos/q/research/roundhouse-fixtures/codex-rt1`.
 - Keep credentials and private transcripts out of reports and committed fixtures.
 - Durable project memory goes in `docs/journal/YYYY-MM-DD.md`, one file per day, appended across sessions: current state, gotchas, decisions, and what a future session would otherwise rediscover. Read recent entries before changing anything; where an entry conflicts with the code, the code wins.
 - `CHANGELOG.md` follows the house convention: newest release first, prose entries led by `FEATURE:`, `CHANGE:` or `FIX:`, new entries into the `## Unreleased` slot.

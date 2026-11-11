@@ -3,9 +3,9 @@
 // workspace state; a browser that keeps nothing still works with the defaults.
 
 const keys = {
-  width: 'roundhouse.panelWidth',
-  collapsed: 'roundhouse.panelCollapsed',
-  folded: 'roundhouse.foldedProjects',
+  width: 'mega.panelWidth',
+  collapsed: 'mega.panelCollapsed',
+  folded: 'mega.foldedProjects',
 }
 
 export const panelWidth = { min: 200, max: 480, initial: 280 }

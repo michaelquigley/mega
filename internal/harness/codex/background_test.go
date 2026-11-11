@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // recorded from codex-cli 0.166.0 (probes/codex/background.mjs --session): a

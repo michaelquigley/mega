@@ -68,7 +68,7 @@ export interface Question {
 
 // one piece of work a runtime keeps running outside a turn: a backgrounded
 // command or subagent (claude), or a command left running as a terminal
-// session (codex). started_at is when roundhouse first saw it.
+// session (codex). started_at is when mega first saw it.
 export interface BackgroundJob {
   id: string
   description: string
@@ -95,7 +95,7 @@ export interface Conversation {
   output_seq: number
   model?: string
   version?: string
-  // the running mode, as the runtime last reported or roundhouse last
+  // the running mode, as the runtime last reported or mega last
   // confirmed it, and whether the operator's settings chose it.
   permission_mode?: string
   permission_mode_inherited: boolean
@@ -103,7 +103,7 @@ export interface Conversation {
   // was launched with; claude reports its mode at a turn's start, and a
   // runtime started with no prompt has had none.
   permission_mode_requested?: boolean
-  // the recorded choice every launch passes; empty is roundhouse's default.
+  // the recorded choice every launch passes; empty is mega's default.
   permission_mode_choice: string
   // the recorded model and effort every launch (and, for codex, every prompt)
   // passes; absent inherits the operator's settings.

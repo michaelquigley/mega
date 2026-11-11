@@ -3,5 +3,5 @@ package main
 import "github.com/michaelquigley/push/build"
 
 func init() {
-	rootCmd.AddCommand(build.NewVersionCmd("roundhouse"))
+	rootCmd.AddCommand(build.NewVersionCmd("mega"))
 }

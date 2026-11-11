@@ -11,19 +11,17 @@ import (
 	"testing"
 	"time"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/harness/codex"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
-	"git.hq.quigley.com/research/roundhouse/internal/service"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/harness/codex"
+	"github.com/michaelquigley/mega/internal/model"
+	"github.com/michaelquigley/mega/internal/service"
 )
-
-const defaultCodexFixture = "/home/michael/Repos/q/research/roundhouse-fixtures/codex-rt1"
 
 // TestCodexDiscoveryAndHistory reads the fixture's stored threads without a
 // model turn: discovery through thread/list, and history through thread/read.
 func TestCodexDiscoveryAndHistory(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CODEX_FIXTURE", defaultCodexFixture)
-	h := codex.New(codex.Config{Binary: env("ROUNDHOUSE_E2E_CODEX", "codex")})
+	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
+	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	sessions, err := h.Discover(ctx, fixture)
@@ -68,8 +66,8 @@ const (
 // TestCodexRoundTrip is X1 to X4 and an X7-style resumed turn through the
 // service, without the terminal visit (X5), which the operator does by hand.
 func TestCodexRoundTrip(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CODEX_FIXTURE", defaultCodexFixture)
-	h := codex.New(codex.Config{Binary: env("ROUNDHOUSE_E2E_CODEX", "codex")})
+	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
+	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
 	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("codex-rt1", fixture)
 	if err != nil {
@@ -180,8 +178,8 @@ func TestCodexRoundTrip(t *testing.T) {
 // interrupt; the release must report stopped only if the app-server's process
 // group emptied, and otherwise name what is still running.
 func TestCodexReleaseDuringCommand(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CODEX_FIXTURE", defaultCodexFixture)
-	h := codex.New(codex.Config{Binary: env("ROUNDHOUSE_E2E_CODEX", "codex")})
+	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
+	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
 	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("codex-rt1", fixture)
 	if err != nil {
@@ -219,11 +217,11 @@ func TestCodexReleaseDuringCommand(t *testing.T) {
 // its parameter, the tool must not run while the card waits, and it must run
 // after Allow. the fixture server logs each call to mcp/mcp-calls.log.
 func TestCodexMCPApproval(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CODEX_FIXTURE", defaultCodexFixture)
+	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
 	calls := filepath.Join(fixture, "mcp", "mcp-calls.log")
 	_ = os.Remove(calls)
 	t.Cleanup(func() { _ = os.Remove(calls) })
-	h := codex.New(codex.Config{Binary: env("ROUNDHOUSE_E2E_CODEX", "codex")})
+	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
 	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("codex-rt1", fixture)
 	if err != nil {
@@ -265,9 +263,9 @@ func TestCodexMCPApproval(t *testing.T) {
 // the model on thread/start and both with thread/settings/updated as the turn
 // starts, and the header's facts are that report.
 func TestCodexModelAndEffort(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CODEX_FIXTURE", defaultCodexFixture)
-	chosen := env("ROUNDHOUSE_E2E_CODEX_MODEL", "gpt-6-luna")
-	h := codex.New(codex.Config{Binary: env("ROUNDHOUSE_E2E_CODEX", "codex")})
+	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
+	chosen := env("MEGA_E2E_CODEX_MODEL", "gpt-6-luna")
+	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
 	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("codex-rt1", fixture)
 	if err != nil {
@@ -320,8 +318,8 @@ func TestCodexModelAndEffort(t *testing.T) {
 // thread/resume holds the exact thread idle and reports what codex runs; the
 // next prompt is answered in the same thread.
 func TestCodexStartWithoutPrompt(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CODEX_FIXTURE", defaultCodexFixture)
-	h := codex.New(codex.Config{Binary: env("ROUNDHOUSE_E2E_CODEX", "codex")})
+	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
+	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
 	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("codex-rt1", fixture)
 	if err != nil {

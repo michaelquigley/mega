@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 type recordingSink struct {

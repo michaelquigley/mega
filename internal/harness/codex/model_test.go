@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 func TestLaunchPassesTheChosenModelAndReportsWhatCodexRuns(t *testing.T) {

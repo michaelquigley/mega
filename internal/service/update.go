@@ -1,6 +1,6 @@
 package service
 
-import "git.hq.quigley.com/research/roundhouse/internal/model"
+import "github.com/michaelquigley/mega/internal/model"
 
 // updateBuffer bounds how far a subscriber may fall behind before it is dropped.
 const updateBuffer = 256

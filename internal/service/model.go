@@ -11,8 +11,8 @@ import (
 
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // LaunchChoice is what the operator chose at launch: the permission mode

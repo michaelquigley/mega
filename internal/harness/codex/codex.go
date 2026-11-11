@@ -11,8 +11,8 @@ import (
 
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 const (
@@ -255,7 +255,7 @@ func readConfig(ctx context.Context, c *conn, cwd string) (string, string, error
 }
 
 // userAgentVersion reads the version from an app-server user agent such as
-// "roundhouse/0.166.0 (Ubuntu ...)".
+// "mega/0.166.0 (Ubuntu ...)".
 func userAgentVersion(agent string) string {
 	head, _, _ := strings.Cut(agent, " ")
 	_, version, _ := strings.Cut(head, "/")

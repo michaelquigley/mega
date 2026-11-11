@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"git.hq.quigley.com/research/roundhouse/internal/model"
-	"git.hq.quigley.com/research/roundhouse/internal/service"
+	"github.com/michaelquigley/mega/internal/model"
+	"github.com/michaelquigley/mega/internal/service"
 )
 
 // projectView is the wire form of a project. the trust notice is computed and

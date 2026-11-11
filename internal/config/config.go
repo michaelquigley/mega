@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	appName         = "roundhouse"
+	appName         = "mega"
 	configFileName  = appName + ".yaml"
 	registryFile    = "registry.yaml"
 	lockFile        = "lock"
@@ -79,6 +79,9 @@ func Load(configPath, dataOverride string) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := checkMoved(defaultData); err != nil {
+			return nil, err
+		}
 		cfg.Data = defaultData
 	}
 	for _, path := range []*string{&cfg.Data, &cfg.Claude.Shim, &cfg.Claude.Executable} {
@@ -141,6 +144,31 @@ func defaultDataDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(base, appName), nil
+}
+
+// legacyAppName is the name this project had before it became mega. its data
+// directory is moved, not copied, at the cutover.
+const legacyAppName = "roundhouse"
+
+// ErrNotMoved refuses to start on the default data directory while the
+// workspace still sits under its old name.
+var ErrNotMoved = errors.New("the workspace has not been moved yet")
+
+// checkMoved refuses the default data directory when it does not exist and
+// the old project's does, beside it: starting would create an empty workspace
+// next to the full one, and the operator would see every project gone. the
+// cutover moves the old directory to the new name (docs/future/mega-cutover.md).
+// an explicit data directory, from the flag or the config file, is never
+// refused.
+func checkMoved(data string) error {
+	if _, err := os.Stat(data); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	legacy := filepath.Join(filepath.Dir(data), legacyAppName)
+	if info, err := os.Stat(legacy); err != nil || !info.IsDir() {
+		return nil
+	}
+	return fmt.Errorf("%w: '%s' does not exist, but '%s' holds the workspace under the old name; mega will not start an empty workspace beside it. move it as docs/future/mega-cutover.md says, or pass --data", ErrNotMoved, data, legacy)
 }
 
 func xdgDir(env, homeRelative string) (string, error) {

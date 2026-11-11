@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const trimPrefix = "git.hq.quigley.com/research/"
+const trimPrefix = "github.com/michaelquigley/"
 
 var (
 	verbose    bool
@@ -16,7 +16,7 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:           "roundhouse",
+	Use:           "mega",
 	Short:         "Project-oriented workspace for a gang of coding agents",
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
@@ -27,8 +27,8 @@ var rootCmd = &cobra.Command{
 func init() {
 	dl.Init(dl.DefaultOptions().SetTrimPrefix(trimPrefix))
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Config file path (default $XDG_CONFIG_HOME/roundhouse/roundhouse.yaml)")
-	rootCmd.PersistentFlags().StringVar(&dataPath, "data", "", "Data directory (default $XDG_DATA_HOME/roundhouse)")
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Config file path (default $XDG_CONFIG_HOME/mega/mega.yaml)")
+	rootCmd.PersistentFlags().StringVar(&dataPath, "data", "", "Data directory (default $XDG_DATA_HOME/mega)")
 	rootCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
 		if verbose {
 			dl.Init(dl.DefaultOptions().SetTrimPrefix(trimPrefix).SetLevel(slog.LevelDebug))

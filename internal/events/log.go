@@ -15,8 +15,8 @@ import (
 	"github.com/michaelquigley/df/dd"
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/durable"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/durable"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // ErrUncertain marks a log that no longer accepts appends because a failed

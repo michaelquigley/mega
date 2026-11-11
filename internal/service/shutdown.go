@@ -7,7 +7,7 @@ const CodeShutdownPending = "shutdown_pending"
 
 // errShutdownPending is the gate's refusal of a prompt, a launch, an adoption
 // or a start.
-var errShutdownPending = newError(CodeShutdownPending, "roundhouse is waiting to shut down once every agent is idle, so it starts no new work; cancel the pending shutdown to continue")
+var errShutdownPending = newError(CodeShutdownPending, "mega is waiting to shut down once every agent is idle, so it starts no new work; cancel the pending shutdown to continue")
 
 // the kinds of thing that hold the gate.
 const (

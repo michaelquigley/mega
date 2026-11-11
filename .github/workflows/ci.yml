@@ -1,0 +1,97 @@
+name: ci
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+
+# builds and tests only. no binaries are published: the claude shim runs from
+# a checkout with its pinned agent sdk installed beside it, so a binary alone
+# cannot run claude conversations yet.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: setup go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+
+      # the ui package embeds dist via go:embed, so the frontend builds
+      # before anything compiles the full binary
+      - name: build frontend
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+
+      - name: ui lint
+        run: npm --prefix ui run lint
+
+      - name: shim tests
+        run: |
+          npm --prefix shim/claude ci
+          npm --prefix shim/claude test
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./...
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: fetch push ci scripts
+        run: git clone --branch v0.2.1 --depth 1 https://github.com/michaelquigley/push.git _push
+
+      - name: setup go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+
+      - name: build frontend
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+
+      - name: build stamped linux-amd64
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          LDFLAGS=$(_push/ci/ldflags.sh)
+          go build -ldflags "${LDFLAGS}" -o mega ./cmd/mega
+
+      - name: verify stamp
+        run: |
+          out=$(./mega version)
+          if [ -z "${out}" ] || printf '%s\n' "${out}" | grep -F '[developer build]'; then
+            printf '%s\n' "${out}"
+            exit 1
+          fi

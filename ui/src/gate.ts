@@ -6,7 +6,7 @@ export const pendingReason = 'Waiting to shut down once every agent is idle; can
 
 // shutDownReason is why new work waits on the page that shut the service down,
 // until the service is back.
-export const shutDownReason = 'Roundhouse was shut down from this page; new work waits for the service to start again'
+export const shutDownReason = 'mega was shut down from this page; new work waits for the service to start again'
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 

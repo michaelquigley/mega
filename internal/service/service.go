@@ -11,9 +11,9 @@ import (
 	"strings"
 	"sync"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
-	"git.hq.quigley.com/research/roundhouse/internal/registry"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
+	"github.com/michaelquigley/mega/internal/registry"
 )
 
 // UntrustedChecker reports whether a checkout should carry the trust notice.

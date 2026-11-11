@@ -11,16 +11,16 @@ import (
 
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/events"
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
-	"git.hq.quigley.com/research/roundhouse/internal/registry"
+	"github.com/michaelquigley/mega/internal/events"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
+	"github.com/michaelquigley/mega/internal/registry"
 )
 
 const (
 	historyTimeout = 2 * time.Minute
 	maxNameRunes   = 48
-	denyMessage    = "the operator denied this in roundhouse"
+	denyMessage    = "the operator denied this in mega"
 )
 
 // StartConversation launches a new conversation in a project and sends its
@@ -451,7 +451,7 @@ func validateAnswer(req *model.Request, answer *harness.Answer) error {
 		case harness.DecisionAllow:
 			answer.Message, answer.Answers = "", nil
 		case harness.DecisionAllowSession:
-			// only where the harness itself offered it: roundhouse never extends
+			// only where the harness itself offered it: mega never extends
 			// an approval on its own account.
 			if payload, _ := req.Payload.(map[string]any); payload["allow_session"] != true {
 				return newError(CodeInvalid, "this request offers no approval for the session; answer 'allow' or 'deny'")

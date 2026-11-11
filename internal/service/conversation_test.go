@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/harness/harnesstest"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
-	"git.hq.quigley.com/research/roundhouse/internal/registry"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/harness/harnesstest"
+	"github.com/michaelquigley/mega/internal/model"
+	"github.com/michaelquigley/mega/internal/registry"
 )
 
 // rig is a service over a fake claude harness with one registered project.
@@ -1275,7 +1275,7 @@ func TestRemoveProjectDeletesItsConversationsLogs(t *testing.T) {
 }
 
 // an approval for the session is accepted only where the harness offered it:
-// roundhouse never extends an approval on its own account.
+// mega never extends an approval on its own account.
 func TestAllowSessionOnlyWhereOffered(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")

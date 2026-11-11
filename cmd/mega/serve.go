@@ -13,13 +13,13 @@ import (
 	"github.com/michaelquigley/df/dl"
 	"github.com/spf13/cobra"
 
-	"git.hq.quigley.com/research/roundhouse/internal/config"
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/harness/claude"
-	"git.hq.quigley.com/research/roundhouse/internal/harness/codex"
-	"git.hq.quigley.com/research/roundhouse/internal/registry"
-	"git.hq.quigley.com/research/roundhouse/internal/server"
-	"git.hq.quigley.com/research/roundhouse/internal/service"
+	"github.com/michaelquigley/mega/internal/config"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/harness/claude"
+	"github.com/michaelquigley/mega/internal/harness/codex"
+	"github.com/michaelquigley/mega/internal/registry"
+	"github.com/michaelquigley/mega/internal/server"
+	"github.com/michaelquigley/mega/internal/service"
 )
 
 const (

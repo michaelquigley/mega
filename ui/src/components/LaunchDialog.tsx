@@ -15,7 +15,7 @@ interface LaunchDialogProps {
   onLaunched: (conversation: Conversation) => void
 }
 
-// a claude conversation starts in the mode the operator picks. roundhouse's
+// a claude conversation starts in the mode the operator picks. mega's
 // own default is the manual mode, unless the operator's settings name one, in
 // which case that is inherited by passing none (the empty value). the model
 // and effort start at inherit, which passes none, and the lists come from the

@@ -14,8 +14,8 @@ import (
 	"github.com/michaelquigley/df/dd"
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // shimFrame is one line from the shim. the shim's protocol is documented in

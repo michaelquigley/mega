@@ -8,12 +8,12 @@ import (
 
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // checkPermissionMode validates an operator's choice of permission mode for a
-// conversation on harnessName. empty is roundhouse's default. only claude has
+// conversation on harnessName. empty is mega's default. only claude has
 // modes, and only model.PermissionModes are offered: never a bypass mode.
 func checkPermissionMode(harnessName, mode string) error {
 	if mode == "" {
@@ -128,7 +128,7 @@ func (s *Service) SetPermissionMode(conversationID, mode string) (ModeOutcome, e
 		return ModeOutcome{Outcome: ModeUnconfirmed, Message: "claude did not confirm the switch in time; the header shows the mode claude last reported"}, nil
 	}
 	// refused: the choice goes back to what it was before this request, which
-	// may be no choice at all (roundhouse's default, inheriting the settings).
+	// may be no choice at all (mega's default, inheriting the settings).
 	back := conv.PermissionMode
 	if err := s.updateConversation(conversationID, func(c *model.Conversation) { c.PermissionMode = back }); err != nil {
 		dl.Errorf("putting back the recorded permission mode of '%s': %v", conversationID, err)

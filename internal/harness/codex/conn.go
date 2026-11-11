@@ -91,7 +91,7 @@ func dial(binary, cwd string, h handler) (*conn, error) {
 // initialize performs the handshake every connection needs.
 func (c *conn) initialize(ctx context.Context) error {
 	params := &initializeParams{
-		ClientInfo:   clientInfo{Name: "roundhouse", Title: "Roundhouse", Version: "0"},
+		ClientInfo:   clientInfo{Name: "mega", Title: "mega", Version: "0"},
 		Capabilities: clientCapabilities{ExperimentalAPI: true},
 	}
 	result := &initializeResult{}

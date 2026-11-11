@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // an idle launch resumes the exact thread and starts no turn: thread/resume

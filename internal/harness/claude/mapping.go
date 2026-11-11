@@ -8,7 +8,7 @@ import (
 
 	"github.com/michaelquigley/df/dd"
 
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // maxTitle bounds a tool-use summary line, in bytes.

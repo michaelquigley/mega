@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 func (r *rig) attention(id string) string {
@@ -113,7 +113,7 @@ func TestUnsupervisedIsItsOwnState(t *testing.T) {
 	}
 }
 
-func TestImportFromOutsideRoundhouseIsNotUnread(t *testing.T) {
+func TestImportFromOutsideMegaIsNotUnread(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()

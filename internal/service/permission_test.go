@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/harness/harnesstest"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/harness/harnesstest"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 func startedIn(rt *harnesstest.Runtime, mode string) {
@@ -49,7 +49,7 @@ func TestChosenModeIsRecordedAndPassedOnEveryLaunch(t *testing.T) {
 		t.Errorf("the next launch passed %q", spec.PermissionMode)
 	}
 
-	// no choice is roundhouse's default, resolved by the adapter at launch.
+	// no choice is mega's default, resolved by the adapter at launch.
 	plain := r.start("three")
 	if spec := r.fake.Last().Spec; spec.PermissionMode != "" || r.view(plain.ID).PermissionMode != "" {
 		t.Errorf("no choice: spec %q, recorded %q", spec.PermissionMode, r.view(plain.ID).PermissionMode)

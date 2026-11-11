@@ -8,7 +8,7 @@ endif
 # the claude shim runs from the checkout (it needs its node_modules), so the
 # installed binary is stamped with where to find it; claude.shim overrides.
 SHIM_DIR := $(CURDIR)/shim/claude
-LDFLAGS := -X git.hq.quigley.com/research/roundhouse/internal/config.defaultClaudeShim=$(SHIM_DIR)
+LDFLAGS := -X github.com/michaelquigley/mega/internal/config.defaultClaudeShim=$(SHIM_DIR)
 
 .PHONY: build test e2e clean frontend frontend-test shim
 
@@ -41,5 +41,5 @@ e2e: shim
 
 clean:
 	go clean ./...
-	rm -f "$(GOBIN)"/*
+	rm -f "$(GOBIN)/mega"
 	rm -rf ui/dist ui/node_modules shim/claude/node_modules

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// roundhouse claude shim: a policy-free bridge between the roundhouse service
+// mega claude shim: a policy-free bridge between the mega service
 // and the claude agent sdk, speaking one JSON object per line on stdio.
 //
 //   node shim.mjs run --cwd DIR (--session-id UUID | --resume UUID) --exec PATH

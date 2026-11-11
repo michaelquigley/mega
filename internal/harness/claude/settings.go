@@ -10,7 +10,7 @@ import (
 	"github.com/michaelquigley/df/dd"
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // DefaultManagedSettings is where claude code reads managed settings on linux.
@@ -45,7 +45,7 @@ var ignoredInProject = map[string]bool{"auto": true, "bypassPermissions": true}
 // ($CLAUDE_CONFIG_DIR, else ~/.claude). auto and bypassPermissions named in a
 // project or local file are skipped, as claude ignores them there. it only
 // reads. a file that cannot be read is skipped with a warning. every way this
-// can differ from claude ends in roundhouse passing the manual mode, never in
+// can differ from claude ends in mega passing the manual mode, never in
 // passing nothing where claude would find no mode.
 func (h *Harness) InheritedPermissionMode(cwd string) string {
 	for _, layer := range h.settingsLayers(cwd) {
@@ -159,9 +159,9 @@ func ownedByMe(path string) bool {
 
 // launchMode is the --permission-mode to pass for a chosen mode, and whether
 // passing none leaves the mode to the operator's settings. a chosen mode is
-// passed as it is. no choice is roundhouse's default: inherit what the
+// passed as it is. no choice is mega's default: inherit what the
 // settings name, else pass the manual mode explicitly, so a claude whose own
-// fallback changes cannot pick a looser mode on roundhouse's behalf.
+// fallback changes cannot pick a looser mode on mega's behalf.
 func (h *Harness) launchMode(cwd, chosen string) (mode string, inherited bool) {
 	if chosen != "" {
 		return chosen, false

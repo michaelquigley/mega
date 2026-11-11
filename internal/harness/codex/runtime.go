@@ -13,8 +13,8 @@ import (
 	"github.com/michaelquigley/df/dd"
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 const (
@@ -590,7 +590,7 @@ func (r *runtime) request(id any, method string, params map[string]any) {
 	case methodElicitation:
 		p := &elicitationParams{}
 		if !bind(p, params) {
-			r.unanswerable(fmt.Sprintf("codex asked '%s' in a form roundhouse cannot read; interrupt the turn to go on", method), params)
+			r.unanswerable(fmt.Sprintf("codex asked '%s' in a form mega cannot read; interrupt the turn to go on", method), params)
 			return
 		}
 		e, k, pl, ok := r.classify(p)
@@ -600,7 +600,7 @@ func (r *runtime) request(id any, method string, params map[string]any) {
 		}
 		req.elicitation, kind, payload = e, k, pl
 	default:
-		r.unanswerable(fmt.Sprintf("codex asked '%s', which roundhouse cannot answer; interrupt the turn to go on", method), params)
+		r.unanswerable(fmt.Sprintf("codex asked '%s', which mega cannot answer; interrupt the turn to go on", method), params)
 		return
 	}
 	r.mu.Lock()
@@ -610,7 +610,7 @@ func (r *runtime) request(id any, method string, params map[string]any) {
 	r.byNative[nativeKey(id)] = svc
 }
 
-// unanswerable records a server request roundhouse cannot put to the operator.
+// unanswerable records a server request mega cannot put to the operator.
 // it is not answered either way on the operator's behalf: the turn waits, and
 // the record says so, until the operator interrupts it.
 func (r *runtime) unanswerable(text string, params map[string]any) {

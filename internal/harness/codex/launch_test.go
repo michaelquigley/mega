@@ -8,12 +8,12 @@ import (
 	"os"
 	"testing"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
+	"github.com/michaelquigley/mega/internal/harness"
 )
 
 const (
-	fakeMode   = "ROUNDHOUSE_FAKE_APP_SERVER"
-	fakeFrames = "ROUNDHOUSE_FAKE_APP_SERVER_FRAMES"
+	fakeMode   = "MEGA_FAKE_APP_SERVER"
+	fakeFrames = "MEGA_FAKE_APP_SERVER_FRAMES"
 )
 
 // TestMain lets the test binary stand in for `codex app-server` when the
@@ -44,7 +44,7 @@ func fakeAppServer(mode string) {
 		}
 		switch frame["method"] {
 		case "initialize":
-			fmt.Printf(`{"id":%v,"result":{"userAgent":"roundhouse/0.166.0 (fake)","codexHome":"/x","platformFamily":"unix","platformOs":"linux"}}`+"\n", frame["id"])
+			fmt.Printf(`{"id":%v,"result":{"userAgent":"mega/0.166.0 (fake)","codexHome":"/x","platformFamily":"unix","platformOs":"linux"}}`+"\n", frame["id"])
 		case "thread/read":
 			fmt.Printf(`{"id":%v,"result":{"thread":{"id":"t-1","turns":[`+
 				`{"id":"turn-1","status":"completed","items":[{"type":"agentMessage","id":"a-1","text":"done"}]},`+

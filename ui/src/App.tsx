@@ -242,7 +242,7 @@ export function App() {
   const ready = !!gate?.armed && gate.idle && shutDownAt === null && !stale
   const wasReady = useRef<boolean | null>(null)
   useEffect(() => {
-    document.title = ready ? 'Ready to shut down · roundhouse' : 'roundhouse'
+    document.title = ready ? 'Ready to shut down · metawoo mega' : 'metawoo mega'
     if (workspace === null) {
       return
     }
@@ -250,7 +250,7 @@ export function App() {
     // change to idle is announced.
     if (wasReady.current === false && ready && 'Notification' in window && Notification.permission === 'granted') {
       try {
-        new Notification('roundhouse', { body: 'Every agent is idle. Shut down from the banner when you are ready.', tag: 'roundhouse-shutdown' })
+        new Notification('metawoo mega', { body: 'Every agent is idle. Shut down from the banner when you are ready.', tag: 'mega-shutdown' })
       } catch {
         // a browser that refuses notifications still has the title and banner.
       }
@@ -487,7 +487,7 @@ function Unknown({ knowledge, error }: { knowledge: Knowledge; error: string | n
       <section className="unknown unknown-unreadable" role="status">
         <h1>The service could not read the workspace</h1>
         <p>
-          {`The service at ${serviceAddress()} answered, but could not read the workspace. Roundhouse keeps trying, and your projects and conversations appear as soon as a read succeeds.`}
+          {`The service at ${serviceAddress()} answered, but could not read the workspace. mega keeps trying, and your projects and conversations appear as soon as a read succeeds.`}
         </p>
         {error && <p className="muted">Error: {error}</p>}
       </section>
@@ -499,7 +499,7 @@ function Unknown({ knowledge, error }: { knowledge: Knowledge; error: string | n
       <h1>{unreachable ? 'The service is unreachable' : 'Connecting'}</h1>
       <p>
         {unreachable
-          ? `Roundhouse cannot reach the service at ${serviceAddress()}. It keeps trying, and your projects and conversations appear as soon as it answers.`
+          ? `mega cannot reach the service at ${serviceAddress()}. It keeps trying, and your projects and conversations appear as soon as it answers.`
           : `Reaching the service at ${serviceAddress()} to read your projects and conversations.`}
       </p>
       {unreachable && error && <p className="muted">Last error: {error}</p>}

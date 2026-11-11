@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // ErrNotPending reports an answer to a request the runtime no longer waits on.
@@ -111,7 +111,7 @@ type Spec struct {
 	Model  string
 	Effort string
 	// PermissionMode is the operator's choice. empty asks the adapter for
-	// roundhouse's default: the mode the operator's native settings name,
+	// mega's default: the mode the operator's native settings name,
 	// inherited by passing none, else the manual mode.
 	PermissionMode string
 	// Idle is a launch with no prompt following it: the operator started the

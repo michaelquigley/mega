@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // settingsHarness is a claude harness whose settings layers all live under
@@ -111,7 +111,7 @@ func TestLocalSettingsStayInPlaceOutsideARepositoryOrInAWorktree(t *testing.T) {
 }
 
 // claude ignores auto and bypassPermissions from project and local files, so
-// roundhouse does too and passes the manual mode, rather than passing nothing
+// mega does too and passes the manual mode, rather than passing nothing
 // and leaving claude to its own fallback.
 func TestAutoAndBypassFromProjectFilesAreNotInherited(t *testing.T) {
 	h, cwd := settingsHarness(t)
@@ -192,7 +192,7 @@ func argValue(args []string, name string) (string, bool) {
 	return "", false
 }
 
-func TestLaunchPassesTheChosenModeOrRoundhousesDefault(t *testing.T) {
+func TestLaunchPassesTheChosenModeOrMegasDefault(t *testing.T) {
 	h, cwd := settingsHarness(t)
 	if mode, ok := modeArg(launchArgs(t, h, cwd, "auto")); !ok || mode != "auto" {
 		t.Errorf("chosen auto: --permission-mode %q (%v)", mode, ok)

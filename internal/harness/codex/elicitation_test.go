@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // frames as codex-cli 0.166.0 sends them (capability report, 2026-11-09).
@@ -168,7 +168,7 @@ func TestUnanswerableElicitationsAreRecordedNotAnswered(t *testing.T) {
 		if len(sink.requests) != 0 {
 			t.Errorf("%s: became a request: %v", name, sink.requests)
 		}
-		if len(sink.events) != 1 || sink.events[0].Kind != model.EventNative || !strings.Contains(sink.events[0].Text, "roundhouse cannot answer") || !strings.Contains(sink.events[0].Text, "interrupt the turn") {
+		if len(sink.events) != 1 || sink.events[0].Kind != model.EventNative || !strings.Contains(sink.events[0].Text, "mega cannot answer") || !strings.Contains(sink.events[0].Text, "interrupt the turn") {
 			t.Errorf("%s: recorded %v", name, sink.events)
 		}
 		w.quiet(t)

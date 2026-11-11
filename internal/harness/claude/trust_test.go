@@ -39,7 +39,7 @@ func checkoutBase(t *testing.T) string {
 	if err := os.MkdirAll(cache, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	base, err := os.MkdirTemp(cache, "roundhouse-trust-test-")
+	base, err := os.MkdirTemp(cache, "mega-trust-test-")
 	if err != nil {
 		t.Fatal(err)
 	}

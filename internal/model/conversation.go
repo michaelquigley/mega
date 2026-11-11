@@ -39,7 +39,7 @@ type Conversation struct {
 	Runtime   string // RuntimeNone, RuntimeRunning or RuntimeUnsupervised
 
 	// PermissionMode is the operator's choice of permission mode, passed on
-	// every launch of the conversation. empty is roundhouse's own default: the
+	// every launch of the conversation. empty is mega's own default: the
 	// mode the operator's native settings name, else the manual mode.
 	PermissionMode string `dd:",+omitempty"`
 	// Model and Effort are the operator's choice of model and effort level,

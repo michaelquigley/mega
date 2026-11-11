@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"sync"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // Harness launches fake runtimes and serves scripted history.

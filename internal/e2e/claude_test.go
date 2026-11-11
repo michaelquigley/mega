@@ -10,22 +10,33 @@ import (
 	"testing"
 	"time"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/harness/claude"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
-	"git.hq.quigley.com/research/roundhouse/internal/registry"
-	"git.hq.quigley.com/research/roundhouse/internal/service"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/harness/claude"
+	"github.com/michaelquigley/mega/internal/model"
+	"github.com/michaelquigley/mega/internal/registry"
+	"github.com/michaelquigley/mega/internal/service"
 )
 
 const (
-	defaultFixture = "/home/michael/Repos/q/research/roundhouse-fixtures/claude-rt1"
-	turnTimeout    = 4 * time.Minute
+	turnTimeout = 4 * time.Minute
 
 	markerPrompt   = "Reply with the project instruction marker token from your project instructions, followed by the word ALPHA-1a2b. Nothing else."
 	questionPrompt = "Use the AskUserQuestion tool to ask me a single question: which color do you prefer? Offer exactly two options, Red and Blue. After I answer, reply with my chosen color followed by GAMMA-5e6f. Nothing else."
 	approvalPrompt = "Using the Bash tool, run exactly `sleep 3` and then reply DELTA-7a8b. Nothing else."
 	returnPrompt   = "List every marker token you have seen in this conversation so far, in order, one per line, then append SDK-RETURN-c3d4 on its own line. Nothing else."
 )
+
+// fixture is the disposable checkout a round trip runs in, named by the
+// environment variable key; with none set, the test is skipped, since it would
+// otherwise run against whatever directory it found.
+func fixture(t *testing.T, key string) string {
+	t.Helper()
+	dir := os.Getenv(key)
+	if dir == "" {
+		t.Skipf("%s is not set: the round trip needs a disposable fixture checkout (see internal/e2e/doc.go)", key)
+	}
+	return dir
+}
 
 func env(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -104,7 +115,7 @@ func (s *session) prompt(text string) {
 // TestClaudeRoundTrip is C1 to C4 and C6 from the capability report through the
 // service, without the terminal visit (C5), which the operator does by hand.
 func TestClaudeRoundTrip(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CLAUDE_FIXTURE", defaultFixture)
+	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	h := newClaudeHarness(t)
 	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("claude-rt1", fixture)
@@ -227,9 +238,9 @@ func newClaudeHarness(t *testing.T) *claude.Harness {
 	}
 	home, _ := os.UserHomeDir()
 	return claude.New(claude.Config{
-		Node:       env("ROUNDHOUSE_E2E_NODE", "node"),
+		Node:       env("MEGA_E2E_NODE", "node"),
 		Shim:       shim,
-		Executable: env("ROUNDHOUSE_E2E_CLAUDE", filepath.Join(home, ".local", "share", "claude", "versions", "2.1.318")),
+		Executable: env("MEGA_E2E_CLAUDE", filepath.Join(home, ".local", "share", "claude", "versions", "2.1.318")),
 	})
 }
 
@@ -238,7 +249,7 @@ func newClaudeHarness(t *testing.T) *claude.Harness {
 // classifier's hands: the residue must still arrive as a request, raised in
 // auto mode, and wait for the operator's answer.
 func TestClaudeAutoMode(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CLAUDE_FIXTURE", defaultFixture)
+	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	svc := newE2EService(t, newClaudeHarness(t))
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
@@ -273,7 +284,7 @@ func TestClaudeAutoMode(t *testing.T) {
 // and be answerable, and the next turn's system/init, as claude re-sends it,
 // must report the same mode the header shows.
 func TestClaudeModeSwitch(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CLAUDE_FIXTURE", defaultFixture)
+	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	svc := newE2EService(t, newClaudeHarness(t))
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
@@ -374,8 +385,8 @@ func shutdown(t *testing.T, svc *service.Service, s *session) {
 // report, the next system/init, names the chosen model resolved. effort is
 // never reported, so only the request is checked.
 func TestClaudeModelAndEffort(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CLAUDE_FIXTURE", defaultFixture)
-	chosen := env("ROUNDHOUSE_E2E_CLAUDE_MODEL", "sonnet")
+	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
+	chosen := env("MEGA_E2E_CLAUDE_MODEL", "sonnet")
 	svc := newE2EService(t, newClaudeHarness(t))
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
@@ -463,7 +474,7 @@ func startedSession(t *testing.T, svc *service.Service, s *session) service.Conv
 // version and model, with the launch mode requested; a mode switch is
 // confirmed at once; the next prompt is answered in the same session.
 func TestClaudeStartWithoutPrompt(t *testing.T) {
-	fixture := env("ROUNDHOUSE_E2E_CLAUDE_FIXTURE", defaultFixture)
+	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	svc := newE2EService(t, newClaudeHarness(t))
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {

@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strconv"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // methodElicitation is how codex asks the client on behalf of an MCP server:
@@ -54,7 +54,7 @@ type mcpCall struct {
 // fallback when no call in flight names it.
 var toolInMessage = regexp.MustCompile(`run tool "([^"]+)"`)
 
-// classify sorts an elicitation into what roundhouse can put to the operator.
+// classify sorts an elicitation into what mega can put to the operator.
 // an mcp_tool_call approval is a permission request; a typed form of primitive
 // fields and single-select enums is a question; anything else (free-schema
 // forms, url and user-verification modes, forms with no fields) cannot be
@@ -238,7 +238,7 @@ func formPayload(p *elicitationParams, fields []formField) map[string]any {
 
 // elicitationResponse answers an elicitation. an approval answers accept,
 // accept for the session, or decline; codex's response carries no reason, so a
-// denial's message stays in roundhouse's record. "always", which writes the
+// denial's message stays in mega's record. "always", which writes the
 // operator's codex config, is never sent. a form answers accept with its
 // fields as typed content; an empty optional field is left out.
 func elicitationResponse(e *elicitation, answer harness.Answer) *elicitationResult {
@@ -286,12 +286,12 @@ func typedValue(kind, v string) any {
 	return v
 }
 
-// unanswerableElicitation says what an elicitation roundhouse cannot put to
+// unanswerableElicitation says what an elicitation mega cannot put to
 // the operator asked, for the record.
 func unanswerableElicitation(p *elicitationParams) string {
 	what := p.Message
 	if what == "" {
 		what = "(no message)"
 	}
-	return fmt.Sprintf("codex asked '%s' for MCP server '%s' in mode '%s', which roundhouse cannot answer: '%s'; interrupt the turn to go on", methodElicitation, p.ServerName, p.Mode, what)
+	return fmt.Sprintf("codex asked '%s' for MCP server '%s' in mode '%s', which mega cannot answer: '%s'; interrupt the turn to go on", methodElicitation, p.ServerName, p.Mode, what)
 }

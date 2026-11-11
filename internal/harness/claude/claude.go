@@ -17,8 +17,8 @@ import (
 
 	"github.com/michaelquigley/df/dd"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 const shimScript = "shim.mjs"
@@ -106,7 +106,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		// the shim was never started, so no session can exist.
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 	}
-	// the mode the session starts in, as roundhouse asked for it: the one
+	// the mode the session starts in, as mega asked for it: the one
 	// passed, or the one the operator's settings name when none is. an idle
 	// launch reports it until claude does.
 	launchMode := mode

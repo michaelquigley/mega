@@ -24,7 +24,7 @@ const plugins = [remarkGfm]
 
 // safeUrl keeps absolute http, https and mailto urls and drops everything
 // else, relative and fragment urls included, which would only point back into
-// roundhouse.
+// mega.
 function safeUrl(url: string): string {
   return /^(https?:|mailto:)/i.test(url.trim()) ? url : ''
 }

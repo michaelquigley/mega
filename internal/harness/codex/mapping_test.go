@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // long is well past the old 4000-byte bound, with multibyte runes throughout,

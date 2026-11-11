@@ -1,4 +1,4 @@
-module git.hq.quigley.com/research/roundhouse
+module github.com/michaelquigley/mega
 
 go 1.27.1
 

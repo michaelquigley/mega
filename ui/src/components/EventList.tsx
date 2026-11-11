@@ -52,7 +52,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
         return (
           <div key={event.seq} className="message user">
             <BlockCopy source={event.text ?? ''} />
-            <span className="who">{event.origin === 'native' ? 'You, outside Roundhouse' : 'You'}</span>
+            <span className="who">{event.origin === 'native' ? 'You, outside mega' : 'You'}</span>
             <Markdown text={event.text ?? ''} />
           </div>
         )
@@ -60,7 +60,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
         return (
           <div key={event.seq} className="message assistant">
             <BlockCopy source={event.text ?? ''} />
-            {event.origin === 'native' && <span className="who">From outside Roundhouse</span>}
+            {event.origin === 'native' && <span className="who">From outside mega</span>}
             <Markdown text={event.text ?? ''} />
           </div>
         )

@@ -12,8 +12,8 @@ import (
 	"github.com/michaelquigley/df/dd"
 	"github.com/michaelquigley/df/dl"
 
-	"git.hq.quigley.com/research/roundhouse/internal/service"
-	"git.hq.quigley.com/research/roundhouse/ui"
+	"github.com/michaelquigley/mega/internal/service"
+	"github.com/michaelquigley/mega/ui"
 )
 
 const (

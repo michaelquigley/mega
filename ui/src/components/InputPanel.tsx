@@ -19,7 +19,7 @@ const drafts = new Map<string, string>()
 
 // the reply box's remembered height: one size for every conversation, a
 // preference kept in this browser only.
-const heightKey = 'roundhouse.replyHeight'
+const heightKey = 'mega.replyHeight'
 const defaultHeight = 120
 const minHeight = 48
 
@@ -514,7 +514,7 @@ export function InputPanel(props: InputPanelProps) {
       {open === 'remove' && (
         <Dialog title="Remove from workspace" onClose={() => setOpen(null)}>
           <p>
-            Roundhouse forgets this conversation: its own copy of the history and its reading position are deleted. The
+            mega forgets this conversation: its own copy of the history and its reading position are deleted. The
             checkout and the native session stay untouched, and the session can be adopted again from the project.
           </p>
           {state === 'unsupervised' && <p className="muted">Resume it first; its runtime may still be working.</p>}

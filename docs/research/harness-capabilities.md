@@ -1,6 +1,6 @@
 # Harness capabilities: Claude Code, Codex, pi
 
-Evidence-backed findings from the Roundhouse integration investigation (brief: `docs/future/agent-workspace-investigation.md`). Each scenario reports a result (`pass`, `partial`, `fail`, `blocked`), observed behavior, continuity, reproduction, and sanitized excerpts. Statements are tagged `[observed]`, `[docs]` (documentation claim, not verified here), or `[inference]`.
+Evidence-backed findings from the mega integration investigation (its brief, `docs/future/agent-workspace-investigation.md`, was retired on 2026-11-11 and lives in git history). Each scenario reports a result (`pass`, `partial`, `fail`, `blocked`), observed behavior, continuity, reproduction, and sanitized excerpts. Statements are tagged `[observed]`, `[docs]` (documentation claim, not verified here), or `[inference]`.
 
 ## Tested environment
 
@@ -121,7 +121,7 @@ cli     user a513ca0a <- 79f7c733   "List every marker ... TERMINAL-AFTER-SPLIT-
 cli     assistant 4b87d817           ... ETA-3d4e, TERMINAL-AFTER-SPLIT-hh88
 ```
 
-`getSessionMessages` returned the terminal branch; a subsequent SDK `resume` continued the SDK branch (`... LIVE-PROBE-gg77, AFTER-SPLIT-SDK-ii99`) `[observed]`. Interactive sessions do not lock the transcript against a second writer, and readers choose branches differently `[inference: the resume appears to follow the latest `last-prompt` leaf, which the still-open terminal had not yet written]`. Roundhouse must treat "is a live process holding this session" as a precondition it checks itself (`claude agents --json`), not something the CLI enforces for interactive sessions.
+`getSessionMessages` returned the terminal branch; a subsequent SDK `resume` continued the SDK branch (`... LIVE-PROBE-gg77, AFTER-SPLIT-SDK-ii99`) `[observed]`. Interactive sessions do not lock the transcript against a second writer, and readers choose branches differently `[inference: the resume appears to follow the latest `last-prompt` leaf, which the still-open terminal had not yet written]`. mega must treat "is a live process holding this session" as a precondition it checks itself (`claude agents --json`), not something the CLI enforces for interactive sessions.
 
 #### C10: background sessions and native attach
 
@@ -211,7 +211,7 @@ Codex enforces single-writer access across processes for a thread the TUI holds,
 - A then started a turn whose approval (id 1) nobody answered. Michael connected `codex --remote ws://127.0.0.1:45011`, opened the thread, and the TUI showed the pending approval. He approved it; A and B saw `serverRequest/resolved 1`, the command ran (`ws-hold.txt` written), and the turn finished `WS-HOLD-1`. His follow-up prompt arrived at the probe clients as a `userMessage` item with the TUI's `clientId`, and its reply `REMOTE-TUI-nn33` was observed by both.
 - The app-server stayed alive with the thread loaded after all probe clients disconnected (`serverAliveAfterAllClientsClosed: true`), and a new client could `thread/read` it.
 
-Approval requests are therefore broadcast to every connected client, the first answer wins, duplicates are dropped silently, and the native TUI is a peer client on the same thread. Codex offers no exclusive input ownership; Roundhouse would impose it `[inference from X8/X9]`.
+Approval requests are therefore broadcast to every connected client, the first answer wins, duplicates are dropped silently, and the native TUI is a peer client on the same thread. Codex offers no exclusive input ownership; mega would impose it `[inference from X8/X9]`.
 
 ### Codex answers to the report questions
 
@@ -299,7 +299,7 @@ The session file shows one chain through the TUI turns. Two extra session files 
 
 ## Follow-up (2026-11-06): reconnect, suspension, Codex questions
 
-Brief: `docs/future/harness-follow-up-probes.md`. Versions unchanged: Claude Code 2.1.318 with Agent SDK 0.3.318, codex-cli 0.166.0, pi 1.1.0. Same fixtures. New probe pieces: `probes/common/relay.mjs` and `client.mjs` (owner-side in-memory relay over a unix socket and a browser-equivalent client), `--relay SOCK [--hold]` owner mode in all three probes, `probes/claude/run-reconnect.sh`, `probes/claude/run-suspend.sh`, `probes/common/run-grouped.sh`, and the fork notes `probes/codex/NOTES-followup.md` and `probes/pi/NOTES-followup.md`. Everything the relay does (event replay from `since`, pending-request snapshot, first-answer-wins, `answer_rejected`) is shim behavior held in the owner's memory; it is not a harness guarantee and does not survive an owner crash. Observations below are `[observed]` unless marked.
+Brief: `docs/future/harness-follow-up-probes.md`, retired on 2026-11-11 and kept in git history. Versions unchanged: Claude Code 2.1.318 with Agent SDK 0.3.318, codex-cli 0.166.0, pi 1.1.0. Same fixtures. New probe pieces: `probes/common/relay.mjs` and `client.mjs` (owner-side in-memory relay over a unix socket and a browser-equivalent client), `--relay SOCK [--hold]` owner mode in all three probes, `probes/claude/run-reconnect.sh`, `probes/claude/run-suspend.sh`, `probes/common/run-grouped.sh`, and the fork notes `probes/codex/NOTES-followup.md` and `probes/pi/NOTES-followup.md`. Everything the relay does (event replay from `since`, pending-request snapshot, first-answer-wins, `answer_rejected`) is shim behavior held in the owner's memory; it is not a harness guarantee and does not survive an owner crash. Observations below are `[observed]` unless marked.
 
 ### 1. Client disconnect and reconnect
 
@@ -346,7 +346,7 @@ Implication: outputs, requests and responses do need different reconnect treatme
 Claude details (`probes/claude/run-suspend.sh`, sessions in `probes/claude/logs/recovery-session-ids.txt`):
 
 - Idle (`c72c5fa0-…`): probe exit 0; no CLI process and no `~/.claude/sessions` registry entry remained. Reopening with an empty turns file started a CLI that ran `SessionStart` hooks and exited before `init` without any model work, so the SDK offers no "load and wait" state: reading stored history is `getSessionMessages` with no process, and activating the conversation is the next prompt. The marked follow-up recited `ROUNDHOUSE-MARKER-7f3a / SUSPEND-IDLE-1 / SUSPEND-RESUME-2` on a single chain.
-- Pending permission (`971e5f11-…`): the relay client sent `close` (SDK input ended) while `Bash(sleep 5)` awaited approval. The process stayed alive; 294 s later the request's signal aborted, the transcript recorded `tool_result: Tool permission request failed: AbortError: Tool permission stream closed before…`, no `result` message was emitted, and the CLI exited 0. The headless documentation says the prompt is cancelled "as soon as the input ends" `[docs]`; the installed version took about five minutes `[observed]`. Safe sequence for Roundhouse: interrupt (or deny) first, then close input.
+- Pending permission (`971e5f11-…`): the relay client sent `close` (SDK input ended) while `Bash(sleep 5)` awaited approval. The process stayed alive; 294 s later the request's signal aborted, the transcript recorded `tool_result: Tool permission request failed: AbortError: Tool permission stream closed before…`, no `result` message was emitted, and the CLI exited 0. The headless documentation says the prompt is cancelled "as soon as the input ends" `[docs]`; the installed version took about five minutes `[observed]`. Safe sequence for mega: interrupt (or deny) first, then close input.
 - Active command (`d4d8ed86-…`, `709238b0-…`): interrupt ended the turn with `error_during_execution` and the owner exited within seconds; wait-until-idle took 23 s and ended with `success`. The first run's child-process check matched nothing because of shell quoting; the corrected rerun (`ONLY=active`, sessions `20e939fc-…` and `c75beb82-…`) showed the Python child present while the command ran (1) and gone after the interrupt (0) and after the natural completion (0), with no CLI process left in either case.
 
 Codex (`probes/codex/NOTES-followup.md`): closing stdin is a safe cancel for a pending approval; `turn/interrupt` ends the turn but can leave the sandboxed tool process running, so a suspend must verify `codex-linux-sandbox` children itself or wait for `turn/completed`. `thread/resume` separates reopen (history, MCP readiness) from activate (a turn).
@@ -362,7 +362,7 @@ Limits: process verification used `pgrep` by session or thread id and `claude ag
 - Default-mode async question: the model emits an `agentMessage` item with `delivery: "async"` and `questions: [{title, options}]`, then sleeps in `sleep` items while the turn stays active. `turn/steer {threadId, expectedTurnId, input: [text "Blue"]}` returned the same `turnId`; the answer became a `userMessage` item inside the active turn, the sleep item ended early, and the reply was `Blue STEER-GAMMA-5e6f`. pass.
 - Collaboration mode for `item/tool/requestUserInput`: blocked. The v2 schema's `ModeKind` is `"plan" | "default"`, but no client request or `thread/start`, `thread/resume` or `turn/start` parameter sets it; `collaborationMode` appears read-only on `ThreadResumeResponse`, `ThreadSettings` and `thread/settings/updated`. Feature flags reported `collaboration_modes removed` and `default_mode_request_user_input … under development, false`. `requestUserInput` therefore cannot be enabled through the installed protocol, and no mode recommendation follows for planning or implementation agents.
 
-Implication: Roundhouse can treat a Codex `agentMessage` with `questions[]` as an explicit question and route the reply through `turn/steer` while the turn is active, falling back to `turn/start` after it ends.
+Implication: mega can treat a Codex `agentMessage` with `questions[]` as an explicit question and route the reply through `turn/steer` while the turn is active, falling back to `turn/start` after it ends.
 
 ### What the follow-up permits us to promise
 
@@ -375,7 +375,7 @@ Remaining blockers: no Codex collaboration mode exposes blocking questions in 0.
 
 ## Operator decision (2026-11-06): early ownership discipline
 
-Recorded separately from the technical findings. Michael has decided that operator care is sufficient for session ownership in the earliest Roundhouse versions: no leases, native-process exclusion, terminal wrappers, or cross-process locking for now. The operating procedure is explicit handoff: close the previous writer before opening another, where an idle terminal is still a writer. The concurrent-writer hazards above (Claude C9, pi P7) remain real and documented; stronger enforcement stays a possible later direction, not an immediate requirement. Tests must not resume a session still held by a different process; the Codex shared app-server multi-client case is a distinct, intentional configuration.
+Recorded separately from the technical findings. Michael has decided that operator care is sufficient for session ownership in the earliest mega versions: no leases, native-process exclusion, terminal wrappers, or cross-process locking for now. The operating procedure is explicit handoff: close the previous writer before opening another, where an idle terminal is still a writer. The concurrent-writer hazards above (Claude C9, pi P7) remain real and documented; stronger enforcement stays a possible later direction, not an immediate requirement. Tests must not resume a session still held by a different process; the Codex shared app-server multi-client case is a distinct, intentional configuration.
 
 ## Follow-up (2026-11-09): Claude permission modes and auto mode
 
@@ -407,7 +407,7 @@ Probed for the auto-mode roadmap card, the one sanctioned reopening of the Claud
   - The next tool call in the same turn (`touch /tmp/rh-auto-probe-b.txt`) went to the classifier without asking.
   - No `system/init` was emitted until the next turn, so the stream does not report a mid-turn change.
   - The switch therefore takes effect from the next tool call and leaves pending requests alone.
-- Run D (session `29f0751a-cd75-4f4c-af1c-afa6131d768c`): with `permissionMode` omitted and no `defaultMode` in any settings, `system/init` reported `default` `[observed]`. The SDK's documentation says an omitted mode falls back to `auto` where available `[docs]`; this version, with these settings, did not. Roundhouse still passes `default` explicitly, so a later version cannot change it silently `[inference]`.
+- Run D (session `29f0751a-cd75-4f4c-af1c-afa6131d768c`): with `permissionMode` omitted and no `defaultMode` in any settings, `system/init` reported `default` `[observed]`. The SDK's documentation says an omitted mode falls back to `auto` where available `[docs]`; this version, with these settings, did not. mega still passes `default` explicitly, so a later version cannot change it silently `[inference]`.
 
 ### Where Claude reads project settings for a session below the repository root (2026-11-09)
 
@@ -518,7 +518,7 @@ Claude Code 2.1.318, Agent SDK 0.3.318, seen in an operator conversation and in 
 
 ## Follow-up (2026-11-10): background jobs
 
-Work an agent keeps running after its turn ends: what each harness reports about it on the stream roundhouse reads.
+Work an agent keeps running after its turn ends: what each harness reports about it on the stream mega reads.
 
 ### Claude Code 2.1.318, Agent SDK 0.3.318
 
@@ -543,11 +543,11 @@ Work an agent keeps running after its turn ends: what each harness reports about
   - `thread/backgroundTerminals/list` held the command (`sleep 30 && echo BG-CODEX-DONE`, without the `/bin/bash -lc` wrapper) until it exited;
   - `item/completed` for it arrived about 27 s after the turn's end, outside any turn, and the list then emptied;
   - nothing woke a new turn.
-- So on the stream, a command whose `item/started` has no `item/completed` by its turn's `turn/completed` is background work until that `item/completed` arrives `[observed]`. Roundhouse derives the Codex background list from that, with no polling. Before this batch the adapter mapped that late `item/completed` to tool events, which made the service open a turn that never ended; it is now recorded as the command's call and result, opening no turn, its result unread at once, under the identities a history import gives the same item.
+- So on the stream, a command whose `item/started` has no `item/completed` by its turn's `turn/completed` is background work until that `item/completed` arrives `[observed]`. mega derives the Codex background list from that, with no polling. Before this batch the adapter mapped that late `item/completed` to tool events, which made the service open a turn that never ended; it is now recorded as the command's call and result, opening no turn, its result unread at once, under the identities a history import gives the same item.
 
 ## Follow-up (2026-11-10): `@path` in a programmatic prompt
 
-Whether a prompt sent the way roundhouse sends it treats `@path` as a file mention, as the terminal does. This decides what the reply box's path search inserts. Both probes ask for the exact contents of `fixture.txt` and forbid tools. The model can therefore only answer if the mention attached the file, and otherwise replies `NOT-ATTACHED`.
+Whether a prompt sent the way mega sends it treats `@path` as a file mention, as the terminal does. This decides what the reply box's path search inserts. Both probes ask for the exact contents of `fixture.txt` and forbid tools. The model can therefore only answer if the mention attached the file, and otherwise replies `NOT-ATTACHED`.
 
 ### Claude Code 2.1.318, Agent SDK 0.3.318
 
@@ -618,11 +618,23 @@ What a resumed session does when nothing is sent, for the Start control. Both pr
 
 ### What this permits
 
-An idle runtime can be held for either harness. It is started by exact id, costs no turn, and writes no message. Its MCP servers connect, and it takes a mode, model or effort change at once. Each idle runtime costs about 200 to 250 MB PSS with its MCP servers, depending on how many servers the operator configures. A handful is reasonable on `fortyfive`; twenty would be several gigabytes, which is why Start is a gesture per conversation and nothing starts on its own. Claude reports no permission mode until a turn, so roundhouse shows the launch mode as requested until Claude's first report (Michael's choice, 2026-11-10).
+An idle runtime can be held for either harness. It is started by exact id, costs no turn, and writes no message. Its MCP servers connect, and it takes a mode, model or effort change at once. Each idle runtime costs about 200 to 250 MB PSS with its MCP servers, depending on how many servers the operator configures. A handful is reasonable on `fortyfive`; twenty would be several gigabytes, which is why Start is a gesture per conversation and nothing starts on its own. Claude reports no permission mode until a turn, so mega shows the launch mode as requested until Claude's first report (Michael's choice, 2026-11-10).
+
+## Follow-up (2026-11-11): a moved checkout and its Claude session store
+
+Whether a Claude session resumes by exact id from a checkout's new path once the session store directory is moved to the name that path maps to. This rehearses the cutover, which moves this project's checkout and its store together. Claude Code 2.1.318, Agent SDK 0.3.318.
+
+`probes/claude/moved-store.mjs`; the logs are `probes/claude/logs/moved-store.*`. The `claude-rt1` fixture was copied to a scratch path. Its store directory (`~/.claude/projects/` plus the fixture path with every non-alphanumeric character turned into `-`) was copied, read-only on the original, under a staging name. The copy was then renamed to the name the scratch path maps to. Session `9313f4e0-…`, from the idle-resume probe, had two replies, `SEEDED` and `RESUMED`, and every line recorded the old `cwd`. The probe's own store and checkout copies were deleted afterwards. The fixture's store was unchanged, and its transcript hashed the same before and after.
+
+- From the new path, `listSessions` lists the session, and `getSessionMessages` returns its four messages with both replies `[observed]`.
+- A resume by exact id from the new path, with streaming input and tools disallowed, reported `system/init` with the same `session_id` and the new `cwd` `[observed]`. Asked for its earlier replies, it answered `SEEDED, RESUMED, MOVED`. The history was intact through the model, not only on disk.
+- The transcript grew in the moved store: 45 lines before, 65 after. The new lines record the new `cwd`, and no other store directory was created `[observed]`. The old lines keep the old `cwd`; nothing rewrote them, and nothing needed to.
+
+So moving the store directory to the new path's name, with the service stopped and no terminal open, carries the sessions across. mega's import (`getSessionMessages` with the checkout as `dir`) and its resume by id (`--resume` in the new `cwd`) both work from the new path.
 
 ## Recommendations
 
-- Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. Roundhouse should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.
+- Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. mega should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.
 - Treat "switch to terminal" as a release: stop the managed process, let the terminal resume by exact id, and re-adopt only after that terminal process has exited. Idle is not closed. Only Codex (shared app-server) and Claude background sessions support true live attach, and only Codex exposes it structurally.
 - Explicit signals to surface: Claude `canUseTool` (question vs other tool); Codex `activeFlags`, server requests, and async `agentMessage` items carrying `questions[]`; pi `extension_ui_request` (generic dialogs, not necessarily permissions). The follow-up demonstrated answering Codex's async question with `turn/steer` while its turn remained active. Ordinary prose questions remain unread activity unless separately classified.
 - Reconnect requires owner-side output replay and a current pending-request set, including resolution handling. The follow-up demonstrated these with an in-memory relay while the owner stayed alive; it did not establish owner-crash or power-loss durability.

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"git.hq.quigley.com/research/roundhouse/internal/harness"
-	"git.hq.quigley.com/research/roundhouse/internal/harness/harnesstest"
-	"git.hq.quigley.com/research/roundhouse/internal/model"
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/harness/harnesstest"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // idleConversation starts a conversation whose first turn has ended, so its

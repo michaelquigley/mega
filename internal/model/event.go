@@ -91,10 +91,10 @@ type RuntimeFacts struct {
 	Model          string `dd:",+omitempty"`
 	Version        string `dd:",+omitempty"`
 	PermissionMode string `dd:",+omitempty"`
-	// ModeInherited is whether roundhouse passed no permission mode, so the
+	// ModeInherited is whether mega passed no permission mode, so the
 	// operator's native settings chose it.
 	ModeInherited bool `dd:",+omitempty"`
-	// ModeRequested is whether PermissionMode is only the mode roundhouse
+	// ModeRequested is whether PermissionMode is only the mode mega
 	// launched with, not yet reported by the harness: claude reports its mode
 	// at a turn's start, and a runtime started with no prompt has had none.
 	ModeRequested bool `dd:",+omitempty"`
