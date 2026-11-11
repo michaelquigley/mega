@@ -1210,6 +1210,56 @@ hr.turn {
   overflow-y: auto;
 }
 
+/* the @ list: paths in the checkout, above the caret in the reply box. */
+.reply {
+  --path-list-width: min(440px, 100%);
+}
+
+.path-list {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+  max-height: min(320px, 40vh);
+  overflow-y: auto;
+  padding: 4px;
+  position: absolute;
+  width: var(--path-list-width);
+  z-index: 3;
+}
+
+.path-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.path-list li {
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow: hidden;
+  padding: 4px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path-list li.selected {
+  background: var(--panel);
+}
+
+.path-dir {
+  color: var(--muted);
+}
+
+.path-note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+  padding: 4px 8px;
+}
+
 /* the drag handle on the reply box's top edge sets its remembered height. */
 .drag-handle {
   cursor: ns-resize;
@@ -1444,9 +1494,9 @@ hr.turn {
   list-style: disc;
 }
 
-/* before the page has read the workspace once: it says it is connecting, or
-   that the service is unreachable and it keeps trying, never that there is
-   nothing. */
+/* before the page has read the workspace once: it says it is connecting,
+   that the service is unreachable, or that it could not read the workspace,
+   and that it keeps trying, never that there is nothing. */
 .unknown {
   display: flex;
   flex-direction: column;
@@ -1462,7 +1512,8 @@ hr.turn {
   margin: 0;
 }
 
-.unknown-unreachable h1 {
+.unknown-unreachable h1,
+.unknown-unreadable h1 {
   color: var(--error);
 }
 

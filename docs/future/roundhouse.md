@@ -22,23 +22,7 @@ A **runtime** is the harness process or server thread currently executing. It ca
 
 ## Working in it
 
-The main surface is a stable project and conversation navigator beside one generous selected conversation. Navigation stays put rather than re-sorting collaborators by their latest output, so a project's structure becomes spatially familiar. The selected conversation quietly shows its harness, model and effort where available, runtime mode, and environment and checkout. Launching means choosing a harness, optionally a model and an effort level from what that harness offers, and writing the opening prompt; environment and checkout come from the project, and native settings are inherited rather than silently stripped, so leaving model and effort unchosen means the harness's own defaults. Model and effort can be changed while a conversation runs, as they can in the terminals, and the conversation shows what the harness reports beside what was asked. Desktop first; mobile is a later fallback. The layout sketch below is a wireframe of panes, kept as fenced text because it depicts arrangement rather than flow.
-
-```text
-+---------------------------+------------------------------------------+
-| Needs you                 | Project / work group / conversation      |
-|                           | Harness · model · effort · mode · env    |
-| Projects                  +------------------------------------------+
-|  archive                  |                                          |
-|    Storage durability     | Conversation                             |
-|      Planning             |                                          |
-|      Implementation       | Messages, tool activity, requests,       |
-|  frame                    | and readable native history              |
-|  punchbuggy               |                                          |
-|                           +------------------------------------------+
-| Suspended projects        | Reply                                    |
-+---------------------------+------------------------------------------+
-```
+The main surface is a stable project and conversation navigator beside one generous selected conversation. Navigation stays put rather than re-sorting collaborators by their latest output, so a project's structure becomes spatially familiar. The selected conversation quietly shows its harness, model and effort where available, runtime mode, and environment and checkout. Launching means choosing a harness, optionally a model and an effort level from what that harness offers, and writing the opening prompt; environment and checkout come from the project, and native settings are inherited rather than silently stripped, so leaving model and effort unchosen means the harness's own defaults. Model and effort can be changed while a conversation runs, as they can in the terminals, and the conversation shows what the harness reports beside what was asked. Desktop first; mobile is a later fallback. The layout as built, with its side panel, rail, conversation column and input panel, is described in `docs/current/roundhouse.md`; the sketch that stood here was realized and retired.
 
 Attention has two routes: a compact cross-project list, and a keyboard shortcut to the next waiting conversation. Both open the conversation inside its project. Replying does not move focus, because a reply may start a discussion rather than finish a queue item. Opening a conversation acknowledges what was read and nothing more; a pending approval or question stays pending until answered. Unread output and an explicit request are kept visibly distinct.
 

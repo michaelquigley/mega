@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getEvents, getWorkspace, readConversation } from './api'
+import { ApiError, getEvents, getWorkspace, readConversation } from './api'
 import { freezeClock } from './clock'
 import { parseHash, select, type Selection } from './selection'
 import { serviceAddress, useStream, type Knowledge } from './stream'
@@ -15,6 +15,9 @@ import { SidePanel } from './components/SidePanel'
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // answered: the last failed workspace read was answered by the service with
+  // an error, rather than reaching nothing.
+  const [answered, setAnswered] = useState(false)
   const [selection, setSelection] = useState<Selection | null>(parseHash)
   const [registering, setRegistering] = useState(false)
   const [launching, setLaunching] = useState<string | null>(null)
@@ -81,6 +84,7 @@ export function App() {
             // what the page shows is now only last known, until a refresh on
             // the current connection succeeds.
             setLoadError(error instanceof Error ? error.message : String(error))
+            setAnswered(error instanceof ApiError)
             setSynced(false)
             ok = false
           }
@@ -181,13 +185,20 @@ export function App() {
     return () => window.clearTimeout(timer)
   }, [streamState, synced, loadError, retryIn, refresh])
 
-  // what the page knows: nothing yet (connecting, or unreachable once a read
-  // or the stream has failed), the service's current state, or only the last
-  // state it read (stale). an empty workspace is shown only when a successful
-  // read returned one.
+  // what the page knows: nothing yet (connecting; unreachable once the stream
+  // or a read has reached nothing; unreadable once the service answered a read
+  // with an error), the service's current state, or only the last state it
+  // read (stale). an empty workspace is shown only when a successful read
+  // returned one.
   let knowledge: Knowledge
   if (workspace === null) {
-    knowledge = loadError !== null || streamState === 'disconnected' ? 'unreachable' : 'connecting'
+    if (streamState === 'disconnected') {
+      knowledge = 'unreachable'
+    } else if (loadError !== null) {
+      knowledge = answered ? 'unreadable' : 'unreachable'
+    } else {
+      knowledge = 'connecting'
+    }
   } else {
     knowledge = stale ? 'stale' : 'current'
   }
@@ -391,9 +402,21 @@ function takesText(target: EventTarget | null): boolean {
 }
 
 // Unknown is the main column before the page has read the workspace once: it
-// says the page is connecting, or that the service is unreachable and it is
-// still trying, and where. it never says there is nothing.
+// says the page is connecting, that the service is unreachable, or that the
+// service answered but could not read the workspace, and that it is still
+// trying, and where. it never says there is nothing.
 function Unknown({ knowledge, error }: { knowledge: Knowledge; error: string | null }) {
+  if (knowledge === 'unreadable') {
+    return (
+      <section className="unknown unknown-unreadable" role="status">
+        <h1>The service could not read the workspace</h1>
+        <p>
+          {`The service at ${serviceAddress()} answered, but could not read the workspace. Roundhouse keeps trying, and your projects and conversations appear as soon as a read succeeds.`}
+        </p>
+        {error && <p className="muted">Error: {error}</p>}
+      </section>
+    )
+  }
   const unreachable = knowledge === 'unreachable'
   return (
     <section className={`unknown unknown-${knowledge}`} role="status">

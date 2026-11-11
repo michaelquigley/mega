@@ -70,6 +70,13 @@ export const startConversation = (projectId: string, harness: string, name: stri
 export const getModels = (projectId: string, harness: string) =>
   request<Models>('GET', `/api/projects/${encodeURIComponent(projectId)}/models?harness=${encodeURIComponent(harness)}`)
 
+// paths in a project's checkout matching q, best first, at most twenty;
+// directories end in a slash. names only: the service reads no file.
+export const getPaths = (projectId: string, q: string) =>
+  request<{ paths: string[] }>('GET', `/api/projects/${encodeURIComponent(projectId)}/paths?q=${encodeURIComponent(q)}`).then(
+    (answer) => answer.paths,
+  )
+
 // the harness's answer to a switch. only a confirmed switch moves the live mode,
 // and only once the runtime's report of it is recorded. next_prompt is a model
 // or effort change codex takes with the next prompt.

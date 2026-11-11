@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { starProject } from '../api'
 import { folds } from '../prefs'
 import { select, type Selection } from '../selection'
-import { serviceAddress, streamLabels, type Knowledge, type StreamState } from '../stream'
+import { connectionLabel, failing, serviceAddress, type Knowledge, type StreamState } from '../stream'
 import { treeGroups } from '../tree'
 import type { Conversation, Project } from '../types'
 import { AttentionMark, BackgroundLabel, Elapsed, ProjectMark } from './AttentionMark'
@@ -30,7 +30,13 @@ interface SidebarProps {
 // stars are workspace state, written through the service.
 export function Sidebar({ projects, conversations, needsYou, selection, streamState, stale, loaded, knowledge, onRegister, onCollapse }: SidebarProps) {
   // before the first read the page knows nothing, and says so, never "none".
-  const unknown = !loaded ? <p className="muted unknown-line">{knowledge === 'unreachable' ? `Not known: the service at ${serviceAddress()} is unreachable.` : 'Not known yet: connecting.'}</p> : null
+  const unknownText =
+    knowledge === 'unreachable'
+      ? `Not known: the service at ${serviceAddress()} is unreachable.`
+      : knowledge === 'unreadable'
+        ? `Not known: the service at ${serviceAddress()} could not read the workspace.`
+        : 'Not known yet: connecting.'
+  const unknown = !loaded ? <p className="muted unknown-line">{unknownText}</p> : null
   const folded = useSyncExternalStore(folds.subscribe, folds.get)
   const [starError, setStarError] = useState<string | null>(null)
   const isSelected = (kind: Selection['kind'], id: string) => selection?.kind === kind && selection.id === id
@@ -177,9 +183,7 @@ export function Sidebar({ projects, conversations, needsYou, selection, streamSt
         )}
       </section>
       <footer className="side-foot">
-        <span className={`stream stream-${knowledge === 'unreachable' ? 'disconnected' : streamState}`}>
-          {knowledge === 'unreachable' ? 'Unreachable, retrying' : streamLabels[streamState]}
-        </span>
+        <span className={`stream stream-${failing(knowledge) ? 'disconnected' : streamState}`}>{connectionLabel(knowledge, streamState)}</span>
         <IconButton icon="keyboard_double_arrow_left" label="Collapse the side panel" onClick={onCollapse} />
       </footer>
     </nav>

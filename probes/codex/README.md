@@ -64,3 +64,6 @@ See `NOTES.md` for the first investigation and `NOTES-followup.md` for the recon
 
 `node background.mjs --cwd DIR --log logs/x.jsonl [--poll-seconds 50] [--session]` runs one turn that asks for a command that outlives it. It then polls `thread/backgroundTerminals/list` every two seconds after `turn/completed`, recording every frame. Without `--session` the model is left to background the command its own way (it detached it with `nohup`). With `--session` it is asked to run it directly with a short yield, so it stays a unified-exec terminal session. Approvals are accepted only for the exact command.
 
+## `@path` mentions (2026-11-10)
+
+`node mention.mjs --cwd DIR --log logs/x.jsonl` runs two turns in one thread, each asking for the exact contents of `fixture.txt` with commands forbidden and every approval declined. The first names it as `@fixture.txt` in the text. The second passes it as a `{type: "mention", name, path}` input item. It records the stored `userMessage`, any command, and whether the reply carries the content.

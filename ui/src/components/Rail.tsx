@@ -1,5 +1,5 @@
 import { select } from '../selection'
-import { streamLabels, type Knowledge, type StreamState } from '../stream'
+import { connectionLabel, failing, type Knowledge, type StreamState } from '../stream'
 import { treeGroups } from '../tree'
 import type { Conversation, Project } from '../types'
 import { ProjectMark } from './AttentionMark'
@@ -27,9 +27,14 @@ export function Rail({ projects, conversations, needsYou, streamState, stale, lo
   // before the first read the count is unknown, never zero.
   let count = waiting === 0 ? 'Nothing needs you' : `${waiting} ${waiting === 1 ? 'conversation needs' : 'conversations need'} you`
   if (!loaded) {
-    count = knowledge === 'unreachable' ? 'Not known: the service is unreachable' : 'Not known yet: connecting'
+    count =
+      knowledge === 'unreachable'
+        ? 'Not known: the service is unreachable'
+        : knowledge === 'unreadable'
+          ? 'Not known: the service could not read the workspace'
+          : 'Not known yet: connecting'
   }
-  const connection = knowledge === 'unreachable' ? 'Unreachable, retrying' : streamLabels[streamState]
+  const connection = connectionLabel(knowledge, streamState)
   return (
     <nav className="rail" aria-label="Side panel, collapsed">
       <IconButton icon="keyboard_double_arrow_right" label="Expand the side panel" onClick={onExpand} />
@@ -58,7 +63,7 @@ export function Rail({ projects, conversations, needsYou, streamState, stale, lo
           </li>
         ))}
       </ul>
-      <span className={`rail-stream stream-${knowledge === 'unreachable' ? 'disconnected' : streamState}${loaded ? '' : ' unknown'}`} title={connection} aria-label={connection} role="img" />
+      <span className={`rail-stream stream-${failing(knowledge) ? 'disconnected' : streamState}${loaded ? '' : ' unknown'}`} title={connection} aria-label={connection} role="img" />
     </nav>
   )
 }

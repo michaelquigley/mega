@@ -67,3 +67,6 @@ Fixture repository used: `/home/michael/Repos/q/research/roundhouse-fixtures/cla
 
 `background.mjs --cwd DIR --log logs/x.jsonl [--scenario bash|two|agent] [--linger SECONDS]` sends one prompt that backgrounds work. It answers tool permission only for the scenario's exact commands, then keeps reading after the turn's result for `--linger` seconds (90 by default) before closing input and timing the exit. `bash` backgrounds one Bash call, `two` backgrounds two at once, and `agent` backgrounds a subagent. A short `--linger` closes input while the job still runs.
 
+## `@path` mentions (2026-11-10)
+
+`mention.mjs --cwd DIR --log logs/x.jsonl [--plain]` sends one prompt asking for the exact contents of `@fixture.txt`, with the file tools disallowed and every permission denied. It records whether the reply carries the file's content and whether any message before the reply does. `--plain` names the file without the `@`, as a control.

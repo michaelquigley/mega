@@ -51,6 +51,7 @@ func (s *Server) api() http.Handler {
 	mux.HandleFunc("POST /api/projects/{id}/conversations", s.startConversation)
 	mux.HandleFunc("GET /api/projects/{id}/discover", s.discover)
 	mux.HandleFunc("GET /api/projects/{id}/models", s.models)
+	mux.HandleFunc("GET /api/projects/{id}/paths", s.paths)
 	mux.HandleFunc("POST /api/projects/{id}/adopt", s.adopt)
 	mux.HandleFunc("PATCH /api/conversations/{id}", s.updateConversation)
 	mux.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)

@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from 'react'
 import { interruptConversation, releaseConversation, removeConversation, resumeConversation, sendPrompt, setModel, setPermissionMode, updateConversation } from '../api'
 import { harnesses } from '../harnesses'
 import type { ConversationLog } from '../log'
 import type { Conversation, Project } from '../types'
 import { describeActivity } from '../activity'
+import { usePathSearch } from '../mention'
 import { ActivityLine } from './ActivityLine'
 import { ModeControl, ModelControl } from './Controls'
+import { PathList } from './PathList'
 import { Dialog } from './Dialog'
 import { Icon, IconButton } from './Icon'
 import { CopyButton } from './Copy'
@@ -91,6 +93,15 @@ export function InputPanel(props: InputPanelProps) {
   useEffect(() => {
     latest.current = onLatest
   })
+  const changeDraft = (text: string) => {
+    setDraft(text)
+    drafts.set(conversation.id, text)
+  }
+  // the @ list: a path picked from the checkout goes into the draft, with the
+  // @ kept only where the harness attaches the file it names.
+  const keepAt = harnesses.find((h) => h.value === conversation.harness)?.attachesMentions ?? false
+  const search = usePathSearch(project.id, keepAt, boxRef, changeDraft)
+  const listId = useId()
 
   // the menu takes focus when it opens, and closes on Escape or on a press
   // anywhere outside it.
@@ -319,17 +330,30 @@ export function InputPanel(props: InputPanelProps) {
           aria-label="Reply"
           placeholder={placeholder}
           value={draft}
+          aria-autocomplete="list"
+          aria-controls={search.mention && search.paths.length > 0 ? listId : undefined}
+          aria-activedescendant={search.mention && search.paths.length > 0 ? `${listId}-${search.selected}` : undefined}
           onChange={(event) => {
-            setDraft(event.target.value)
-            drafts.set(conversation.id, event.target.value)
+            changeDraft(event.target.value)
+            search.track()
           }}
+          onSelect={search.track}
+          onScroll={search.track}
+          onBlur={search.close}
           onKeyDown={(event) => {
+            // Ctrl+Enter always sends, list or no list.
             if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
               event.preventDefault()
               void onSend()
+              return
+            }
+            if (search.onKeyDown(event)) {
+              event.preventDefault()
+              event.stopPropagation()
             }
           }}
         />
+        <PathList search={search} id={listId} />
         <div className="control-bar">
           <div className="bar-start">
             <IconButton type="submit" icon="send" label="Send (Ctrl+Enter)" disabled={busy || blocked || draft.trim() === ''} />

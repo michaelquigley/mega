@@ -3,10 +3,12 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -381,5 +383,46 @@ func TestProjectStarOnTheWire(t *testing.T) {
 	status, unstarred := f.do(t, http.MethodPatch, "/api/projects/"+id, `{"starred":false,"name":"again"}`)
 	if status != http.StatusOK || unstarred["starred"] != false || unstarred["name"] != "again" {
 		t.Errorf("both at once: %d %v", status, unstarred)
+	}
+}
+
+// the path search answers names relative to the checkout, at most twenty,
+// and a 404 for a project it does not know.
+func TestPathSearchEndpoint(t *testing.T) {
+	f := start(t)
+	git := exec.Command("git", "init", "-q")
+	git.Dir = f.checkout
+	if out, err := git.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	for i := range 25 {
+		if err := os.WriteFile(filepath.Join(f.checkout, fmt.Sprintf("note-%02d.md", i)), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(f.checkout, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.checkout, "docs", "Guide.md"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, created := f.do(t, http.MethodPost, "/api/projects", createBody("fixture", f.checkout))
+	id, _ := created["id"].(string)
+
+	status, body := f.do(t, http.MethodGet, "/api/projects/"+id+"/paths?q=md", "")
+	paths, _ := body["paths"].([]any)
+	if status != http.StatusOK || len(paths) != 20 {
+		t.Fatalf("q=md: %d, %d paths: %v", status, len(paths), body)
+	}
+	status, body = f.do(t, http.MethodGet, "/api/projects/"+id+"/paths?q=guide", "")
+	if paths, _ := body["paths"].([]any); status != http.StatusOK || len(paths) != 1 || paths[0] != "docs/Guide.md" {
+		t.Fatalf("q=guide: %d %v", status, body)
+	}
+	status, body = f.do(t, http.MethodGet, "/api/projects/"+id+"/paths?q=zzz", "")
+	if paths, ok := body["paths"].([]any); status != http.StatusOK || !ok || len(paths) != 0 {
+		t.Fatalf("q=zzz: %d %v, want an empty array", status, body)
+	}
+	if status, body := f.do(t, http.MethodGet, "/api/projects/nope/paths?q=md", ""); status != http.StatusNotFound {
+		t.Fatalf("unknown project: %d %v", status, body)
 	}
 }

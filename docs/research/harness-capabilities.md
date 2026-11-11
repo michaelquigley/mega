@@ -545,6 +545,30 @@ Work an agent keeps running after its turn ends: what each harness reports about
   - nothing woke a new turn.
 - So on the stream, a command whose `item/started` has no `item/completed` by its turn's `turn/completed` is background work until that `item/completed` arrives `[observed]`. Roundhouse derives the Codex background list from that, with no polling. Before this batch the adapter mapped that late `item/completed` to tool events, which made the service open a turn that never ended; it is now recorded as the command's call and result, opening no turn, its result unread at once, under the identities a history import gives the same item.
 
+## Follow-up (2026-11-10): `@path` in a programmatic prompt
+
+Whether a prompt sent the way roundhouse sends it treats `@path` as a file mention, as the terminal does. This decides what the reply box's path search inserts. Both probes ask for the exact contents of `fixture.txt` and forbid tools. The model can therefore only answer if the mention attached the file, and otherwise replies `NOT-ATTACHED`.
+
+### Claude Code 2.1.318, Agent SDK 0.3.318
+
+`probes/claude/mention.mjs`, on `claude-rt1`, as a streaming-input `query`. `Read`, `Bash`, `Glob`, `Grep`, `Agent` and `Task` are disallowed and every permission request is denied. Logs are `probes/claude/logs/mention{,-plain}.*`.
+
+- With `@fixture.txt` in the prompt, the reply was the file's exact content, with no tool call `[observed]`. The mention attached the file, as in the terminal.
+- The attachment is not visible on the SDK stream `[observed]`. Between `system/init` and the assistant reply, no message carries the file's content. It reaches the model inside the CLI.
+- The control, the same prompt naming `fixture.txt` without the `@`, replied `NOT-ATTACHED` `[observed]`. So the `@` is what attaches it.
+
+### codex-cli 0.166.0
+
+`probes/codex/mention.mjs`, on `codex-rt1`: two `turn/start`s in one thread, every approval declined. The log is `probes/codex/logs/mention.*`.
+
+- `@fixture.txt` inside a `text` input arrives literally `[observed]`. The stored `userMessage` is the text as sent with empty `text_elements`, no command ran, and the reply was `NOT-ATTACHED`.
+- The v2 `UserInput` union also has a `mention {name, path}` item. Passing `{name: "fixture.txt", path: <absolute path>}` beside the text did not attach the file either `[observed]`: it was stored as a `mention` item and the reply was `NOT-ATTACHED`. What that item is for was not established here.
+- The terminal's `@` is a file-search picker. What it sends was not observed in this probe.
+
+### Consequence
+
+The path search keeps the leading `@` for Claude, where it attaches the file. For Codex it inserts the bare relative path, which the agent reads with its own tools under its own permissions.
+
 ## Recommendations
 
 - Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. Roundhouse should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.

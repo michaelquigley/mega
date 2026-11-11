@@ -98,3 +98,17 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type pathsView struct {
+	Paths []string
+}
+
+// paths searches a project's checkout by name. directories end in a slash.
+func (s *Server) paths(w http.ResponseWriter, r *http.Request) {
+	paths, err := s.svc.Paths(r.PathValue("id"), r.URL.Query().Get("q"))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, r, http.StatusOK, &pathsView{Paths: paths})
+}

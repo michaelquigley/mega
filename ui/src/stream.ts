@@ -8,9 +8,17 @@ const RECONNECT_MAX_MS = 8_000
 export type StreamState = 'connecting' | 'connected' | 'disconnected'
 
 // Knowledge is what the page knows of the workspace: nothing yet, while it is
-// connecting or once the service has proved unreachable; the service's
-// current state; or only the last state it read (stale).
-export type Knowledge = 'connecting' | 'unreachable' | 'current' | 'stale'
+// connecting, once nothing has answered (unreachable), or once the service
+// answered a read with an error (unreadable); the service's current state; or
+// only the last state it read (stale).
+export type Knowledge = 'connecting' | 'unreachable' | 'unreadable' | 'current' | 'stale'
+
+// failing: the page has never read the workspace, and is retrying.
+export const failing = (knowledge: Knowledge) => knowledge === 'unreachable' || knowledge === 'unreadable'
+
+// the connection, as the panel's footer and the rail's dot say it.
+export const connectionLabel = (knowledge: Knowledge, streamState: StreamState) =>
+  knowledge === 'unreachable' ? 'Unreachable, retrying' : knowledge === 'unreadable' ? 'Read failed, retrying' : streamLabels[streamState]
 
 // serviceAddress is where the page reaches the service: the address it was
 // served from.
