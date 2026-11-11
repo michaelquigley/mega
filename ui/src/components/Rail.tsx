@@ -4,6 +4,7 @@ import { treeGroups } from '../tree'
 import type { Conversation, Project, ShutdownGate } from '../types'
 import { RailGate } from './Gate'
 import { ProjectMark } from './AttentionMark'
+import { missingReason } from '../checkout'
 import { IconButton } from './Icon'
 
 interface RailProps {
@@ -55,9 +56,9 @@ export function Rail({ projects, conversations, needsYou, streamState, stale, lo
           <li key={project.id}>
             <button
               type="button"
-              className="rail-mark"
-              title={project.name}
-              aria-label={project.name}
+              className={`rail-mark${project.checkout_missing ? ' checkout-missing' : ''}`}
+              title={project.checkout_missing ? `${project.name}: ${missingReason(project)}` : project.name}
+              aria-label={project.checkout_missing ? `${project.name}: ${missingReason(project)}` : project.name}
               onClick={() => {
                 onExpand()
                 select({ kind: 'project', id: project.id })

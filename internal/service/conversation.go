@@ -50,7 +50,12 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 		s.mu.Unlock()
 		return ConversationView{}, newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", harnessName))
 	}
-	if _, err := s.projectLocked(projectID); err != nil {
+	project, err := s.projectLocked(projectID)
+	if err != nil {
+		s.mu.Unlock()
+		return ConversationView{}, err
+	}
+	if err := s.checkoutLocked(project); err != nil {
 		s.mu.Unlock()
 		return ConversationView{}, err
 	}
@@ -70,7 +75,7 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 		Model:          choice.Model,
 		Effort:         choice.Effort,
 	}
-	err := s.update(func(doc *registry.Document) error {
+	err = s.update(func(doc *registry.Document) error {
 		doc.Conversations = append(doc.Conversations, conv)
 		return nil
 	})
@@ -112,6 +117,10 @@ func (s *Service) Prompt(conversationID, text string) error {
 		return err
 	}
 	if err := s.refuseNewWorkLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.conversationCheckoutLocked(conv); err != nil {
 		s.mu.Unlock()
 		return err
 	}
@@ -169,6 +178,10 @@ func (s *Service) Start(conversationID string) error {
 		return err
 	}
 	if err := s.refuseNewWorkLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.conversationCheckoutLocked(conv); err != nil {
 		s.mu.Unlock()
 		return err
 	}

@@ -284,9 +284,11 @@ func (s *Service) drop(sub *Subscription) {
 	close(sub.updates)
 }
 
-// applyTrust fills what is read from the operator's claude configuration each
-// time a project is read: the trust notice and the inherited permission mode.
+// applyTrust fills what is read each time a project is read: whether its
+// checkout can be worked in, and, from the operator's claude configuration,
+// the trust notice and the inherited permission mode.
 func (s *Service) applyTrust(project *model.Project) {
+	project.CheckoutMissing = checkoutProblem(project.Checkout)
 	project.Untrusted = s.isUntrusted(project.Checkout)
 	project.InheritedPermissionMode = s.inherited(project.Checkout)
 }

@@ -1,6 +1,6 @@
 ---
 title: mega as the development hub
-state: inbox
+state: horizon
 created: 2026-11-11
 tags: [epic]
 ---

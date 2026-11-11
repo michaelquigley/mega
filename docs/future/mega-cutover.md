@@ -46,6 +46,12 @@ Nothing here is destructive until the last step: every move is a rename on one f
    grep -n "checkout:" ~/.local/share/mega/registry.yaml
    ```
 
+   Then prove every registered path is a real directory. On the first attempt, 2026-11-11, this project's path was set by hand to `research/mega` instead of `products/mega`; nothing complained until Claude refused to start.
+
+   ```bash
+   grep -oP '^\s*checkout: \K.*' ~/.local/share/mega/registry.yaml | while read -r d; do [ -d "$d" ] || echo "MISSING: $d"; done
+   ```
+
 6. **Move Claude's session store for the checkout.** This directory holds this project's two conversations and the planning agent's memory.
 
    ```bash

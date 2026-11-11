@@ -10,6 +10,10 @@ export interface Project {
   // the claude mode the operator's settings name for the checkout, which a
   // launch with no choice inherits; empty when none does.
   inherited_permission_mode: string
+  // checkout_missing: why the checkout cannot be worked in now ("does not
+  // exist", "not a directory", "not readable"), computed on every read;
+  // absent when it can.
+  checkout_missing?: string
 }
 
 // what a conversation asks of the operator, computed by the service.

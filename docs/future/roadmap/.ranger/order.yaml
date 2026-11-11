@@ -1,14 +1,19 @@
 building:
-  - shutdown.md
 horizon:
+  - mega-as-the-development-hub.md
   - ui-test-runner.md
 researching:
-  - path-search-follow-ups.md
-  - roundhouse-mega.md
+  - a-missing-checkout-is-reported.md
   - favicon.md
   - dfw-daemon-mode.md
+  - claude-shim-distribution.md
   - codex-discovery-e2e-reads-its-own-thread.md
+  - relocate-a-projects-checkout.md
 evaluating:
+  - roundhouse-mega.md
+  - path-search-follow-ups.md
+  - start-follow-ups.md
+  - shutdown.md
   - start-or-reattach-a-runtime-without-a-turn.md
   - path-search-in-the-input-panel.md
   - a-failed-load-never-renders-as-an-empty-workspace.md

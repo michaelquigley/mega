@@ -43,7 +43,13 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
         <h1>{project.name}</h1>
         <code>{project.checkout}</code>
       </header>
-      {project.untrusted && (
+      {project.checkout_missing && (
+        <p className="notice checkout-missing-notice" role="alert">
+          The checkout <code>{project.checkout}</code> {project.checkout_missing === 'not readable' ? 'is not readable' : project.checkout_missing === 'not a directory' ? 'is not a directory' : 'does not exist'}, so nothing can start here: no new conversation, adoption, prompt or Start. The
+          conversations and their history are still here. Put the checkout back at that path, or remove the project and register it again where it is now.
+        </p>
+      )}
+      {project.untrusted && !project.checkout_missing && (
         <p className="notice" role="note">
           Claude has not been trusted in this checkout, so it ignores the project&apos;s permission
           rules. Run <code>claude</code> here once and accept the trust dialog; mega will not

@@ -19,6 +19,9 @@ type projectView struct {
 	// InheritedPermissionMode is the claude mode the operator's settings name
 	// for the checkout, which a launch with no choice inherits; empty if none.
 	InheritedPermissionMode string
+	// CheckoutMissing says why the checkout cannot be worked in ("does not
+	// exist", "not a directory", "not readable"); absent when it can.
+	CheckoutMissing string `dd:",+omitempty"`
 }
 
 func newProjectView(project model.Project) *projectView {
@@ -29,6 +32,7 @@ func newProjectView(project model.Project) *projectView {
 		Starred:                 project.Starred,
 		Untrusted:               project.Untrusted,
 		InheritedPermissionMode: project.InheritedPermissionMode,
+		CheckoutMissing:         project.CheckoutMissing,
 	}
 }
 

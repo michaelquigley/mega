@@ -1,6 +1,6 @@
 ---
 title: roundhouse -> mega
-state: researching
+state: evaluating
 created: 2026-11-10
 tags: [epic]
 ---

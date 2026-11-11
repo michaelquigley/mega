@@ -1674,3 +1674,20 @@ hr.turn {
 .rail-gate.stale {
   opacity: 0.7;
 }
+
+/* a project whose checkout cannot be worked in: a notice on its page, a mark
+   on its row in the tree, and a ring on its rail mark. */
+.checkout-missing-notice {
+  border-color: var(--error);
+}
+
+.checkout-missing-mark {
+  color: var(--error);
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.rail-mark.checkout-missing {
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--error);
+}

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -511,5 +513,43 @@ func TestShutdownGateOnTheWire(t *testing.T) {
 	}
 	if status, body := f.do(t, http.MethodPost, "/api/shutdown/cancel", ""); status != http.StatusServiceUnavailable || body["code"] != "unavailable" {
 		t.Errorf("cancel after the shutdown was accepted: %d %v", status, body)
+	}
+}
+
+// a missing checkout on the wire: checkout_missing on the project with the
+// reason, absent once the checkout is back, and the refusal's code.
+func TestMissingCheckoutOnTheWire(t *testing.T) {
+	f := start(t)
+	id, rt := f.startConversation(t)
+	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID()}})
+	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	project := func() map[string]any {
+		t.Helper()
+		_, workspace := f.do(t, http.MethodGet, "/api/workspace", "")
+		return workspace["projects"].([]any)[0].(map[string]any)
+	}
+	if p := project(); p["checkout_missing"] != nil {
+		t.Fatalf("present checkout: %v", p)
+	}
+	moved := f.checkout + ".moved"
+	if err := os.Rename(f.checkout, moved); err != nil {
+		t.Fatal(err)
+	}
+	if p := project(); p["checkout_missing"] != "does not exist" {
+		t.Fatalf("moved away: %v", p)
+	}
+	status, body := f.do(t, http.MethodPost, "/api/conversations/"+id+"/prompt", jsonBody(map[string]string{"text": "more"}))
+	if status != http.StatusConflict || body["code"] != "checkout_missing" || !strings.Contains(body["message"].(string), f.checkout) {
+		t.Errorf("prompt: %d %v", status, body)
+	}
+	pid := project()["id"].(string)
+	if status, body := f.do(t, http.MethodGet, "/api/projects/"+pid+"/paths?q=", ""); status != http.StatusOK || len(body["paths"].([]any)) != 0 {
+		t.Errorf("paths: %d %v", status, body)
+	}
+	if err := os.Rename(moved, f.checkout); err != nil {
+		t.Fatal(err)
+	}
+	if p := project(); p["checkout_missing"] != nil {
+		t.Errorf("moved back: %v", p)
 	}
 }

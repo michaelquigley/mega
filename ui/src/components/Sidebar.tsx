@@ -7,7 +7,8 @@ import { treeGroups } from '../tree'
 import type { Conversation, Project, ShutdownGate } from '../types'
 import { AttentionMark, BackgroundLabel, Elapsed, ProjectMark } from './AttentionMark'
 import { FooterGate } from './Gate'
-import { IconButton } from './Icon'
+import { Icon, IconButton } from './Icon'
+import { missingReason } from '../checkout'
 
 interface SidebarProps {
   projects: Project[]
@@ -101,6 +102,11 @@ export function Sidebar(props: SidebarProps) {
           >
             <ProjectMark conversations={inProject} stale={stale} />
             <span className="tree-label">{project.name}</span>
+            {project.checkout_missing && (
+              <span className="checkout-missing-mark" title={missingReason(project) ?? ''} aria-label={missingReason(project) ?? ''} role="img">
+                <Icon name="error_outline" />
+              </span>
+            )}
           </button>
           <IconButton
             className={project.starred ? 'star starred' : 'star'}

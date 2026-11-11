@@ -32,6 +32,11 @@ func (s *Service) Discover(projectID, harnessName string) ([]harness.Session, er
 	}
 	held := s.heldLocked(harnessName)
 	s.mu.Unlock()
+	// a checkout that cannot be worked in has nothing to offer for adoption;
+	// the project's own notice says why.
+	if checkoutProblem(project.Checkout) != "" {
+		return []harness.Session{}, nil
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), discoverTimeout)
 	defer cancel()
@@ -69,6 +74,15 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 	nativeID = strings.TrimSpace(nativeID)
 	if nativeID == "" {
 		return ConversationView{}, newError(CodeInvalid, "a native session id is required")
+	}
+	s.mu.Lock()
+	project, err := s.projectLocked(projectID)
+	if err == nil {
+		err = s.checkoutLocked(project)
+	}
+	s.mu.Unlock()
+	if err != nil {
+		return ConversationView{}, err
 	}
 	sessions, err := s.Discover(projectID, harnessName)
 	if err != nil {

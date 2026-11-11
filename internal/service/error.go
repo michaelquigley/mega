@@ -12,6 +12,9 @@ const (
 	CodeUnavailable = "unavailable"
 	// CodeNotPending rejects an answer to a request that is no longer pending.
 	CodeNotPending = "not_pending"
+	// CodeCheckoutMissing refuses work in a project whose checkout is gone,
+	// not a directory, or not readable.
+	CodeCheckoutMissing = "checkout_missing"
 )
 
 // Error is a failure the caller can act on, as opposed to an internal fault.

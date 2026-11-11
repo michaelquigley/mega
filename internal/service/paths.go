@@ -85,6 +85,11 @@ func (s *Service) Paths(projectID, q string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// a checkout that cannot be worked in offers no paths; the project's own
+	// notice says why.
+	if checkoutProblem(project.Checkout) != "" {
+		return []string{}, nil
+	}
 	listing := s.paths.listing(project.Checkout, time.Now())
 	return matchPaths(project.Checkout, listing, q, PathsLimit), nil
 }

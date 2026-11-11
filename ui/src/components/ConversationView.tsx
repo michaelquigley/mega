@@ -102,7 +102,7 @@ export function ConversationView({ conversation, project, log, stale, onRemoved,
           then resume, from the More menu below, to read its native history before continuing.
         </p>
       )}
-      {project.untrusted && conversation.harness === 'claude' && (
+      {project.untrusted && !project.checkout_missing && conversation.harness === 'claude' && (
         <p className="notice" role="note">
           Claude has not been trusted in this checkout, so it ignores the project&apos;s permission rules
           until you run <code>claude</code> there once and accept the trust dialog.

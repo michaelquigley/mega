@@ -19,4 +19,9 @@ type Project struct {
 	// native settings name for the checkout, or empty. like Untrusted it is
 	// read each time and never persisted.
 	InheritedPermissionMode string `dd:"-"`
+	// CheckoutMissing says why the checkout cannot be worked in now, or is
+	// empty when it can: it does not exist, is not a directory, or is not
+	// readable. like Untrusted it is computed when read and never persisted,
+	// since the directory can move or come back at any time.
+	CheckoutMissing string `dd:"-"`
 }

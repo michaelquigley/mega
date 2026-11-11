@@ -13,6 +13,7 @@ import { RegisterProjectDialog } from './components/RegisterProjectDialog'
 import { SidePanel } from './components/SidePanel'
 import { ShutdownBanner } from './components/Gate'
 import { pendingReason, shutDownReason } from './gate'
+import { missingReason } from './checkout'
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
@@ -356,7 +357,7 @@ export function App() {
         log={log && log.id === selectedConversation.id ? log : null}
         stale={stale}
         onRemoved={() => select({ kind: 'project', id: selectedConversation.project_id })}
-        heldBy={heldBy}
+        heldBy={heldBy ?? missingReason(conversationProject)}
       />
     )
   } else if (selectedProject) {
@@ -368,7 +369,7 @@ export function App() {
         stale={stale}
         onLaunch={() => setLaunching(selectedProject.id)}
         onAdopt={() => setAdopting(selectedProject.id)}
-        heldBy={heldBy}
+        heldBy={heldBy ?? missingReason(selectedProject)}
       />
     )
   } else if (workspace === null) {

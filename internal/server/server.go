@@ -100,7 +100,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSON(w, r, http.StatusBadRequest, &errorBody{Code: code, Message: err.Error()})
 	case service.CodeNotFound:
 		writeJSON(w, r, http.StatusNotFound, &errorBody{Code: code, Message: err.Error()})
-	case service.CodeConflict, service.CodeNotPending, service.CodeShutdownPending:
+	case service.CodeConflict, service.CodeNotPending, service.CodeShutdownPending, service.CodeCheckoutMissing:
 		writeJSON(w, r, http.StatusConflict, &errorBody{Code: code, Message: err.Error()})
 	case service.CodeUnavailable:
 		writeJSON(w, r, http.StatusServiceUnavailable, &errorBody{Code: code, Message: err.Error()})
