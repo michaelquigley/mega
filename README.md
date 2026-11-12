@@ -37,6 +37,23 @@ codex:
 
 `mega --data DIR` runs against another workspace, and `mega --config FILE` reads another config.
 
+### Running as a daemon
+
+`mega daemon` runs the same service under a tray icon. The menu has "open mega" to open the page, "shut down when idle" to arm the shutdown gate (it reads "cancel shutdown" while armed), and Quit. Quit goes through the gate: on an idle workspace it releases every agent and stops; with anything in flight it arms the gate and opens the page instead, so a stray click never interrupts an agent. The tray's icon turns gold, with a count in its tooltip, while something needs you.
+
+To launch it from the desktop:
+
+```bash
+mega desktop integrate   # installs com.michaelquigley.mega.desktop and its icons under ~/.local/share
+mega desktop remove      # removes exactly those files
+```
+
+The launcher runs `mega daemon` from wherever the binary was when you ran `integrate`; run it again if you move the binary. Nothing starts at login.
+
+With no terminal, as when the launcher starts it, mega logs to `~/.local/state/mega/mega.log` (or under `XDG_STATE_HOME`); `mega version` prints the path. At start-up a log past 10 MB becomes `mega.log.1`, replacing an earlier one, and a fresh log begins.
+
+Launching the daemon while mega is already running opens the running mega's page and exits. `mega serve` beside a running mega refuses to start and names it.
+
 Prebuilt binaries are not offered yet: the Claude shim runs from a checkout with its pinned Agent SDK installed beside it, so a binary on its own cannot run Claude conversations.
 
 ## Safety posture

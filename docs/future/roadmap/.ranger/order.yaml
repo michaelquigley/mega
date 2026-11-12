@@ -3,13 +3,13 @@ horizon:
   - mega-as-the-development-hub.md
   - ui-test-runner.md
 researching:
-  - a-missing-checkout-is-reported.md
-  - favicon.md
   - dfw-daemon-mode.md
   - claude-shim-distribution.md
   - codex-discovery-e2e-reads-its-own-thread.md
   - relocate-a-projects-checkout.md
 evaluating:
+  - favicon.md
+  - a-missing-checkout-is-reported.md
   - roundhouse-mega.md
   - path-search-follow-ups.md
   - start-follow-ups.md

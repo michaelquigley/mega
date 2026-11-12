@@ -29,7 +29,7 @@ Dependencies point inward. `server` depends on `service`; `service` on `harness`
 
 ## Running it
 
-`make` builds the UI, installs the Claude shim's pinned dependencies (`npm ci` in `shim/claude`), and installs the `mega` binary into the project's `GOBIN`, stamped with the shim's location in the checkout. `mega` (or `mega serve`) runs the service; `mega version` prints build information. `make clean` removes only what the project builds: `ui/dist`, `ui/node_modules`, `shim/claude/node_modules`, and the binaries in the project's `GOBIN`. `--config PATH`, `--data DIR` and `--verbose` apply to both forms.
+`make` builds the UI, installs the Claude shim's pinned dependencies (`npm ci` in `shim/claude`), and installs the `mega` binary into the project's `GOBIN`, stamped with the shim's location in the checkout. `mega` (or `mega serve`) runs the service; `mega daemon` runs the same service with a tray icon (below); `mega version` prints build information and where the log file is. `make clean` removes only what the project builds: `ui/dist`, `ui/node_modules`, `shim/claude/node_modules`, and the `mega` binary in `GOBIN`. `--config PATH`, `--data DIR` and `--verbose` apply to `serve`, `daemon` and the bare form.
 
 | Item | Default | Override |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ listen: 127.0.0.1:8470
 data: ~/.local/share/mega
 claude:
   node: node
-  shim: ~/Repos/q/research/mega/shim/claude
+  shim: ~/Repos/q/products/mega/shim/claude
   executable: ~/.local/share/claude/versions/2.1.318
 codex:
   binary: codex
@@ -54,7 +54,37 @@ codex:
 
 The executable defaults to 2.1.318 because the shim pins Agent SDK 0.3.318, which was matched against that build; `claude` on `PATH` may be newer.
 
-`listen` must be a loopback address; the service refuses to start otherwise, because this slice has no login. On the default data directory, the service also refuses to start while that directory does not exist and the old project's (`$XDG_DATA_HOME/roundhouse`) does, beside it. It says the workspace has not been moved yet and names `docs/future/mega-cutover.md`, rather than creating an empty workspace next to the full one. A data directory given by `--data` or the config file is never refused. The service binds its port before reading any data, so a second instance on the same port exits without writing. It then takes an exclusive hold on `<data>/lock` before loading the registry, so a second instance on another port that shares the data directory also exits, and the directory has one writer. The hold is released by the kernel when the process exits; the file itself stays.
+`listen` must be a loopback address; the service refuses to start otherwise, because this slice has no login. On the default data directory, the service also refuses to start while that directory does not exist and the old project's (`$XDG_DATA_HOME/roundhouse`) does, beside it. It says the workspace has not been moved yet and names `docs/future/mega-cutover.md`, rather than creating an empty workspace next to the full one. A data directory given by `--data` or the config file is never refused. The service binds its port before reading any data, so a second instance on the same port exits without writing. It then takes an exclusive hold on `<data>/lock` before loading the registry, so a second instance on another port that shares the data directory also exits, and the directory has one writer. The hold is released by the kernel when the process exits; the file itself stays. The holder writes its address into the lock file. Either refusal names the mega already running:
+- on the port, mega asks what is listening there. If it answers mega's workspace read, the message reads "another mega is already running at 'http://…'; open it there, or stop it"; otherwise the port is said to be in use by another program.
+- on the directory, "another mega is running on the data directory '…', at 'http://…'". An instance from before the record is refused without the address.
+
+`serve` reports either refusal and exits non-zero. The daemon instead hands over when the other instance answers as mega, as the desktop launcher does when mega is already up. That holds on the port, by the same probe, and on the data directory, by probing the address its holder recorded. The daemon opens that instance's page, logs that it did, waits up to two seconds for the opener, and exits 0. A port held by something that is not mega, a recorded holder that does not answer, or a page that cannot be opened is refused as before.
+
+`serve` and `daemon` share this start-up, in `cmd/mega/startup.go`, and one orderly stop: every runtime released and waited for, each conversation recorded with no runtime, subscriptions closed. They differ only in who serves and how the end is announced.
+
+### The daemon
+
+`mega daemon` runs the service as `serve` does, under a tray icon, through `github.com/michaelquigley/dfw/tray` (v0.1.6; the tray needs no native packages, so the build stays cgo-free). The app id is `com.michaelquigley.mega` and the tray title `mega`. It opens no window of its own: the browser is mega's window. dfw writes its runtime file under `$XDG_CONFIG_HOME/com.michaelquigley.mega/runtime/` while the daemon runs, and removes it at the end.
+- **The tray menu.** "open mega" opens the page in the default browser (`xdg-open`). "shut down when idle" arms the gate and opens the page, so the operator sees what it waits for; while the gate is armed, from the tray or from any page, the item reads "cancel shutdown" and lifts it. dfw adds Quit.
+- **Quit goes through the gate.** Quit arms the gate and asks the service to shut down, which it accepts only if the workspace is idle at that moment, the same acceptance a page's Shut down has. Then the orderly stop runs and the tray goes. Otherwise the gate stays armed, the page opens on what it waits for, and the daemon keeps running: a stray click can never interrupt an agent, answer a request or release a runtime. dfw is always told not to quit by itself, so the page is served until the stop is done.
+- **Every way out is the orderly stop.** A shutdown accepted from the page, Quit on an idle workspace, and SIGINT or SIGTERM each run the stop `serve` runs, then end the tray with `Control.Stop`. dfw then closes the server, and mega exits 0. If the tray itself fails, the stop still runs before mega exits.
+- **The icon is live.** The tray follows the service's own `workspace_changed` updates. While the needs-you list is not empty, it shows the needs-you mark (`cmd/mega/tray-icon-needs-you.png`), with the tooltip "mega: 1 needs you" or "mega: 3 need you". Otherwise it shows the mark (`cmd/mega/tray-icon.png`) and "mega". The list holds unread output as well as requests, as the page's tab does. Nothing is re-sent when nothing changed.
+
+### The desktop launcher
+
+`mega desktop integrate` installs a launcher that runs the daemon; `mega desktop remove` takes it away. Both follow ranger's.
+- **The entry.** The desktop id is the app id the tray uses, so GNOME ties the launcher, its icon and the tray together. `integrate` writes `com.michaelquigley.mega.desktop` in `$XDG_DATA_HOME/applications` (for an absolute `XDG_DATA_HOME`, else `~/.local/share/applications`), with:
+  - `Type=Application`, `Name=mega`, `Comment=a workspace for a gang of coding agents`;
+  - `Exec` set to the quoted absolute path of the running binary followed by `daemon`;
+  - `Icon=com.michaelquigley.mega`, `Terminal=false`, `Categories=Utility;Development;`;
+  - no `StartupWMClass`, since the browser is the window.
+- **The icons.** The mark goes into the hicolor theme at 32, 48, 192 and 512 pixels, under the same basename, from the PNGs in `cmd/mega/` embedded in the binary.
+- **Idempotence.** Each command prints every file it wrote or removed. `remove` deletes exactly the files `integrate` writes and nothing else, skipping any already gone, and both are safe to run twice. Running `integrate` again after the binary moves repoints the launcher.
+- **No autostart.** mega starts when the operator starts it.
+
+### The log file
+
+When `serve`, `daemon` or the bare form runs with no terminal on stdout, as when the launcher starts the daemon, `dl` output is appended as JSON lines to `$XDG_STATE_HOME/mega/mega.log` (for an absolute `XDG_STATE_HOME`), else `~/.local/state/mega/mega.log`. The directory is private (`0700`) and the file `0600`. "No terminal" means no real TTY: `/dev/null` counts as none. On a terminal, output goes there as before. `mega version` prints the path. The file is capped at start-up: one larger than 10 MB is renamed to `mega.log.1`, replacing any earlier one, and a fresh `mega.log` begins. A running mega's log grows until its next start.
 
 ## Data
 
