@@ -1,10 +1,12 @@
 # mega as built
 
+build your constellation.
+
 This describes what exists now: the whole first slice, whose work order was retired when its last stage gated (git history holds it; the spec is `docs/future/mega.md`). That is the environment service with projects; Claude Code and Codex conversations launched, prompted, answered, interrupted, released for a terminal, and resumed; native sessions discovered and adopted; and attention, with a needs-you list, reading positions, and a next-waiting shortcut. Polish since then: conversations can be removed, and a conversation opens at its latest activity.
 
 ## Shape of the code
 
-One Go binary, `mega`, in the module `github.com/michaelquigley/mega`, with `github.com/michaelquigley/df/dl` for logging and `df/dd` for YAML and JSON. The product is spoken of as "metawoo mega", the page's title; everywhere else the name is lowercase `mega`. The name stays out of data and identifiers, except the binary and the XDG directory names, which follow one constant. TypeScript appears only in the Claude shim and the UI. The project was renamed on 2026-11-11, and `docs/future/mega-cutover.md` moves a workspace kept under its former name.
+One Go binary, `mega`, in the module `github.com/michaelquigley/mega`, with `github.com/michaelquigley/df/dl` for logging and `df/dd` for YAML and JSON. The name is lowercase `mega` everywhere, the page's title included; "metawoo mega" appears only in the README's first sentence, never in the running interface. The tagline, "build your constellation", is provisional and kept in one constant on each side, `tagline` in `cmd/mega/main.go` (the root command's help, the launcher's comment) and in `ui/src/brand.ts`, beside `productName`, which the page's title and its notifications use. Changing the tagline is those two lines, and the prose that quotes it. The name stays out of data and identifiers, except the binary and the XDG directory names, which follow one constant. TypeScript appears only in the Claude shim and the UI. The project was renamed on 2026-11-11, and `docs/future/mega-cutover.md` moves a workspace kept under its former name.
 
 ```text
 cmd/mega/          cobra root; serve (the default) and version
@@ -74,7 +76,7 @@ The executable defaults to 2.1.318 because the shim pins Agent SDK 0.3.318, whic
 
 `mega desktop integrate` installs a launcher that runs the daemon; `mega desktop remove` takes it away. Both follow ranger's.
 - **The entry.** The desktop id is the app id the tray uses, so GNOME ties the launcher, its icon and the tray together. `integrate` writes `com.michaelquigley.mega.desktop` in `$XDG_DATA_HOME/applications` (for an absolute `XDG_DATA_HOME`, else `~/.local/share/applications`), with:
-  - `Type=Application`, `Name=mega`, `Comment=a workspace for a gang of coding agents`;
+  - `Type=Application`, `Name=mega`, `Comment=` the tagline;
   - `Exec` starting the daemon through the operator's interactive shell (below);
   - `Icon=com.michaelquigley.mega`, `Terminal=false`, `Categories=Utility;Development;`;
   - no `StartupWMClass`, since the browser is the window.
@@ -421,15 +423,15 @@ The page distinguishes three states of its own knowledge, and shows an empty wor
 The shutdown gate shows in these phases:
 - **Unarmed.** The side panel's footer holds a power control, "Shut down when every agent is idle", which arms the gate. It is disabled until the page has a current workspace. The press also asks for notification permission, once.
 - **Armed, waiting.** A banner across the top of the main column, sticky as it scrolls, says "Waiting to shut down" with counts by kind. Below that it names each conversation in the way, each name a link that opens it, with what holds it: "a request for you to answer" (marked, since nothing else clears it; the turn it holds open is not named again), "a turn in flight", "N background jobs", or "starting". The footer shows the same counts and names above its row, with Cancel. The rail shows a power badge with the number of conversations in the way, their names and kinds in its title; a press expands the panel. Send, Start, New conversation and Adopt a session are disabled, with the pending shutdown as their title, and so is the reply box's placeholder. Every page sees the same, since the gate is the service's.
-- **Idle.** The banner becomes "Every agent is idle", with Shut down and Cancel, and the footer and rail say so too. Each page marks its tab title "Ready to shut down · metawoo mega" and raises one browser notification when the gate turns idle while it watches. A page opened on an idle gate is already showing it, so it raises none. The gate keeps holding until the operator chooses.
+- **Idle.** The banner becomes "Every agent is idle", with Shut down and Cancel, and the footer and rail say so too. Each page marks its tab title "Ready to shut down · mega" and raises one browser notification, titled "mega", when the gate turns idle while it watches. A page opened on an idle gate is already showing it, so it raises none. The gate keeps holding until the operator chooses.
 - **Last known.** While the page shows only what it last read (the stream down, or a read failed), the banner, footer and rail prefix the gate with "Last known:". Shut down is withheld and Cancel disabled, and the tab title loses its ready mark. A notification is raised only from a current read. All of it returns once a read on the current connection succeeds.
 - **Shut down.** The page that asked shows "Shutting down" while runtimes are released, then "mega was shut down from this page at" the time, says it keeps trying, and its footer reads "Shut down from here, retrying". Its controls give that as their reason, and the expected failed reads are not shown as errors. It recovers by itself: the first workspace read that finds the gate unarmed (only a new service can say so) clears it. Other pages show the service gone as any loss of connection does: last known, "Reconnecting".
 
 The page's mark is the hub: one gold centre with five light points around it, on the dark tone, for many agents and one operator. It is `ui/public/favicon.svg`, linked from `ui/index.html` as `image/svg+xml`. Its proportions are set to read at 16 pixels, where each point lands as a clean two-pixel dot clear of the centre. The tab has two states:
-- **Nothing needs you.** The mark, and the title "metawoo mega".
-- **Something needs you.** While the needs-you list is not empty, the mark inverts: `ui/public/favicon-needs-you.svg`, the same mark on the notice gold with a dark centre and points. The title gains the count, "(2) metawoo mega". The list holds requests and unread output alike, so an answered request still counts until its reply is read.
+- **Nothing needs you.** The mark, and the title "mega".
+- **Something needs you.** While the needs-you list is not empty, the mark inverts: `ui/public/favicon-needs-you.svg`, the same mark on the notice gold with a dark centre and points. The title gains the count, "(2) mega". The list holds requests and unread output alike, so an answered request still counts until its reply is read.
 
-The page swaps the icon link between the two as `data:` URLs built into its bundle, so a swap fetches nothing. The shutdown gate's "Ready to shut down · metawoo mega" title takes precedence while it applies; the icon still follows the list. While the page shows only last-known state (the stream down, or no read yet), it shows the plain mark and no count, since neither can be said to be live.
+The page swaps the icon link between the two as `data:` URLs built into its bundle, so a swap fetches nothing. The shutdown gate's "Ready to shut down · mega" title takes precedence while it applies; the icon still follows the list. While the page shows only last-known state (the stream down, or no read yet), it shows the plain mark and no count, since neither can be said to be live.
 
 PNG renderings of both states, for the daemon's tray and desktop integration, are checked in under `cmd/mega/`: `desktop-icon-{32,48,192,512}.png` and a 128-pixel `tray-icon.png`, each with a `-needs-you` twin. `cmd/mega/render-icons.mjs` renders them through headless Chromium, and `cmd/mega/icons.md` records the command. They are renderings of the SVGs, never edited by hand.
 

@@ -1,14 +1,17 @@
 building:
+  - name-and-tagline.md
 horizon:
   - mega-as-the-development-hub.md
   - ui-test-runner.md
 researching:
   - each-project-runs-in-its-own-environment.md
   - opening-a-conversation-costs-its-whole-history.md
-  - name-and-tagline.md
+  - version-metadata-in-web-ui.md
   - claude-shim-distribution.md
+  - codex-approval-policy.md
   - codex-discovery-e2e-reads-its-own-thread.md
   - relocate-a-projects-checkout.md
+  - hand-off-between-conversations.md
 evaluating:
   - the-launcher-starts-mega-without-the-operators-environment.md
   - dfw-daemon-mode.md

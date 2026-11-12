@@ -32,7 +32,7 @@ func TestDesktopEntry(t *testing.T) {
 		"[Desktop Entry]\n",
 		"Type=Application\n",
 		"Name=mega\n",
-		"Comment=a workspace for a gang of coding agents\n",
+		"Comment=" + tagline + "\n",
 		`Exec="/opt/mega tools/mega" daemon` + "\n",
 		"Icon=com.michaelquigley.mega\n",
 		"Terminal=false\n",

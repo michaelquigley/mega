@@ -1,6 +1,8 @@
 # mega
 
-metawoo mega is a project-oriented workspace for working directly with a gang of coding agents: Claude Code and Codex conversations, grouped by the checkouts they work in, in one page on your own machine. It is not an autonomous coordinator and not a replacement coding harness. Each agent runs as its own harness would in a terminal, with its own sessions, settings and permissions; mega supervises them, shows what needs you, and lets you hand a conversation to a terminal and back.
+metawoo mega: build your constellation. mega is where a solo operator runs an orienteering practice with a gang of agents.
+
+It is a project-oriented workspace for working directly with those agents: Claude Code and Codex conversations, grouped by the checkouts they work in, in one page on your own machine. It is not an autonomous coordinator and not a replacement coding harness. Each agent runs as its own harness would in a terminal, with its own sessions, settings and permissions; mega supervises them, shows what needs you, and lets you hand a conversation to a terminal and back.
 
 One Go binary serves the workspace and its UI on loopback. A small Node bridge (`shim/claude`) talks to Claude Code through its Agent SDK; Codex is driven through `codex app-server`.
 

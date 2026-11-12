@@ -15,6 +15,7 @@ import { ShutdownBanner } from './components/Gate'
 import { pendingReason, shutDownReason } from './gate'
 import { missingReason } from './checkout'
 import { showTab, tabState } from './favicon'
+import { productName } from './brand'
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
@@ -257,7 +258,7 @@ export function App() {
     // change to idle is announced.
     if (wasReady.current === false && ready && 'Notification' in window && Notification.permission === 'granted') {
       try {
-        new Notification('metawoo mega', { body: 'Every agent is idle. Shut down from the banner when you are ready.', tag: 'mega-shutdown' })
+        new Notification(productName, { body: 'Every agent is idle. Shut down from the banner when you are ready.', tag: 'mega-shutdown' })
       } catch {
         // a browser that refuses notifications still has the title and banner.
       }

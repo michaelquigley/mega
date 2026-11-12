@@ -7,6 +7,10 @@ import (
 
 const trimPrefix = "github.com/michaelquigley/"
 
+// tagline is mega's one line, provisional: the root command's help and the
+// launcher's comment. the UI keeps the same line in ui/src/brand.ts.
+const tagline = "build your constellation"
+
 var (
 	verbose    bool
 	configPath string
@@ -15,7 +19,7 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:           "mega",
-	Short:         "Project-oriented workspace for a gang of coding agents",
+	Short:         tagline,
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true,

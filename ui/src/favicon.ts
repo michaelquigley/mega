@@ -1,3 +1,4 @@
+import { productName } from './brand'
 import mark from '../public/favicon.svg?raw'
 import needsYouMark from '../public/favicon-needs-you.svg?raw'
 
@@ -8,7 +9,7 @@ const dataUrl = (svg: string) => `data:image/svg+xml,${encodeURIComponent(svg)}`
 export const markIcon = dataUrl(mark)
 export const needsYouIcon = dataUrl(needsYouMark)
 
-const baseTitle = 'metawoo mega'
+const baseTitle = productName
 
 // tabState is what the tab shows: the needs-you mark and the count while
 // something needs the operator, and the shutdown gate's title, which wins

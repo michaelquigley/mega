@@ -1,6 +1,6 @@
 ---
 title: name and tagline
-state: researching
+state: building
 created: 2026-11-11
 tags: [enhancement]
 ---
@@ -15,7 +15,11 @@ Michael, 2026-11-12: mega is about the practice even more than about coordinatin
 
 House register, for comparison: ranger "your roadmap lives in your repo", mercurius "mediates the design-build duel", console "the shape of a good console". Short, lowercase, what the thing is for.
 
-## candidates
+## decision (2026-11-12, provisional)
+
+**build your constellation.** Michael's choice for now, with an asterisk: he may revisit it, and the point of this card is only to replace what is there with something better. It fits on two counts. The constellation is his own word for the body of work the practice produces, and the hub mark already draws one, points around a centre. Keep the tagline in one constant on the Go side and one on the UI side, so revisiting it is a two-line change.
+
+## candidates considered
 
 - **keep your bearing** (the planning agent's pick): the daily meaning and the method's meaning in two words; reads without knowing the practice.
 - **your own map and compass**: the orienteering note's phrase for what separates this from a platform.

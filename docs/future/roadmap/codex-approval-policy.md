@@ -1,6 +1,6 @@
 ---
 title: codex approval policy
-state: inbox
+state: researching
 created: 2026-11-12
 tags: [feature, spike]
 ---

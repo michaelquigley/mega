@@ -222,7 +222,7 @@ func desktopEntry(execLine string) string {
 		"[Desktop Entry]",
 		"Type=Application",
 		"Name=" + desktopAppName,
-		"Comment=a workspace for a gang of coding agents",
+		"Comment=" + tagline,
 		"Exec=" + execLine,
 		"Icon=" + desktopAppId,
 		"Terminal=false",
