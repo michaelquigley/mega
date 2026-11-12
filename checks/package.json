@@ -1,0 +1,9 @@
+{
+  "name": "mega-checks",
+  "private": true,
+  "description": "browser checks for mega's interface, run by make checks",
+  "type": "module",
+  "devDependencies": {
+    "playwright": "1.65.0"
+  }
+}

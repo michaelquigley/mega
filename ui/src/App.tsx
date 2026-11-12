@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, armShutdown, cancelShutdown, getHistory, getWorkspace, historyPath, readConversation, shutDown, type HistoryRead } from './api'
+import { ApiError, armShutdown, cancelShutdown, getAbout, getHistory, getWorkspace, historyPath, readConversation, shutDown, type HistoryRead } from './api'
+import { isNewer } from './build'
 import { freezeClock, useWallNow } from './clock'
 import { parseHash, select, type Selection } from './selection'
 import { serviceAddress, useStream, type Knowledge } from './stream'
 import { caughtUp, earlier, emptyLog, opened, received, withNative, withoutNative, type ConversationLog } from './log'
-import type { StreamFrame, Workspace } from './types'
+import type { About, StreamFrame, Workspace } from './types'
 import { AdoptDialog } from './components/AdoptDialog'
 import { ConversationView } from './components/ConversationView'
 import { LaunchDialog } from './components/LaunchDialog'
@@ -38,6 +39,10 @@ export function App() {
   const [launching, setLaunching] = useState<string | null>(null)
   const [adopting, setAdopting] = useState<string | null>(null)
   const [log, setLog] = useState<ConversationLog | null>(null)
+  // what the service says of its build, read on each connection, and the
+  // identity of the interface it serves, from every workspace read.
+  const [about, setAbout] = useState<About | null>(null)
+  const [serviceBuild, setServiceBuild] = useState('')
 
   const selectedConversationId = selection?.kind === 'conversation' ? selection.id : null
   const selectedRef = useRef(selectedConversationId)
@@ -96,8 +101,9 @@ export function App() {
           setWorkspaceWaiting({ what: 'GET /api/workspace', since: wait.since, attempts: wait.attempts, error: wait.error })
         }
         try {
-          const fetched = await getWorkspace()
+          const { workspace: fetched, build } = await getWorkspace()
           if (number === state.sent) {
+            setServiceBuild(build)
             workspaceWait.current = null
             haveWorkspace.current = true
             setWorkspaceWaiting(null)
@@ -231,6 +237,8 @@ export function App() {
     connection.current++
     setSynced(false)
     void refresh()
+    // a service that came back may be another build.
+    getAbout().then(setAbout, () => undefined)
     const id = selectedRef.current
     const current = logRef.current
     // a log still waiting for its opening read gets it from the retry above.
@@ -496,6 +504,8 @@ export function App() {
         gateBusy={gateBusy}
         onArm={() => void gateAction(armShutdown, true)}
         onCancelShutdown={() => void gateAction(cancelShutdown)}
+        about={about}
+        newer={isNewer(serviceBuild)}
       />
       <main className="main">
         <ShutdownBanner
@@ -514,7 +524,7 @@ export function App() {
           }
           onCancel={() => void gateAction(cancelShutdown)}
         />
-        {loadError && workspace !== null && shutDownAt === null && <p className="error">The workspace could not be read: {loadError}</p>}
+        {loadError && workspace !== null && shutDownAt === null && <p className="error main-error">The workspace could not be read: {loadError}</p>}
         {main}
       </main>
       {registering && (
@@ -552,28 +562,11 @@ export function App() {
   )
 }
 
-// the next-waiting shortcut: ctrl+/ (by physical key, so it holds across
-// layouts), or a bare n while focus is not in a text field.
+// the next-waiting shortcut: ctrl+/, by physical key so it holds across
+// layouts, from anywhere, the reply box included. it needs ctrl, so it never
+// takes a keystroke that would type.
 function isNextWaiting(event: KeyboardEvent): boolean {
-  if (event.ctrlKey && event.code === 'Slash') {
-    return true
-  }
-  if (event.key !== 'n' || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) {
-    return false
-  }
-  return !takesText(event.target)
-}
-
-function takesText(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false
-  }
-  return (
-    target.isContentEditable ||
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
-  )
+  return event.ctrlKey && event.code === 'Slash'
 }
 
 // Unknown is the main column before the page has read the workspace once: it

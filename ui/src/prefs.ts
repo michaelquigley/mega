@@ -5,6 +5,9 @@
 const keys = {
   width: 'mega.panelWidth',
   collapsed: 'mega.panelCollapsed',
+  // folds: each project's fold choice. folded: the list of folded projects
+  // kept before choices were, read once to carry it over.
+  folds: 'mega.projectFolds',
   folded: 'mega.foldedProjects',
 }
 
@@ -39,47 +42,117 @@ export const readCollapsed = () => read(keys.collapsed) === 'true'
 
 export const saveCollapsed = (collapsed: boolean) => write(keys.collapsed, String(collapsed))
 
-function readFolded(): string[] {
+// a project's fold is the operator's choice when he has made one, kept in
+// this browser: folded or unfolded. with no choice, a starred project is
+// unfolded and any other folded. the stored list of folded projects from
+// before carries over as explicit folded choices, once.
+export type FoldChoice = 'folded' | 'unfolded'
+
+function remove(key: string) {
   try {
-    const parsed: unknown = JSON.parse(read(keys.folded) ?? '[]')
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []
+    window.localStorage.removeItem(key)
   } catch {
-    return []
+    // only a preference.
   }
 }
 
-// the folded projects: one list for the page, kept in the browser, which the
-// tree reads and the navigation that must not land on something hidden
-// writes.
-let folded = readFolded()
+function readChoices(): Record<string, FoldChoice> {
+  const choices: Record<string, FoldChoice> = {}
+  const stored = read(keys.folds)
+  if (stored !== null) {
+    try {
+      const parsed: unknown = JSON.parse(stored)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const [id, choice] of Object.entries(parsed)) {
+          if (choice === 'folded' || choice === 'unfolded') {
+            choices[id] = choice
+          }
+        }
+      }
+    } catch {
+      // unreadable: no choices.
+    }
+    return choices
+  }
+  const legacy = read(keys.folded)
+  if (legacy !== null) {
+    try {
+      const parsed: unknown = JSON.parse(legacy)
+      if (Array.isArray(parsed)) {
+        for (const id of parsed) {
+          if (typeof id === 'string') {
+            choices[id] = 'folded'
+          }
+        }
+      }
+    } catch {
+      // unreadable: nothing to carry over.
+    }
+    write(keys.folds, JSON.stringify(choices))
+    remove(keys.folded)
+  }
+  return choices
+}
+
+// Folds is what the tree needs to fold a project: the operator's choices,
+// and the projects shown unfolded only because a conversation in them was
+// opened, which is viewing, not a choice, and is never kept.
+export interface Folds {
+  choices: Record<string, FoldChoice>
+  viewing: ReadonlySet<string>
+}
+
+let current: Folds = { choices: readChoices(), viewing: new Set() }
 const foldListeners = new Set<() => void>()
 
-function setFolded(next: string[]) {
-  folded = next
-  write(keys.folded, JSON.stringify(next))
+function setFolds(next: Folds, store: boolean) {
+  current = next
+  if (store) {
+    write(keys.folds, JSON.stringify(next.choices))
+  }
   for (const listener of foldListeners) {
     listener()
   }
 }
 
+// isFolded is whether the tree folds a project: unfolded while viewed, else
+// the operator's choice, else the default from its star.
+export function isFolded(state: Folds, project: { id: string; starred: boolean }): boolean {
+  if (state.viewing.has(project.id)) {
+    return false
+  }
+  const choice = state.choices[project.id]
+  return choice ? choice === 'folded' : !project.starred
+}
+
+// the folds: one record for the page, kept in the browser, which the tree
+// reads, the fold control writes, and navigation that must not land on
+// something hidden marks as viewed.
 export const folds = {
   subscribe(listener: () => void) {
     foldListeners.add(listener)
     return () => foldListeners.delete(listener)
   },
-  get: () => folded,
-  toggle(id: string) {
-    setFolded(folded.includes(id) ? folded.filter((f) => f !== id) : [...folded, id])
+  get: () => current,
+  // toggle records the operator's choice: the opposite of what the tree shows.
+  toggle(project: { id: string; starred: boolean }) {
+    const choice: FoldChoice = isFolded(current, project) ? 'unfolded' : 'folded'
+    const viewing = new Set(current.viewing)
+    viewing.delete(project.id)
+    setFolds({ choices: { ...current.choices, [project.id]: choice }, viewing }, true)
   },
-  unfold(id: string) {
-    if (folded.includes(id)) {
-      setFolded(folded.filter((f) => f !== id))
+  // view unfolds a project for now, recording nothing.
+  view(id: string) {
+    if (!current.viewing.has(id)) {
+      setFolds({ choices: current.choices, viewing: new Set([...current.viewing, id]) }, false)
     }
   },
-  // forget drops folded projects that no longer exist.
+  // forget drops choices for projects that no longer exist.
   forget(known: Set<string>) {
-    if (folded.some((id) => !known.has(id))) {
-      setFolded(folded.filter((id) => known.has(id)))
+    const ids = Object.keys(current.choices)
+    if (ids.some((id) => !known.has(id)) || [...current.viewing].some((id) => !known.has(id))) {
+      const choices = Object.fromEntries(Object.entries(current.choices).filter(([id]) => known.has(id)))
+      setFolds({ choices, viewing: new Set([...current.viewing].filter((id) => known.has(id))) }, true)
     }
   },
 }

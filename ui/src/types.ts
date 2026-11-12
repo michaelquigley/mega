@@ -194,6 +194,23 @@ export interface Models {
   inherited: { model?: string; effort?: string }
 }
 
+// About is what the service says of its own build (GET /api/version): what
+// 'mega version' prints, where it logs, the Claude Agent SDK beside the shim,
+// and the identity of the interface it serves. it is not workspace state.
+export interface About {
+  version: string
+  developer: boolean
+  commit?: string
+  built?: string
+  branch?: string
+  go: string
+  target: string
+  log_file: string
+  logs_to_file: boolean
+  claude_sdk: string
+  interface: string
+}
+
 export interface Workspace {
   projects: Project[]
   conversations: Conversation[]

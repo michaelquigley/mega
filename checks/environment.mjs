@@ -1,16 +1,13 @@
 // browser check: a project's environment on its page, against the fakes.
 //
-//   node checks/environment.mjs <playwright-core dir> <chrome> <mega binary> <scratch dir>
+//   make checks SUITE=environment
 //
-// everything it writes goes under the scratch dir: two checkouts it creates
-// (alpha, a git repository with a .mega/environment.yaml; beta, with none),
-// the service's config and data, its XDG state, config and data directories,
-// and screenshots. the service listens on 127.0.0.1:18470, never 8470. the
-// fake claude shim and fake codex run in place of the harnesses, so it costs
-// no model turns. the environment resolves through /bin/bash, the operator's
-// interactive shell, from mega's scrubbed base; the activations it runs are
-// the ones this check writes and approves through the service, in its own
-// scratch workspace.
+// its two scratch checkouts are alpha, a git repository with a
+// .mega/environment.yaml, and beta, with none. neither gets the helper's
+// Claude-settings override, since this suite is about the file and no file;
+// the scratch HOME keeps the operator's settings out instead. the activations
+// it runs are the ones it writes and approves through the service, in its
+// own scratch workspace.
 //
 // what it checks: the unapproved state and its refusal on New conversation
 // and Adopt; approval; a launch whose header shows the environment's
@@ -23,118 +20,29 @@
 // override (ignore the file, a changed file labelled as such under it, then
 // use it again); a project with no file; no page errors and nothing fetched
 // off 127.0.0.1.
-import { spawn, execFileSync } from 'node:child_process'
-import { mkdirSync, openSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { suite } from './lib/mega.mjs'
 
-const [playwrightDir, chrome, bin, scratch] = process.argv.slice(2)
-if (!scratch) {
-  console.error('usage: node checks/environment.mjs <playwright-core dir> <chrome> <mega binary> <scratch dir>')
-  process.exit(2)
-}
-const { chromium } = createRequire(join(resolve(playwrightDir), 'package.json'))('playwright-core')
-const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const url = 'http://127.0.0.1:18470'
-const S = resolve(scratch)
-const say = (s) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${s}`)
-const failures = []
-const check = (ok, what) => {
-  say(`${ok ? 'ok  ' : 'FAIL'} ${what}`)
-  if (!ok) failures.push(what)
-}
-
-// the scratch workspace: checkouts, a fake shim directory, config, XDG dirs.
-rmSync(S, { recursive: true, force: true })
-for (const d of ['checkouts/alpha', 'checkouts/beta', 'data', 'shots', 'fakeshim', 'xdg/state', 'xdg/config', 'xdg/data', 'claudecfg']) {
-  mkdirSync(join(S, d), { recursive: true })
-}
-symlinkSync(join(repo, 'shim/claude/fake/shim.mjs'), join(S, 'fakeshim/shim.mjs'))
-symlinkSync(join(repo, 'shim/claude/node_modules'), join(S, 'fakeshim/node_modules'))
-const alpha = join(S, 'checkouts/alpha')
-const beta = join(S, 'checkouts/beta')
+const t = await suite('environment')
+const { url, check, until, api, projectOf, convOf } = t
+const alpha = t.checkout('alpha', { git: true })
+const beta = t.checkout('beta')
 const envFile = (body) => {
   mkdirSync(join(alpha, '.mega'), { recursive: true })
   writeFileSync(join(alpha, '.mega/environment.yaml'), body)
 }
 const git = (...args) =>
   execFileSync('git', args, { cwd: alpha, env: { ...process.env, GIT_AUTHOR_NAME: 'check', GIT_AUTHOR_EMAIL: 'check@localhost', GIT_COMMITTER_NAME: 'check', GIT_COMMITTER_EMAIL: 'check@localhost' } })
-git('init', '-q')
 envFile('activate: export MEGA_MARKER=alpha-check-marker\n')
 git('add', '.mega/environment.yaml')
 git('commit', '-q', '-m', 'environment')
-const config = join(S, 'mega.yaml')
-writeFileSync(
-  config,
-  [
-    'listen: 127.0.0.1:18470',
-    `data: ${join(S, 'data')}`,
-    'claude:',
-    '  node: node',
-    `  shim: ${join(S, 'fakeshim')}`,
-    '  executable: /bin/false',
-    'codex:',
-    `  binary: ${join(repo, 'internal/harness/codex/fake/codex')}`,
-    'environment:',
-    '  shell: /bin/bash',
-    '',
-  ].join('\n'),
-)
 
-const out = openSync(join(S, 'service.log'), 'a')
-const svc = spawn(bin, ['--config', config], {
-  stdio: ['ignore', out, out],
-  env: { ...process.env, XDG_STATE_HOME: join(S, 'xdg/state'), XDG_CONFIG_HOME: join(S, 'xdg/config'), XDG_DATA_HOME: join(S, 'xdg/data'), CLAUDE_CONFIG_DIR: join(S, 'claudecfg') },
-})
-let stopped = false
-const stop = (code) => {
-  if (!stopped) {
-    stopped = true
-    svc.kill('SIGINT')
-  }
-  setTimeout(() => process.exit(code), 1500)
-}
-process.on('uncaughtException', (e) => {
-  console.log('crashed:', e.stack)
-  stop(2)
-})
-for (let i = 0; i < 100; i++) {
-  try {
-    if ((await fetch(`${url}/api/workspace`)).ok) break
-  } catch {}
-  await new Promise((r) => setTimeout(r, 100))
-}
-const api = async (method, path, body) => {
-  const r = await fetch(url + path, { method, headers: { 'Content-Type': 'application/json', Origin: url }, body: body ? JSON.stringify(body) : undefined })
-  const t = await r.text()
-  return { status: r.status, body: t ? JSON.parse(t) : null }
-}
-const until = async (what, pred, ms = 20000) => {
-  const end = Date.now() + ms
-  while (Date.now() < end) {
-    if (await pred()) return
-    await new Promise((r) => setTimeout(r, 100))
-  }
-  throw new Error(`timed out: ${what}`)
-}
-const workspace = async () => (await api('GET', '/api/workspace')).body
-const projectOf = async (id) => (await workspace()).projects.find((p) => p.id === id)
-const convOf = async (id) => (await workspace()).conversations.find((c) => c.id === id)
-
-const A = (await api('POST', '/api/projects', { name: 'alpha', checkout: alpha })).body
-const B = (await api('POST', '/api/projects', { name: 'beta', checkout: beta })).body
-
-const browser = await chromium.launch({ executablePath: chrome })
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
-const page = await ctx.newPage()
-const errors = []
-const offsite = []
-page.on('pageerror', (e) => errors.push(String(e)))
-page.on('request', (r) => {
-  if (!r.url().startsWith(url) && !r.url().startsWith('ws://127.0.0.1:18470') && !r.url().startsWith('data:')) offsite.push(r.url())
-})
-const shot = (name) => page.screenshot({ path: join(S, 'shots', `${name}.png`), fullPage: true })
+const A = await t.register('alpha', alpha, { override: false })
+const B = await t.register('beta', beta, { override: false })
+const page = await t.page()
+const shot = (name) => t.shot(page, name)
 const env = page.locator('section.environment')
 
 // the unapproved state: shown, never run, and refused on the controls.
@@ -164,7 +72,7 @@ await until('running', async () => {
 const started = (await convOf(conv.id)).environment
 check(started.source === 'file' && started.changed.includes('MEGA_MARKER') && started.fingerprint.startsWith('sha256:'), `the runtime's environment: ${JSON.stringify(started)}`)
 await page.goto(`${url}/#/c/${conv.id}`)
-const facts = page.locator('.conversation-head .facts', { hasText: 'environment' })
+const facts = page.locator('.conversation-head .facts', { hasText: /^environment sha256:/ })
 await facts.waitFor()
 check((await facts.textContent()).includes(started.fingerprint) && (await facts.textContent()).includes('MEGA_MARKER'), 'the header shows the fingerprint and the changed names')
 const resolved = (await projectOf(A.id)).environment.resolved
@@ -263,8 +171,4 @@ await page.goto(`${url}/#/p/${B.id}`)
 await env.waitFor()
 check((await env.textContent()).includes('No .mega/environment.yaml'), 'a project with no file says so')
 
-check(errors.length === 0, `no page errors: ${errors.join('; ')}`)
-check(offsite.length === 0, `nothing fetched off 127.0.0.1: ${offsite.join(', ')}`)
-await browser.close()
-say(failures.length ? `${failures.length} failed` : 'all passed')
-stop(failures.length ? 1 : 0)
+await t.done()

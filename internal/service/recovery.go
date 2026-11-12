@@ -132,11 +132,19 @@ func (s *Service) closeLogs() {
 	s.closeLogsLocked()
 }
 
-// closeLogsLocked closes every log and forgets the live state, so a late
-// runtime callback finds no current incarnation and records nothing. callers
+// closeLogsLocked closes every log and lets go of the live state, so a late
+// runtime callback finds no current incarnation and records nothing. each
+// record is set aside as it stood, so a read answered after this, before the
+// HTTP server stops, is still computed from the facts last confirmed: an
+// error stays an error, and a pending set and its attention agree. callers
 // hold s.mu.
 func (s *Service) closeLogsLocked() {
+	s.logsClosed = true
 	for id, l := range s.live {
+		if s.closedLive == nil {
+			s.closedLive = make(map[string]*live)
+		}
+		s.closedLive[id] = l
 		if err := l.log.Close(); err != nil {
 			dl.Warnf("closing event log of '%s': %v", id, err)
 		}

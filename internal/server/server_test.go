@@ -57,7 +57,7 @@ func startWith(t *testing.T, heartbeat time.Duration) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := New(svc)
+	srv := New(svc, testAbout)
 	srv.heartbeat = heartbeat
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(func() {

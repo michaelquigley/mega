@@ -52,7 +52,9 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
         return (
           <div key={event.seq} data-seq={event.seq} className="message user">
             <BlockCopy source={event.text ?? ''} />
-            <span className="who">{event.origin === 'native' ? 'You, outside mega' : 'You'}</span>
+            {/* the operator's own prompts carry no label: the block's tint says
+                whose they are. one sent from outside mega says so. */}
+            {event.origin === 'native' && <span className="who">outside mega</span>}
             <Markdown text={event.text ?? ''} />
           </div>
         )

@@ -96,6 +96,106 @@ func TestReadThenRestartStaysIdle(t *testing.T) {
 	}
 }
 
+// after Close lets go of the live state, the HTTP server still answers reads
+// until it stops, so the page that asked for a shutdown gets its answer. a
+// read then must still be computed from the facts last confirmed: a page
+// holding an empty attention broke when it went stale, and one holding idle
+// for an error would be told something untrue.
+func TestAttentionAfterCloseIsTheLastConfirmed(t *testing.T) {
+	r := newRig(t)
+	unread := r.start("one")
+	finishTurn(r.fake.Last(), "a-1", "done")
+	read := r.start("two")
+	finishTurn(r.fake.Last(), "b-1", "done")
+	r.readAll(read.ID)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r.svc.Shutdown(ctx)
+	before := map[string]ConversationView{}
+	for _, view := range r.svc.Workspace().Conversations {
+		before[view.ID] = view
+	}
+	r.svc.Close()
+	got := map[string]string{}
+	for _, view := range r.svc.Workspace().Conversations {
+		got[view.ID] = view.Attention
+		if was := before[view.ID]; view.LastSeq != was.LastSeq || view.State != was.State || len(view.Pending) != len(was.Pending) {
+			t.Errorf("%s after close: last %d state %q pending %d, before: %d %q %d", view.ID, view.LastSeq, view.State, len(view.Pending), was.LastSeq, was.State, len(was.Pending))
+		}
+	}
+	if got[unread.ID] != model.AttentionUnread || got[read.ID] != model.AttentionIdle {
+		t.Errorf("after close: unread %q, read %q", got[unread.ID], got[read.ID])
+	}
+}
+
+func TestAnErrorStaysAnErrorAfterClose(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	finishTurn(r.fake.Last(), "a-1", "done")
+	if err := r.svc.Prompt(conv.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	r.fake.Last().Exit(nil)
+	if got := r.attention(conv.ID); got != model.AttentionError {
+		t.Fatalf("exited mid-turn: %q", got)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r.svc.Shutdown(ctx)
+	r.svc.Close()
+	for _, view := range r.svc.Workspace().Conversations {
+		if view.ID == conv.ID && view.Attention != model.AttentionError {
+			t.Errorf("after close: %q, want error", view.Attention)
+		}
+	}
+}
+
+// once Close has closed the logs, a history read or a read acknowledgment is
+// refused rather than opening a log again from disk.
+func TestNoLogIsReopenedAfterClose(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	finishTurn(r.fake.Last(), "a-1", "done")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r.svc.Shutdown(ctx)
+	last := r.view(conv.ID).LastSeq
+	r.svc.Close()
+	if _, err := r.svc.Events(conv.ID, 0); ErrorCode(err) != CodeUnavailable {
+		t.Errorf("events after close: %v", err)
+	}
+	if err := r.svc.Read(conv.ID, last); ErrorCode(err) != CodeUnavailable {
+		t.Errorf("read after close: %v", err)
+	}
+	r.svc.mu.Lock()
+	reopened := len(r.svc.live)
+	r.svc.mu.Unlock()
+	if reopened != 0 {
+		t.Errorf("%d logs reopened after close", reopened)
+	}
+	if view := r.view(conv.ID); view.LastSeq != last {
+		t.Errorf("the view after close: last %d, want %d", view.LastSeq, last)
+	}
+}
+
+// a conversation whose log could not be opened has no live state at all; its
+// attention is what the registry says.
+func TestRecordedAttention(t *testing.T) {
+	cases := []struct {
+		conv model.Conversation
+		want string
+	}{
+		{model.Conversation{Runtime: model.RuntimeUnsupervised, OutputSeq: 5, ReadSeq: 1}, model.AttentionUnsupervised},
+		{model.Conversation{OutputSeq: 5, ReadSeq: 1}, model.AttentionUnread},
+		{model.Conversation{OutputSeq: 5, ReadSeq: 5}, model.AttentionIdle},
+	}
+	for _, c := range cases {
+		if got := recordedAttention(c.conv); got != c.want {
+			t.Errorf("%+v: %q, want %q", c.conv, got, c.want)
+		}
+	}
+}
+
 func TestUnsupervisedIsItsOwnState(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")

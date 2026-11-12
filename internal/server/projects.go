@@ -78,6 +78,7 @@ type updateProjectRequest struct {
 }
 
 func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(BuildHeader, s.about.Interface)
 	workspace := s.svc.Workspace()
 	view := &workspaceView{
 		Projects:      make([]*projectView, 0, len(workspace.Projects)),

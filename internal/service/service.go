@@ -64,11 +64,18 @@ type Service struct {
 	logPath     func(conversationID string) string
 	harnesses   map[string]harness.Harness
 	live        map[string]*live
-	subs        map[*Subscription]struct{}
-	closed      bool
-	catalogs    catalogs  // model lists, per harness, for the service's life
-	paths       pathCache // checkout listings, held briefly
-	gate        shutdownGate
+	// closedLive holds the live records let go of at close, unchanged from
+	// then: no runtime callback reaches them, and reads answered before the
+	// HTTP server stops derive everything from their facts as ever.
+	closedLive map[string]*live
+	// logsClosed is set once Close has closed the logs: none is opened again,
+	// so nothing past what was last confirmed can be read before a restart.
+	logsClosed bool
+	subs       map[*Subscription]struct{}
+	closed     bool
+	catalogs   catalogs  // model lists, per harness, for the service's life
+	paths      pathCache // checkout listings, held briefly
+	gate       shutdownGate
 }
 
 // New returns a service over reg. it recovers from the previous run before

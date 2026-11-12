@@ -15,6 +15,8 @@
 //   burst N          N assistant messages at once
 //   drip N MS        N assistant messages MS apart, each streamed first
 //   ask              a permission request; the turn ends once it is answered
+//   askq             an AskUserQuestion question (which color, Red or Blue);
+//                    the reply names the answer, and the turn ends
 //   ask2             two permission requests, 300ms apart; the turn ends once
 //                    both are answered
 //   tool MS          a Bash call to `go test ./...` that runs for MS, then
@@ -205,6 +207,12 @@ async function turn(text) {
     end()
   } else if (verb === 'ask') {
     ask('echo fake')
+  } else if (verb === 'askq') {
+    // a question as the real shim relays AskUserQuestion: kind question, the
+    // tool's input with its questions.
+    const id = 'req-' + randomUUID().slice(0, 8)
+    waiting.add(id)
+    out({ type: 'request', id, kind: 'question', tool: 'AskUserQuestion', input: { questions: [{ question: 'Which color do you prefer?', header: 'Color', multiSelect: false, options: [{ label: 'Red', description: 'warm' }, { label: 'Blue', description: 'cool' }] }] }, toolUseId: 'tu-' + id })
   } else if (verb === 'ask2') {
     ask('echo first')
     await sleep(300)
@@ -305,7 +313,7 @@ lines.on('line', (line) => {
     }
     waiting.delete(frame.id)
     out({ type: 'answer_accepted', id: frame.id })
-    say(`Answered: ${frame.decision}`)
+    say(frame.answers ? `Answered: ${Object.values(frame.answers).join(', ')}` : `Answered: ${frame.decision}`)
     // the turn ends once nothing is left waiting.
     if (waiting.size === 0) end()
   } else if (frame.type === 'interrupt') {

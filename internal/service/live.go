@@ -136,10 +136,16 @@ type incarnation struct {
 }
 
 // liveLocked returns the conversation's live state, opening its log on first
-// use. callers hold s.mu.
+// use. once Close has closed the logs it opens none again: a history read or
+// a read acknowledgment in the moment before the HTTP server stops is refused
+// as unavailable, rather than read from disk past what was confirmed. callers
+// hold s.mu.
 func (s *Service) liveLocked(conversationID string) (*live, error) {
 	if l := s.live[conversationID]; l != nil {
 		return l, nil
+	}
+	if s.logsClosed {
+		return nil, newError(CodeUnavailable, "the service is shutting down")
 	}
 	log, err := events.Open(s.logPath(conversationID))
 	if err != nil {
@@ -278,6 +284,13 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 	}
 	l := s.live[conv.ID]
 	if l == nil {
+		// let go of at close: the facts as they stood then.
+		l = s.closedLive[conv.ID]
+	}
+	if l == nil {
+		// no live state ever: the log could not be opened. attention is what
+		// the registry says, so a page never holds a conversation without one.
+		view.Attention = recordedAttention(conv)
 		return view
 	}
 	view.LastSeq = l.log.LastSeq()
@@ -335,6 +348,20 @@ func (l *live) attention(conv model.Conversation) (string, time.Time) {
 		return model.AttentionUnread, l.outputAt
 	default:
 		return model.AttentionIdle, time.Time{}
+	}
+}
+
+// recordedAttention is attention from the registry's facts alone, for a
+// conversation whose live state was never opened: no request, turn or fault
+// is known, so it is unsupervised, unread or idle, in attention's own order.
+func recordedAttention(conv model.Conversation) string {
+	switch {
+	case conv.Runtime == model.RuntimeUnsupervised:
+		return model.AttentionUnsupervised
+	case conv.OutputSeq > conv.ReadSeq:
+		return model.AttentionUnread
+	default:
+		return model.AttentionIdle
 	}
 }
 

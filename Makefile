@@ -10,7 +10,10 @@ endif
 SHIM_DIR := $(CURDIR)/shim/claude
 LDFLAGS := -X github.com/michaelquigley/mega/internal/config.defaultClaudeShim=$(SHIM_DIR)
 
-.PHONY: build test e2e clean frontend frontend-test shim
+.PHONY: build test e2e checks checks-deps checks-browser clean frontend frontend-test shim
+
+# browser checks keep their binary, data, logs and screenshots here.
+CHECKS_DIR ?= $(or $(TMPDIR),/tmp)/mega-checks
 
 # build the embedded single-page UI into ui/dist.
 frontend:
@@ -39,7 +42,24 @@ test: frontend-test shim
 e2e: shim
 	go test -tags e2e -count=1 -v -timeout 30m ./internal/e2e/
 
+# the browser checks: every suite in checks/, or SUITE=name (or a list), each
+# against its own scratch mega on a scratch port with the committed fakes.
+# its own target, not part of test: it needs a browser and takes minutes.
+checks: frontend shim checks-deps
+	mkdir -p "$(CHECKS_DIR)"
+	go build -o "$(CHECKS_DIR)/mega" ./cmd/mega
+	MEGA_CHECKS_DIR="$(CHECKS_DIR)" MEGA_CHECK_BIN="$(CHECKS_DIR)/mega" node checks/run.mjs $(SUITE)
+
+# the checks' pinned playwright, exactly as locked.
+checks-deps:
+	npm --prefix checks ci
+
+# the chromium build the pinned playwright drives, into playwright's own
+# cache (~/.cache/ms-playwright); run once, and again when playwright moves.
+checks-browser: checks-deps
+	npm --prefix checks exec -- playwright install chromium
+
 clean:
 	go clean ./...
 	rm -f "$(GOBIN)/mega"
-	rm -rf ui/dist ui/node_modules shim/claude/node_modules
+	rm -rf ui/dist ui/node_modules shim/claude/node_modules checks/node_modules

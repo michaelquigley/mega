@@ -32,6 +32,10 @@ func logPathFromEnv(xdgStateHome, home string) (string, error) {
 	return filepath.Join(home, ".local", "state", "mega", logFileName), nil
 }
 
+// logsToFile is whether this process logs to the log file, as a command that
+// serves with no terminal does; the version panel says so.
+var logsToFile bool
+
 // onTerminal is whether f is a terminal. a character device is not enough:
 // /dev/null is one, and a launcher often hands a daemon exactly that.
 func onTerminal(f *os.File) bool {
@@ -57,6 +61,7 @@ func initLogging(serving bool) {
 			options.SetOutput(f)
 			options.UseJSON = true
 			options.UseColor = false
+			logsToFile = true
 			defer dl.Infof("logging to '%s'", path)
 		}
 	}

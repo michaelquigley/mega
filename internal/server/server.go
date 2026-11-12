@@ -27,13 +27,14 @@ const (
 // Server adapts the service to its HTTP surface.
 type Server struct {
 	svc       *service.Service
+	about     About
 	heartbeat time.Duration
 	upgrader  websocket.Upgrader
 }
 
-// New returns a server over svc.
-func New(svc *service.Service) *Server {
-	return &Server{svc: svc, heartbeat: defaultHeartbeat}
+// New returns a server over svc, answering for its build with about.
+func New(svc *service.Service, about About) *Server {
+	return &Server{svc: svc, about: about, heartbeat: defaultHeartbeat}
 }
 
 // Handler returns the complete HTTP surface: API and stream under /api/, the
@@ -45,6 +46,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) api() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/workspace", s.getWorkspace)
+	mux.HandleFunc("GET /api/version", s.getVersion)
 	mux.HandleFunc("POST /api/projects", s.createProject)
 	mux.HandleFunc("PATCH /api/projects/{id}", s.updateProject)
 	mux.HandleFunc("DELETE /api/projects/{id}", s.deleteProject)

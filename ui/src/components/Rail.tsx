@@ -1,11 +1,13 @@
 import { select } from '../selection'
 import { connectionLabel, failing, type Knowledge, type StreamState } from '../stream'
 import { treeGroups } from '../tree'
-import type { Conversation, Project, ShutdownGate } from '../types'
+import type { About, Conversation, Project, ShutdownGate } from '../types'
 import { RailGate } from './Gate'
 import { ProjectMark } from './AttentionMark'
 import { missingReason } from '../checkout'
 import { IconButton } from './Icon'
+import { panelShortcut } from './SidePanel'
+import { aboutTitle, newerLabel } from '../build'
 
 interface RailProps {
   projects: Project[]
@@ -18,6 +20,9 @@ interface RailProps {
   onExpand: () => void
   gate: ShutdownGate | undefined
   shutDownAt: Date | null
+  about: About | null
+  newer: boolean
+  onAbout: () => void
 }
 
 // Rail is the collapsed side panel: the control to expand, how many
@@ -25,7 +30,7 @@ interface RailProps {
 // connection. nothing that signals attention or activity is lost by
 // collapsing: each project's mark is the same rollup the tree shows, working
 // arc included.
-export function Rail({ projects, conversations, needsYou, streamState, stale, loaded, knowledge, onExpand, gate, shutDownAt }: RailProps) {
+export function Rail({ projects, conversations, needsYou, streamState, stale, loaded, knowledge, onExpand, gate, shutDownAt, about, newer, onAbout }: RailProps) {
   const { starred, rest } = treeGroups(projects)
   const waiting = needsYou.length
   // before the first read the count is unknown, never zero.
@@ -39,10 +44,11 @@ export function Rail({ projects, conversations, needsYou, streamState, stale, lo
           : 'Not known yet: connecting'
   }
   const down = shutDownAt !== null && streamState !== 'connected'
-  const connection = down ? 'Shut down from here, retrying' : connectionLabel(knowledge, streamState)
+  const showNewer = newer && !down && streamState === 'connected' && !failing(knowledge)
+  const connection = down ? 'Shut down from here, retrying' : showNewer ? newerLabel : connectionLabel(knowledge, streamState)
   return (
     <nav className="rail" aria-label="Side panel, collapsed">
-      <IconButton icon="keyboard_double_arrow_right" label="Expand the side panel" onClick={onExpand} />
+      <IconButton icon="keyboard_double_arrow_right" label={`Expand the side panel (${panelShortcut})`} onClick={onExpand} />
       <span
         className={`rail-count${!loaded ? ' unknown' : waiting > 0 ? ' waiting' : ''}${loaded && stale ? ' stale' : ''}`}
         title={loaded && stale ? `Last known: ${count.toLowerCase()}` : count}
@@ -69,7 +75,13 @@ export function Rail({ projects, conversations, needsYou, streamState, stale, lo
           </li>
         ))}
       </ul>
-      <span className={`rail-stream stream-${failing(knowledge) || down ? 'disconnected' : streamState}${loaded ? '' : ' unknown'}`} title={connection} aria-label={connection} role="img" />
+      <IconButton className="rail-version" icon="info" label={aboutTitle(about)} disabled={!about} onClick={onAbout} />
+      <span
+        className={`rail-stream stream-${failing(knowledge) || down ? 'disconnected' : showNewer ? 'newer' : streamState}${loaded ? '' : ' unknown'}`}
+        title={connection}
+        aria-label={connection}
+        role="img"
+      />
     </nav>
   )
 }

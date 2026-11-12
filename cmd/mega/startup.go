@@ -122,7 +122,7 @@ func start(cfg *config.Config) (*instance, error) {
 		listener: listener,
 		lock:     lock,
 		svc:      svc,
-		server:   &http.Server{Handler: server.New(svc).Handler(), ReadHeaderTimeout: 10 * time.Second},
+		server:   &http.Server{Handler: server.New(svc, about(claudeHarness)).Handler(), ReadHeaderTimeout: 10 * time.Second},
 		url:      url,
 	}, nil
 }

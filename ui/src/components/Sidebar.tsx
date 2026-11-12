@@ -1,16 +1,18 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { starProject } from '../api'
-import { folds } from '../prefs'
+import { folds, isFolded } from '../prefs'
 import { select, type Selection } from '../selection'
 import { connectionLabel, failing, serviceAddress, type Knowledge, type StreamState } from '../stream'
 import { useWallNow } from '../clock'
 import { waitingLabel, type Waiting } from '../waiting'
 import { treeGroups } from '../tree'
-import type { Conversation, Project, ShutdownGate } from '../types'
+import type { About, Conversation, Project, ShutdownGate } from '../types'
 import { AttentionMark, BackgroundLabel, Elapsed, ProjectMark } from './AttentionMark'
 import { FooterGate } from './Gate'
 import { Icon, IconButton } from './Icon'
 import { missingReason } from '../checkout'
+import { panelShortcut } from './SidePanel'
+import { aboutTitle, newerLabel } from '../build'
 
 interface SidebarProps {
   projects: Project[]
@@ -33,16 +35,20 @@ interface SidebarProps {
   gateBusy: boolean
   onArm: () => void
   onCancelShutdown: () => void
+  about: About | null
+  newer: boolean
+  onAbout: () => void
 }
 
 // Sidebar is the expanded side panel: the needs-you list, then the projects,
 // starred first, each group by name, each project folding to its row and its
-// rollup mark. which projects are folded is a preference of this browser;
-// stars are workspace state, written through the service.
+// rollup mark. a starred project is unfolded and any other folded, until the
+// operator folds or unfolds it himself, which this browser keeps; stars are
+// workspace state, written through the service.
 export function Sidebar(props: SidebarProps) {
   const { projects, conversations, needsYou, selection, streamState, stale, loaded, knowledge, onRegister, onCollapse } = props
   const { gate, shutDownAt, gateBusy, onArm, onCancelShutdown } = props
-  const { waiting: waitingFor } = props
+  const { waiting: waitingFor, about, newer, onAbout } = props
   // before the first read the page knows nothing, and says so, never "none".
   const unknownText =
     knowledge === 'unreachable'
@@ -51,16 +57,21 @@ export function Sidebar(props: SidebarProps) {
         ? `Not known: the service at ${serviceAddress()} could not read the workspace.`
         : 'Not known yet: connecting.'
   const unknown = !loaded ? <p className="muted unknown-line">{unknownText}</p> : null
-  const folded = useSyncExternalStore(folds.subscribe, folds.get)
+  const foldState = useSyncExternalStore(folds.subscribe, folds.get)
   const [starError, setStarError] = useState<string | null>(null)
   const isSelected = (kind: Selection['kind'], id: string) => selection?.kind === kind && selection.id === id
   const byId = new Map(conversations.map((conversation) => [conversation.id, conversation]))
   const projectNames = new Map(projects.map((project) => [project.id, project.name]))
   const waiting = needsYou.map((id) => byId.get(id)).filter((c): c is Conversation => c !== undefined)
   const { starred, rest } = treeGroups(projects)
+  // where the connection status is: a page running an older interface than
+  // the service serves says so while it is connected; it never reloads
+  // itself.
+  const down = shutDownAt !== null && streamState !== 'connected'
+  const showNewer = newer && !down && streamState === 'connected' && !failing(knowledge)
 
-  // a folded project that no longer exists is forgotten, once the workspace
-  // has been read and its absence means something.
+  // a fold choice for a project that no longer exists is forgotten, once the
+  // workspace has been read and its absence means something.
   useEffect(() => {
     if (loaded) {
       folds.forget(new Set(projects.map((project) => project.id)))
@@ -69,11 +80,11 @@ export function Sidebar(props: SidebarProps) {
 
   // navigation never lands on something hidden: selecting a conversation, by
   // the needs-you list, the next-waiting shortcut or a link, unfolds its
-  // project.
+  // project. that is viewing, not a choice, so nothing is recorded.
   const selectedProject = selection?.kind === 'conversation' ? byId.get(selection.id)?.project_id : undefined
   useEffect(() => {
     if (selectedProject) {
-      folds.unfold(selectedProject)
+      folds.view(selectedProject)
     }
   }, [selectedProject])
 
@@ -88,16 +99,16 @@ export function Sidebar(props: SidebarProps) {
 
   const projectItem = (project: Project) => {
     const inProject = conversations.filter((conversation) => conversation.project_id === project.id)
-    const isFolded = folded.includes(project.id)
+    const folded = isFolded(foldState, project)
     return (
       <li key={project.id}>
         <div className={isSelected('project', project.id) ? 'project-row selected' : 'project-row'}>
           <IconButton
             className="fold"
-            icon={isFolded ? 'chevron_right' : 'expand_more'}
-            label={isFolded ? `Show the conversations in ${project.name}` : `Hide the conversations in ${project.name}`}
-            aria-expanded={!isFolded}
-            onClick={() => folds.toggle(project.id)}
+            icon={folded ? 'chevron_right' : 'expand_more'}
+            label={folded ? `Show the conversations in ${project.name}` : `Hide the conversations in ${project.name}`}
+            aria-expanded={!folded}
+            onClick={() => folds.toggle(project)}
           />
           <button
             type="button"
@@ -121,7 +132,7 @@ export function Sidebar(props: SidebarProps) {
             onClick={() => void toggleStar(project)}
           />
         </div>
-        {!isFolded && (
+        {!folded && (
           <ul className="tree-children">
             {inProject.map((conversation) => (
               <li key={conversation.id}>
@@ -150,8 +161,8 @@ export function Sidebar(props: SidebarProps) {
       <section className="needs-you">
         <div className="section-head">
           <h2>Needs you</h2>
-          <span className="muted shortcut" title="Next waiting conversation: Ctrl+/ anywhere, or n outside a text field">
-            Ctrl+/ or n
+          <span className="muted shortcut" title="Next waiting conversation: Ctrl+/ anywhere">
+            Ctrl+/
           </span>
         </div>
         {unknown ?? (waiting.length === 0 ? (
@@ -204,15 +215,20 @@ export function Sidebar(props: SidebarProps) {
       {!shutDownAt && <FooterGate gate={gate} stale={stale} busy={gateBusy} onCancel={onCancelShutdown} />}
       <footer className="side-foot">
         <ConnectionStatus
-          className={`stream stream-${failing(knowledge) || (shutDownAt && streamState !== 'connected') ? 'disconnected' : streamState}`}
-          label={shutDownAt && streamState !== 'connected' ? 'Shut down from here, retrying' : connectionLabel(knowledge, streamState)}
+          className={`stream stream-${failing(knowledge) || down ? 'disconnected' : showNewer ? 'newer' : streamState}`}
+          label={down ? 'Shut down from here, retrying' : showNewer ? newerLabel : connectionLabel(knowledge, streamState)}
           waiting={waitingFor}
         />
+        {about && (
+          <button type="button" className="version-label" title={aboutTitle(about)} aria-label={aboutTitle(about)} onClick={onAbout}>
+            {about.version}
+          </button>
+        )}
         <span className="side-foot-actions">
           {!gate?.armed && !shutDownAt && (
             <IconButton icon="power_settings_new" label="Shut down when every agent is idle" disabled={gateBusy || !loaded || stale} onClick={onArm} />
           )}
-          <IconButton icon="keyboard_double_arrow_left" label="Collapse the side panel" onClick={onCollapse} />
+          <IconButton icon="keyboard_double_arrow_left" label={`Collapse the side panel (${panelShortcut})`} onClick={onCollapse} />
         </span>
       </footer>
     </nav>

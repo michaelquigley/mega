@@ -1,0 +1,242 @@
+// browser check: the input panel, against the fakes.
+//
+//   make checks SUITE=panel
+//
+// rebuilt from what the journals recorded of the lost panel, panelscroll,
+// start, idle-mode and models scripts and from docs/current. what it checks:
+// the reply box resting at one line and opening to its height on focus, the
+// line above the panel staying put as it opens and closes and a view at the
+// bottom staying there; a control in the bar
+// keeping it open and a press outside closing it; a draft kept across a switch
+// of conversation; Ctrl+Enter sending, closing and emptying the box and going
+// to the end, following the reply; a refused send keeping the box open,
+// focused and with its draft, and saying why; Send and Start disabled with the
+// reason while a shutdown is armed or the checkout is missing, the shutdown's
+// first when both apply; Start on a released conversation, which runs with
+// the mode asked for and no turn; the permission mode switched live, and
+// stored for the next launch when nothing runs; and a model and effort
+// applied, for claude and for codex, shown as the next prompt's until a turn
+// reports them.
+import { renameSync } from 'node:fs'
+import { suite } from './lib/mega.mjs'
+
+const t = await suite('panel')
+const { url, check, until, api, convOf } = t
+
+const P = await t.register('panel', t.checkout('panel'))
+const C = (await t.launch(P.id, 'claude', 'burst 40')).id
+const D = (await t.launch(P.id, 'claude', 'echo\nhello')).id
+const X = (await t.launch(P.id, 'codex', 'hello')).id
+const gonePath = t.checkout('gone')
+const M = await t.register('gone', gonePath)
+const G = (await t.launch(M.id, 'claude', 'echo\nhello')).id
+for (const id of [C, D, X, G]) await t.idle(id)
+for (const id of [D, G]) await api('POST', `/api/conversations/${id}/release`)
+await until('D and G released', async () => (await convOf(D)).state === 'none' && (await convOf(G)).state === 'none')
+
+const page = await t.page({ width: 1280, height: 700 })
+const cluster = page.locator('.panel-cluster')
+const box = page.getByRole('textbox', { name: 'Reply' })
+const expanded = async () => (await page.locator('.panel-cluster.expanded').count()) === 1
+const height = async () => Math.round((await box.boundingBox()).height)
+const facts = () => page.locator('.conversation-head .facts').first().textContent()
+const go = (id) =>
+  page.evaluate((c) => {
+    location.hash = `#/c/${c}`
+  }, id)
+const send = page.locator('form.reply button[type=submit]')
+// Start is the bar's other button while nothing runs: its label is its reason
+// when it is held, so it is found by place, not name.
+const start = page.locator('form.reply .bar-start button:not([type=submit])')
+
+await page.goto(`${url}/#/c/${C}`)
+await cluster.waitFor()
+
+// resting and opening. the history moves with the panel's top edge: the line
+// just above it stays just above it, and a view at the bottom stays there.
+const scroller = page.locator('.main')
+const fromBottom = () => scroller.evaluate((m) => m.scrollHeight - m.scrollTop - m.clientHeight)
+const lineAbove = () =>
+  page.evaluate(() => {
+    const top = document.querySelector('.panel-cluster').getBoundingClientRect().top
+    const above = [...document.querySelectorAll('.events [data-seq]')].filter((e) => e.getBoundingClientRect().bottom <= top).at(-1)
+    return { seq: above.dataset.seq, top }
+  })
+const gapOf = (seq) =>
+  page.evaluate((s) => document.querySelector('.panel-cluster').getBoundingClientRect().top - document.querySelector(`.events [data-seq="${s}"]`).getBoundingClientRect().bottom, seq)
+// a press outside the cluster that moves nothing: in the main column's empty
+// margin beside the history, mid-height. (a click on the header would scroll
+// it into view first.)
+const outside = async () => {
+  const main = await scroller.boundingBox()
+  const events = await page.locator('.events').boundingBox()
+  const right = main.x + main.width - (events.x + events.width)
+  if (right < 24) throw new Error(`no margin beside the history to press in: ${right}px`)
+  await page.mouse.click(events.x + events.width + right / 2, main.y + main.height / 3)
+}
+const resting = await height()
+check(!(await expanded()) && resting >= 30 && resting <= 60, `the box rests at one line: ${resting}px`)
+await until('the history taller than the view', async () => (await scroller.evaluate((m) => m.scrollHeight - m.clientHeight)) > 600)
+await scroller.evaluate((m) => {
+  m.scrollTop = m.scrollHeight - m.clientHeight - 300
+})
+const anchor = await lineAbove()
+const gapBefore = await gapOf(anchor.seq)
+await box.click()
+await until('the box open', expanded)
+await until('the box at its height', async () => (await height()) === 120)
+check(true, 'focus opens it to its height: 120px')
+const risen = anchor.top - (await lineAbove()).top
+const gapOpen = await gapOf(anchor.seq)
+check(risen > 60 && Math.abs(gapOpen - gapBefore) <= 1, `opening keeps the line above the panel where it was: ${gapBefore.toFixed(1)}px from the edge, then ${gapOpen.toFixed(1)}px, as the edge rose ${Math.round(risen)}px`)
+await outside()
+await until('the box shut', async () => !(await expanded()) && (await height()) === resting)
+check(Math.abs((await gapOf(anchor.seq)) - gapBefore) <= 1, 'and closing returns it')
+await scroller.evaluate((m) => {
+  m.scrollTop = m.scrollHeight
+})
+await until('at the bottom', async () => (await fromBottom()) <= 1)
+await box.click()
+await until('the box open at the bottom', async () => (await expanded()) && (await height()) === 120)
+const openBottom = await fromBottom()
+await outside()
+await until('the box shut at the bottom', async () => !(await expanded()) && (await height()) === resting)
+check(openBottom <= 1 && (await fromBottom()) <= 1, `a view at the bottom stays there through opening and closing: ${Math.round(openBottom)}px, then ${Math.round(await fromBottom())}px`)
+await box.click()
+await until('the box open again', expanded)
+
+// a control in the bar keeps it open; a press outside closes it.
+await page.getByRole('button', { name: 'More' }).click()
+await page.getByRole('menuitem', { name: 'Release' }).waitFor()
+check(await expanded(), 'a control in the bar keeps the box open')
+await outside()
+await until('the box shut', async () => !(await expanded()))
+check((await page.getByRole('menuitem', { name: 'Release' }).count()) === 0 && (await height()) === resting, 'a press outside closes the box and the menu')
+
+// a draft is kept across a switch of conversation.
+await box.fill('a draft kept across a switch')
+await go(D)
+await until('D shown', async () => (await page.locator('.conversation-head h1').textContent()) !== '' && (await box.inputValue()) === '')
+await go(C)
+await until('C shown with its draft', async () => (await box.inputValue()) === 'a draft kept across a switch')
+check(true, 'a draft is kept across a switch')
+
+// Ctrl+Enter sends, closes and empties the box, and goes to the end,
+// following the reply.
+await page.evaluate(() => {
+  document.querySelector('.main').scrollTop = 0
+})
+await box.fill('drip 4 150')
+await box.press('Control+Enter')
+await until('the box shut and empty', async () => !(await expanded()) && (await box.inputValue()) === '')
+check(await box.evaluate((b) => b !== document.activeElement), 'Ctrl+Enter sends: the box closes, empties and lets go of focus')
+await until('the reply landed', async () => (await page.locator('.events .message.assistant', { hasText: 'Drip 4.' }).count()) === 1 && !(await convOf(C)).turn_active)
+const atEnd = await page.evaluate(() => {
+  const m = document.querySelector('.main')
+  return m.scrollHeight - m.scrollTop - m.clientHeight
+})
+check(atEnd <= 32, `the view went to the end and followed the reply: ${Math.round(atEnd)}px from the bottom`)
+
+// a refused send keeps the box open, focused and with its draft.
+await page.route('**/api/conversations/*/prompt', (route) => route.fulfill({ status: 409, contentType: 'application/json', body: '{"code":"conflict","message":"refused by the check"}' }))
+await box.click()
+await box.fill('a draft the refusal must not lose')
+await box.press('Control+Enter')
+await until('the refusal shown', async () => ((await page.locator('.panel-cluster .error').textContent().catch(() => '')) ?? '').includes('refused by the check'))
+check((await expanded()) && (await box.inputValue()) === 'a draft the refusal must not lose' && (await box.evaluate((b) => b === document.activeElement)), 'a refused send keeps the box open, focused and with its draft, and says why')
+await page.unroute('**/api/conversations/*/prompt')
+await box.fill('')
+await outside()
+
+// the reasons on Send and Start: a shutdown armed.
+const pendingReason = 'Waiting to shut down once every agent is idle; cancel the shutdown to start new work'
+check((await api('POST', '/api/shutdown/arm')).status === 202, 'a shutdown is armed')
+await until('Send held', async () => (await send.getAttribute('aria-label')) === pendingReason && (await send.isDisabled()))
+check(true, 'Send is disabled with the shutdown as its reason')
+await go(D)
+await until('Start held', async () => (await start.getAttribute('aria-label')) === pendingReason && (await start.isDisabled()))
+check(true, 'and so is Start')
+check((await api('POST', '/api/shutdown/cancel')).status === 202, 'the shutdown is cancelled')
+await until('Start free', async () => (await start.getAttribute('aria-label')) === 'Start the runtime on this session, sending nothing' && (await start.isEnabled()))
+check(true, 'Start is offered again')
+
+// the reasons: a checkout gone, and a shutdown's reason first when both apply.
+renameSync(gonePath, `${gonePath}-away`)
+await go(G)
+await page.reload()
+const missing = `The checkout is missing: '${gonePath}' (does not exist)`
+await until('Start held by the checkout', async () => (await start.getAttribute('aria-label')) === missing && (await start.isDisabled()))
+check(true, `Start is disabled with the missing checkout as its reason: "${missing}"`)
+const refused = await api('POST', `/api/conversations/${G}/start`)
+check(refused.status === 409 && refused.body.code === 'checkout_missing', `the service refuses the Start too: ${refused.status} ${refused.body.code}`)
+await api('POST', '/api/shutdown/arm')
+await until('the shutdown first', async () => (await start.getAttribute('aria-label')) === pendingReason)
+check(true, "with a shutdown armed too, the shutdown's reason comes first")
+await api('POST', '/api/shutdown/cancel')
+renameSync(`${gonePath}-away`, gonePath)
+await page.reload()
+await until('Start free again', async () => (await start.getAttribute('aria-label')) === 'Start the runtime on this session, sending nothing')
+check(true, 'the checkout back, Start is offered')
+
+// a mode chosen with nothing running is stored for the next launch, with no
+// event.
+const mode = page.getByRole('combobox', { name: 'Permission mode' })
+check((await mode.locator('option:checked').textContent()) === 'Not chosen: default', 'a mode never chosen reads "Not chosen: default"')
+const seqBefore = (await convOf(G)).last_seq
+await mode.selectOption('auto')
+await until('the stored choice', async () => (await convOf(G)).permission_mode_choice === 'auto')
+await until('next launch shown', async () => (await facts()).includes('next launch: auto'))
+check((await convOf(G)).last_seq === seqBefore, `with nothing running the mode is stored for the next launch, with no event: "${await facts()}"`)
+
+// Start on a released conversation: it runs with the mode asked for, and no
+// turn.
+await go(D)
+await until('Start offered on D', async () => (await start.isEnabled()))
+await start.click()
+await until('D running', async () => (await convOf(D)).state === 'running')
+await until('the mode it asked for', async () => (await facts()).includes('permissions: default (requested)'))
+const dNow = await convOf(D)
+check(!dNow.turn_active && (await page.locator('.activity').count()) === 0, `Start runs the runtime, sending nothing: "${await facts()}"`)
+await page.getByRole('button', { name: 'More' }).click()
+check(await page.getByRole('menuitem', { name: 'Release' }).isEnabled(), 'and Release is offered')
+await page.keyboard.press('Escape')
+await outside()
+
+// the mode switched live: no "requested" and no next launch.
+await mode.selectOption('plan')
+await until('the live mode', async () => (await facts()).includes('permissions: plan') && !(await facts()).includes('requested'))
+check(!(await facts()).includes('next launch'), `a live switch applies at once: "${await facts()}"`)
+
+// a claude model and effort: the model is the next prompt's until a turn
+// reports it; claude never reports effort, so it shows as requested.
+const pickers = page.locator('.model-control select')
+await pickers.nth(0).selectOption('fake-sonnet')
+await pickers.nth(1).selectOption('low')
+await page.getByRole('button', { name: /^Apply the model and effort\. Applies from the next response\.$/ }).click()
+await until('the claude change shown', async () => (await facts()).includes('next prompt: fake-sonnet'))
+const claudeAsked = await facts()
+check(claudeAsked.startsWith('claude · fake-opus-1 · effort: low (requested)'), `applied, claude's model waits for the next response and its effort shows as requested: "${claudeAsked}"`)
+await box.click()
+await box.fill('echo\nagain')
+await box.press('Control+Enter')
+await until('claude reports the model', async () => (await facts()).startsWith('claude · fake-sonnet-1 · effort: low (requested)') && !(await facts()).includes('next prompt'))
+check(true, `the next response runs it: "${await facts()}"`)
+
+// a codex model and effort: the next prompt's until a turn reports them.
+await go(X)
+await until('X shown', async () => (await facts()).startsWith('codex · fake-large · effort: medium'))
+const before = await facts()
+await pickers.nth(0).selectOption('fake-small')
+await pickers.nth(1).selectOption('low')
+await page.getByRole('button', { name: /^Apply the model and effort\. Applies from the next prompt\.$/ }).click()
+await until('the next prompt shown', async () => (await facts()).includes('next prompt: fake-small, effort low'))
+const pending = await facts()
+check(pending.startsWith('codex · fake-large · effort: medium'), `applied, the change waits for the next prompt: "${pending}" (was "${before}")`)
+await box.click()
+await box.fill('hello again')
+await box.press('Control+Enter')
+await until('the turn reports them', async () => (await facts()).startsWith('codex · fake-small · effort: low') && !(await facts()).includes('next prompt'), 30000)
+check(true, `the next turn runs them: "${await facts()}"`)
+await t.shot(page, 'panel')
+
+await t.done()

@@ -1,4 +1,4 @@
-import type { Conversation, History, Models, Project, Workspace } from './types'
+import type { About, Conversation, History, Models, Project, Workspace } from './types'
 
 export class ApiError extends Error {
   readonly code: string
@@ -9,12 +9,13 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, onResponse?: (response: Response) => void): Promise<T> {
   const response = await fetch(path, {
     method,
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
+  onResponse?.(response)
   const text = await response.text()
   if (response.ok && text === '') {
     return undefined as T
@@ -32,7 +33,22 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return parsed as T
 }
 
-export const getWorkspace = () => request<Workspace>('GET', '/api/workspace')
+// buildHeader carries, on every workspace read, the identity of the interface
+// the service now serves.
+const buildHeader = 'Mega-Interface-Build'
+
+// getWorkspace reads the workspace, and the identity of the interface the
+// service serves, which the page compares with its own.
+export async function getWorkspace(): Promise<{ workspace: Workspace; build: string }> {
+  let build = ''
+  const workspace = await request<Workspace>('GET', '/api/workspace', undefined, (response) => {
+    build = response.headers.get(buildHeader) ?? ''
+  })
+  return { workspace, build }
+}
+
+// getAbout reads what the service says of its own build.
+export const getAbout = () => request<About>('GET', '/api/version')
 
 export const createProject = (name: string, checkout: string) =>
   request<Project>('POST', '/api/projects', { name, checkout })

@@ -78,6 +78,22 @@ func (h *Harness) script() (string, error) {
 	return path, nil
 }
 
+// SDKVersion is the version of the Agent SDK installed beside the shim, the
+// one its lockfile pins, as that package's own package.json gives it.
+func (h *Harness) SDKVersion() (string, error) {
+	if h.cfg.Shim == "" {
+		return "", errors.New("the claude shim directory is not configured (claude.shim)")
+	}
+	pkg := &struct{ Version string }{}
+	if err := dd.BindJSONFile(pkg, filepath.Join(h.cfg.Shim, "node_modules", "@anthropic-ai", "claude-agent-sdk", "package.json")); err != nil {
+		return "", fmt.Errorf("reading the claude agent sdk's version in '%s': %w", h.cfg.Shim, err)
+	}
+	if pkg.Version == "" {
+		return "", fmt.Errorf("the claude agent sdk in '%s' names no version", h.cfg.Shim)
+	}
+	return pkg.Version, nil
+}
+
 // executable is the claude code executable the shim starts: a configured path
 // as it is, or a bare name located in find, so the shim never looks it up on
 // the PATH the activation set. it must be a native build: the sdk starts a

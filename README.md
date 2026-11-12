@@ -22,7 +22,18 @@ make          # builds the UI, installs the shim's pinned SDK, installs `mega` i
 mega          # serves http://127.0.0.1:8470
 ```
 
-The installed binary is stamped with the path of `shim/claude` in the checkout it was built from, so keep the checkout where it is. `make test` runs the full gate, including the UI build and lint and the shim's own tests. `make clean` removes only what the build made: `ui/dist`, `ui/node_modules`, `shim/claude/node_modules`, what `go clean` removes from the source tree, and the `mega` binary in your Go bin directory. Nothing else in that directory is touched.
+The installed binary is stamped with the path of `shim/claude` in the checkout it was built from, so keep the checkout where it is. `make test` runs the full gate, including the UI build and lint and the shim's own tests. `make clean` removes only what the build made: `ui/dist`, `ui/node_modules`, `shim/claude/node_modules`, `checks/node_modules`, what `go clean` removes from the source tree, and the `mega` binary in your Go bin directory. Nothing else in that directory is touched.
+
+A clean `npm ci` in `ui/` and in `shim/claude/` prints no deprecation warning and reports no vulnerabilities. `ui/package.json` pins `minimatch` to 11.0.8 with an `overrides` entry. ESLint and `typescript-eslint` depend on a 10.x release inside the range of GHSA-g3hv-75wg-m249, for which no 10.x fix exists. The linter only reads the project's own source, and nothing from it ships.
+
+The browser checks in `checks/` drive the page with Playwright against a scratch mega and fake harnesses. They are not part of `make test`. Install the browser they use once, then run them:
+
+```bash
+make checks-browser   # downloads the Chromium the pinned Playwright drives, into ~/.cache/ms-playwright
+make checks           # every suite; make checks SUITE=requests runs one
+```
+
+`make checks` fails, saying so, when that browser is missing. `checks/README.md` says what each suite covers and how to add one.
 
 Configuration is optional, in `~/.config/mega/mega.yaml`:
 
@@ -54,7 +65,7 @@ The launcher runs `mega daemon` through your interactive shell (the one `SHELL` 
 
 If a harness's executable cannot be found in a project's environment, the new-conversation dialog marks that harness as unable to run, and its conversations refuse new work with the name of what is missing.
 
-With no terminal, as when the launcher starts it, mega logs to `~/.local/state/mega/mega.log` (or under `XDG_STATE_HOME`); `mega version` prints the path. At start-up a log past 10 MB becomes `mega.log.1`, replacing an earlier one, and a fresh log begins.
+With no terminal, as when the launcher starts it, mega logs to `~/.local/state/mega/mega.log` (or under `XDG_STATE_HOME`); `mega version` prints the path, and so does the panel the version in the side panel's footer opens. At start-up a log past 10 MB becomes `mega.log.1`, replacing an earlier one, and a fresh log begins.
 
 Launching the daemon while mega is already running opens the running mega's page and exits. `mega serve` beside a running mega refuses to start and names it.
 
