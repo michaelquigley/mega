@@ -565,18 +565,20 @@ func TestPreflightOnTheWire(t *testing.T) {
 	id, rt := f.startConversation(t)
 	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID()}})
 	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
-	_, workspace := f.do(t, http.MethodGet, "/api/workspace", "")
-	pre := workspace["preflight"].(map[string]any)
-	if pre["path"] != os.Getenv("PATH") || len(pre["missing"].([]any)) != 0 {
-		t.Fatalf("all found: %v", pre)
+	env := func() map[string]any {
+		t.Helper()
+		_, workspace := f.do(t, http.MethodGet, "/api/workspace", "")
+		return workspace["projects"].([]any)[0].(map[string]any)["environment"].(map[string]any)
 	}
-	f.fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "node", Reason: "'node' was not found on mega's PATH"})
-	_, workspace = f.do(t, http.MethodGet, "/api/workspace", "")
-	missing := workspace["preflight"].(map[string]any)["missing"].([]any)
+	if e := env(); len(e["missing"].([]any)) != 0 || e["resolved"] == nil {
+		t.Fatalf("all found: %v", e)
+	}
+	f.fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "node", Reason: "'node' was not found on the project's PATH"})
+	missing := env()["missing"].([]any)
 	if len(missing) != 1 {
 		t.Fatalf("missing = %v", missing)
 	}
-	if m := missing[0].(map[string]any); m["harness"] != "claude" || m["executable"] != "node" || m["reason"] != "'claude' cannot run: 'node' was not found on mega's PATH" {
+	if m := missing[0].(map[string]any); m["harness"] != "claude" || m["executable"] != "node" || m["reason"] != "'claude' cannot run: 'node' was not found on the project's PATH" {
 		t.Errorf("missing node: %v", m)
 	}
 	status, body := f.do(t, http.MethodPost, "/api/conversations/"+id+"/prompt", jsonBody(map[string]string{"text": "more"}))

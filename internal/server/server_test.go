@@ -49,6 +49,9 @@ func startWith(t *testing.T, heartbeat time.Duration) *fixture {
 		IsUntrusted:  func(checkout string) bool { return strings.HasSuffix(checkout, "untrusted") },
 		EventLogPath: func(id string) string { return filepath.Join(logs, id, "events.jsonl") },
 		Harnesses:    []harness.Harness{fake},
+		// bash from a base with a temporary HOME: no start-up file of the
+		// operator's is read.
+		Resolver: service.DefaultResolver([]string{"HOME=" + t.TempDir(), "SHELL=/bin/bash"}),
 	})
 	if err != nil {
 		t.Fatal(err)

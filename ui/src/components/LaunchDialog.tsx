@@ -14,8 +14,6 @@ interface LaunchDialogProps {
   // why each harness that cannot run from mega's environment cannot, by
   // harness; such a harness is offered disabled, with its reason.
   unavailable: Record<string, string>
-  // mega's PATH, shown beside a reason.
-  path: string
   onClose: () => void
   onLaunched: (conversation: Conversation) => void
 }
@@ -25,7 +23,7 @@ interface LaunchDialogProps {
 // which case that is inherited by passing none (the empty value). the model
 // and effort start at inherit, which passes none, and the lists come from the
 // harness; what inherit means is read afresh each time the dialog opens.
-export function LaunchDialog({ projectId, inheritedMode, unavailable, path, onClose, onLaunched }: LaunchDialogProps) {
+export function LaunchDialog({ projectId, inheritedMode, unavailable, onClose, onLaunched }: LaunchDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [harness, setHarness] = useState(() => harnesses.find((h) => !unavailable[h.value])?.value ?? 'claude')
   const cannotRun = unavailable[harness]
@@ -83,8 +81,8 @@ export function LaunchDialog({ projectId, inheritedMode, unavailable, path, onCl
         </label>
         {Object.entries(unavailable).map(([name, reason]) => (
           <p key={name} className="notice harness-missing" role="note">
-            {reason}. mega cannot start {harnesses.find((h) => h.value === name)?.label ?? name} until it can be found. mega&apos;s PATH
-            is <code>{path}</code>.
+            {reason}. mega cannot start {harnesses.find((h) => h.value === name)?.label ?? name} until it can be found in the
+            project&apos;s environment, which the project page shows.
           </p>
         ))}
         {harness === 'claude' && (

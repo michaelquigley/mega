@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/michaelquigley/df/dl"
+
+	"github.com/michaelquigley/mega/internal/harness"
 )
 
 const (
@@ -47,7 +49,8 @@ type pathEntry struct {
 	listing *pathListing
 }
 
-func (c *pathCache) listing(checkout string, now time.Time) []string {
+func (c *pathCache) listing(place harness.Place, now time.Time) []string {
+	checkout := place.Cwd
 	c.mu.Lock()
 	if c.entries == nil {
 		c.entries = map[string]*pathEntry{}
@@ -70,7 +73,7 @@ func (c *pathCache) listing(checkout string, now time.Time) []string {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	if entry.listing == nil || now.Sub(entry.listing.at) > pathsFresh {
-		entry.listing = &pathListing{at: now, paths: listPaths(checkout)}
+		entry.listing = &pathListing{at: now, paths: listPaths(place)}
 	}
 	return entry.listing.paths
 }
@@ -90,15 +93,22 @@ func (s *Service) Paths(projectID, q string) ([]string, error) {
 	if checkoutProblem(project.Checkout) != "" {
 		return []string{}, nil
 	}
-	listing := s.paths.listing(project.Checkout, time.Now())
+	// git runs in the project's environment, like everything else mega runs
+	// in a project's name, so it waits on that environment too.
+	place, err := s.placeFor(projectID)
+	if err != nil {
+		return nil, err
+	}
+	listing := s.paths.listing(place, time.Now())
 	return matchPaths(project.Checkout, listing, q, PathsLimit), nil
 }
 
 // listPaths lists a checkout: what git tracks plus untracked files it does not
 // ignore, or, where git cannot list it, a bounded walk. directories the files
 // imply are added.
-func listPaths(checkout string) []string {
-	files, err := gitFiles(checkout)
+func listPaths(place harness.Place) []string {
+	checkout := place.Cwd
+	files, err := gitFiles(place)
 	if err != nil {
 		dl.Debugf("listing '%s' with git: %v; walking it instead", checkout, err)
 		files = walkFiles(checkout)
@@ -124,13 +134,18 @@ func listPaths(checkout string) []string {
 
 // gitFiles runs git ls-files in the checkout. git reports paths relative to
 // the directory it runs in, below it only, and never descends a symbolic link.
-func gitFiles(checkout string) ([]string, error) {
+func gitFiles(place harness.Place) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), pathsTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
-	cmd.Dir = checkout
-	// a listing takes no optional locks, so it never refreshes the index.
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	git, err := harness.LookPath("git", place.Env)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, git, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	cmd.Dir = place.Cwd
+	// the project's environment, and a listing takes no optional locks, so it
+	// never refreshes the index.
+	cmd.Env = append(append([]string{}, place.Env...), "GIT_OPTIONAL_LOCKS=0")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()

@@ -17,10 +17,10 @@ import (
 // not.
 func TestIdleLaunchAsksTheShimForReady(t *testing.T) {
 	h, cwd := settingsHarness(t)
-	if args := launchArgsFor(t, h, harness.Spec{Cwd: cwd, NativeID: "s-1", Idle: true}); !slices.Contains(args, "--idle") {
+	if args := launchArgsFor(t, h, harness.Spec{Env: os.Environ(), Cwd: cwd, NativeID: "s-1", Idle: true}); !slices.Contains(args, "--idle") {
 		t.Errorf("idle launch args = %v", args)
 	}
-	if args := launchArgsFor(t, h, harness.Spec{Cwd: cwd, NativeID: "s-1"}); slices.Contains(args, "--idle") {
+	if args := launchArgsFor(t, h, harness.Spec{Env: os.Environ(), Cwd: cwd, NativeID: "s-1"}); slices.Contains(args, "--idle") {
 		t.Errorf("prompted launch args = %v", args)
 	}
 }
@@ -203,7 +203,7 @@ func TestIdleLaunchThatNeverAnswersIsStopped(t *testing.T) {
 	h := New(Config{Node: node, Shim: shim, Executable: "/x"})
 
 	sink := &exitSink{exited: make(chan error, 1)}
-	rt, err := h.Launch(harness.Spec{Cwd: t.TempDir(), NativeID: "s-1", Idle: true}, sink)
+	rt, err := h.Launch(harness.Spec{Env: os.Environ(), Cwd: t.TempDir(), NativeID: "s-1", Idle: true}, sink)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestIdleLaunchThatNeverAnswersIsStopped(t *testing.T) {
 	}
 
 	prompted := &exitSink{exited: make(chan error, 1)}
-	rt, err = h.Launch(harness.Spec{Cwd: t.TempDir(), NativeID: "s-2"}, prompted)
+	rt, err = h.Launch(harness.Spec{Env: os.Environ(), Cwd: t.TempDir(), NativeID: "s-2"}, prompted)
 	if err != nil {
 		t.Fatal(err)
 	}

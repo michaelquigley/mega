@@ -50,15 +50,37 @@ mega desktop integrate   # installs com.michaelquigley.mega.desktop and its icon
 mega desktop remove      # removes exactly those files
 ```
 
-The launcher runs `mega daemon` through your interactive shell (the one `SHELL` names: bash, zsh or fish), so mega, and every agent it runs, gets the `PATH` and environment a new terminal has. A launcher started directly gets only the desktop session's environment, where tools your shell start-up files put on `PATH` (`node`, `codex`, your toolchains) cannot be found. `integrate` prints the exact `Exec` line it wrote. `mega desktop integrate --plain` writes the direct form if you want it. The launcher runs the binary from wherever it was when you ran `integrate`; run it again if you move the binary. Nothing starts at login.
+The launcher runs `mega daemon` through your interactive shell (the one `SHELL` names: bash, zsh or fish), so mega itself starts the way a terminal-started mega does. The agents don't depend on it: each project runs in its own environment (below). `integrate` prints the exact `Exec` line it wrote. `mega desktop integrate --plain` writes the direct form if you want it. The launcher runs the binary from wherever it was when you ran `integrate`; run it again if you move the binary. Nothing starts at login.
 
-If a harness's executable cannot be found from mega's environment, the new-conversation dialog marks that harness as unable to run and shows mega's `PATH`, and its conversations refuse new work with the name of what is missing.
+If a harness's executable cannot be found in a project's environment, the new-conversation dialog marks that harness as unable to run, and its conversations refuse new work with the name of what is missing.
 
 With no terminal, as when the launcher starts it, mega logs to `~/.local/state/mega/mega.log` (or under `XDG_STATE_HOME`); `mega version` prints the path. At start-up a log past 10 MB becomes `mega.log.1`, replacing an earlier one, and a fresh log begins.
 
 Launching the daemon while mega is already running opens the running mega's page and exits. `mega serve` beside a running mega refuses to start and names it.
 
 Prebuilt binaries are not offered yet: the Claude shim runs from a checkout with its pinned Agent SDK installed beside it, so a binary on its own cannot run Claude conversations.
+
+## Project environments
+
+Every agent in a project runs in that project's own shell environment: the one a terminal opened in the checkout and activated your usual way would have. mega never hands an agent the environment mega itself was started in. mega starts your interactive shell in the checkout from a clean base and applies the project's activation, at every start of a runtime and for its own helpers.
+
+The activation lives in the repository, in `.mega/environment.yaml`, as one key:
+
+```yaml
+# a Go project isolated by devprj: its own GOPATH, its bin first on PATH
+activate: devprj
+```
+
+```yaml
+# a project that uses direnv
+activate: eval "$(direnv export bash)"
+```
+
+A project with no file gets your shell's own environment in the checkout and nothing more, which suits a project that needs no activation.
+
+**mega will not run a repository's activation until you approve it.** The project page shows the file and an Approve control. If the file changes after you approve it, nothing starts in that project until you have compared the two versions and approved the new one. The approved version is found in the checkout's git history; mega stores only its fingerprint. A local override on the project page lets you ignore the file, or run another activation on this machine. A file that cannot be read, an activation that fails, and one that takes longer than ten seconds each refuse to start anything, and say why.
+
+mega records which environment each runtime started in by names and a fingerprint, never values. The conversation header says when a running agent started in an older environment than the project's current one. The project page shows the variables the activation changes, and their values only when you ask.
 
 ## Safety posture
 

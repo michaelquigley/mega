@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"fmt"
+	"github.com/michaelquigley/mega/internal/harness"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,7 +72,7 @@ func TestPathListingIsTrackedAndUntrackedNotIgnoredNorOutside(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	all := svc.paths.listing(root, time.Now())
+	all := svc.paths.listing(harness.Place{Cwd: root, Env: os.Environ()}, time.Now())
 	for _, want := range []string{".gitignore", "README.md", "src/", "src/lib/", "src/main.go", "src/lib/util.go", "util/", "util/readme.txt", "notes/", "notes/new.txt", "alias.md"} {
 		if !slices.Contains(all, want) {
 			t.Errorf("listing lacks %q: %v", want, all)
@@ -168,14 +169,14 @@ func TestPathListingIsHeldBriefly(t *testing.T) {
 	git(t, root, "init", "-q")
 	write(t, root, "first.txt", "")
 	t0 := time.Now()
-	if got := cache.listing(root, t0); !slices.Equal(got, []string{"first.txt"}) {
+	if got := cache.listing(harness.Place{Cwd: root, Env: os.Environ()}, t0); !slices.Equal(got, []string{"first.txt"}) {
 		t.Fatalf("first listing = %v", got)
 	}
 	write(t, root, "second.txt", "")
-	if got := cache.listing(root, t0.Add(time.Second)); !slices.Equal(got, []string{"first.txt"}) {
+	if got := cache.listing(harness.Place{Cwd: root, Env: os.Environ()}, t0.Add(time.Second)); !slices.Equal(got, []string{"first.txt"}) {
 		t.Errorf("within the hold = %v", got)
 	}
-	if got := cache.listing(root, t0.Add(pathsFresh+time.Second)); !slices.Contains(got, "second.txt") {
+	if got := cache.listing(harness.Place{Cwd: root, Env: os.Environ()}, t0.Add(pathsFresh+time.Second)); !slices.Contains(got, "second.txt") {
 		t.Errorf("after the hold = %v", got)
 	}
 }
@@ -198,7 +199,7 @@ func TestPathListingWalksANonGitCheckout(t *testing.T) {
 	// GIT_CEILING_DIRECTORIES keeps git from finding a repository above the
 	// temporary directory.
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(root))
-	all := listPaths(root)
+	all := listPaths(harness.Place{Cwd: root, Env: os.Environ()})
 	slices.Sort(all)
 	if want := []string{".env", "a/", "a/b.txt", "empty/", "escape"}; !slices.Equal(all, want) {
 		t.Errorf("walk = %v, want %v", all, want)
@@ -222,7 +223,7 @@ func TestDeletedTrackedFilesAreNotOffered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if all := svc.paths.listing(root, time.Now()); !slices.Contains(all, "gone/old.txt") {
+	if all := svc.paths.listing(harness.Place{Cwd: root, Env: os.Environ()}, time.Now()); !slices.Contains(all, "gone/old.txt") {
 		t.Fatalf("git no longer lists the deleted file, so this test proves nothing: %v", all)
 	}
 	for _, q := range []string{"old", "gone", ""} {

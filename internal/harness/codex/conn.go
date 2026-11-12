@@ -17,6 +17,9 @@ import (
 
 	"github.com/michaelquigley/df/dd"
 	"github.com/michaelquigley/df/dl"
+
+	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/model"
 )
 
 // errClosed fails a call whose app-server exited before answering.
@@ -63,9 +66,18 @@ type callResult struct {
 	err    error
 }
 
-func dial(binary, cwd string, h handler) (*conn, error) {
-	cmd := exec.Command(binary, "app-server")
-	cmd.Dir = cwd
+// dial starts the app-server in the place's checkout with the project's
+// environment and nothing of mega's own, finding the binary on that
+// environment's PATH.
+func dial(binary string, place harness.Place, h handler) (*conn, error) {
+	path, err := harness.LookPath(binary, place.Env)
+	if err != nil {
+		return nil, &harness.MissingError{Harness: model.HarnessCodex, Executable: binary, Reason: fmt.Sprintf("'%s' was not found on the project's PATH", binary)}
+	}
+	cmd := exec.Command(path, "app-server")
+	cmd.Dir = place.Cwd
+	// never nil, which exec would fill with mega's own environment.
+	cmd.Env = append([]string{}, place.Env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

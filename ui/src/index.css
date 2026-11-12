@@ -1725,3 +1725,75 @@ hr.turn {
   margin: 0;
   flex-basis: 100%;
 }
+
+/* the project's environment: the file, approval, the comparison, the
+   override and the resolution. */
+.environment {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.environment p {
+  margin: 0;
+}
+
+.env-file {
+  margin: 4px 0;
+  padding: 8px 10px;
+  background: var(--panel);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.env-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.env-version h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.env-override summary {
+  cursor: pointer;
+}
+
+.env-override > * + * {
+  margin-top: 8px;
+}
+
+.env-activate {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.env-activate textarea {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.env-values th {
+  text-align: left;
+  padding-right: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: normal;
+}
+
+.env-missing {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.facts.env-stale {
+  border-left: 2px solid var(--notice-line);
+  padding-left: 6px;
+}

@@ -53,6 +53,11 @@ func (s *Server) api() http.Handler {
 	mux.HandleFunc("GET /api/projects/{id}/models", s.models)
 	mux.HandleFunc("GET /api/projects/{id}/paths", s.paths)
 	mux.HandleFunc("POST /api/projects/{id}/adopt", s.adopt)
+	mux.HandleFunc("POST /api/projects/{id}/environment/approve", s.approveEnvironment)
+	mux.HandleFunc("PUT /api/projects/{id}/environment/override", s.setEnvironmentOverride)
+	mux.HandleFunc("DELETE /api/projects/{id}/environment/override", s.clearEnvironmentOverride)
+	mux.HandleFunc("POST /api/projects/{id}/environment/resolve", s.resolveEnvironment)
+	mux.HandleFunc("GET /api/projects/{id}/environment/approved", s.approvedVersion)
 	mux.HandleFunc("PATCH /api/conversations/{id}", s.updateConversation)
 	mux.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)
 	mux.HandleFunc("GET /api/conversations/{id}/events", s.getEvents)
@@ -100,7 +105,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSON(w, r, http.StatusBadRequest, &errorBody{Code: code, Message: err.Error()})
 	case service.CodeNotFound:
 		writeJSON(w, r, http.StatusNotFound, &errorBody{Code: code, Message: err.Error()})
-	case service.CodeConflict, service.CodeNotPending, service.CodeShutdownPending, service.CodeCheckoutMissing, service.CodeExecutableMissing:
+	case service.CodeConflict, service.CodeNotPending, service.CodeShutdownPending, service.CodeCheckoutMissing, service.CodeExecutableMissing,
+		service.CodeEnvironmentUnapproved, service.CodeEnvironmentChanged, service.CodeEnvironmentInvalid, service.CodeEnvironmentFailed:
 		writeJSON(w, r, http.StatusConflict, &errorBody{Code: code, Message: err.Error()})
 	case service.CodeUnavailable:
 		writeJSON(w, r, http.StatusServiceUnavailable, &errorBody{Code: code, Message: err.Error()})

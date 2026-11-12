@@ -177,3 +177,42 @@ export const readConversation = (id: string, seq: number) =>
 export const armShutdown = () => request<void>('POST', '/api/shutdown/arm')
 export const cancelShutdown = () => request<void>('POST', '/api/shutdown/cancel')
 export const shutDown = () => request<void>('POST', '/api/shutdown')
+
+// the operator approves the file at the fingerprint the page showed; a file
+// that has changed since is refused.
+export const approveEnvironment = (projectId: string, fingerprint: string) =>
+  request<Project>('POST', `/api/projects/${encodeURIComponent(projectId)}/environment/approve`, { fingerprint })
+
+// the operator's local override: ignore the repository's file, or run another
+// activation in its place.
+export const setEnvironmentOverride = (projectId: string, override: { ignore: boolean; activate?: string }) =>
+  request<Project>('PUT', `/api/projects/${encodeURIComponent(projectId)}/environment/override`, override)
+
+export const clearEnvironmentOverride = (projectId: string) =>
+  request<Project>('DELETE', `/api/projects/${encodeURIComponent(projectId)}/environment/override`)
+
+// a live resolution: names and a fingerprint, and the changed variables'
+// values only when asked for. the values live in the asking page's memory.
+export interface Resolved {
+  at: string
+  source: string
+  changed: string[]
+  fingerprint: string
+  values?: Record<string, string>
+}
+
+export const resolveEnvironment = (projectId: string, values: boolean) =>
+  request<Resolved>('POST', `/api/projects/${encodeURIComponent(projectId)}/environment/resolve${values ? '?values=1' : ''}`)
+
+// the approved version, found in the checkout's git history by its
+// fingerprint; nothing but the fingerprint is stored.
+export interface ApprovedVersion {
+  fingerprint: string
+  at: string
+  available: boolean
+  content?: string
+  found?: string
+}
+
+export const getApprovedVersion = (projectId: string) =>
+  request<ApprovedVersion>('GET', `/api/projects/${encodeURIComponent(projectId)}/environment/approved`)

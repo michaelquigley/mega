@@ -13,7 +13,7 @@ import { RegisterProjectDialog } from './components/RegisterProjectDialog'
 import { SidePanel } from './components/SidePanel'
 import { ShutdownBanner } from './components/Gate'
 import { pendingReason, shutDownReason } from './gate'
-import { missingReason } from './checkout'
+import { environmentReason, missingReason } from './checkout'
 import { showTab, tabState } from './favicon'
 import { productName } from './brand'
 import { waitingLabel, type Waiting } from './waiting'
@@ -453,7 +453,7 @@ export function App() {
         onShowNative={(show) => void onShowNative(show)}
         stale={stale}
         onRemoved={() => select({ kind: 'project', id: selectedConversation.project_id })}
-        heldBy={heldBy ?? missingReason(conversationProject)}
+        heldBy={heldBy ?? missingReason(conversationProject) ?? environmentReason(conversationProject)}
       />
     )
   } else if (selectedProject) {
@@ -465,7 +465,7 @@ export function App() {
         stale={stale}
         onLaunch={() => setLaunching(selectedProject.id)}
         onAdopt={() => setAdopting(selectedProject.id)}
-        heldBy={heldBy ?? missingReason(selectedProject)}
+        heldBy={heldBy ?? missingReason(selectedProject) ?? environmentReason(selectedProject)}
       />
     )
   } else if (workspace === null) {
@@ -540,8 +540,7 @@ export function App() {
         <LaunchDialog
           projectId={launching}
           inheritedMode={projects.find((p) => p.id === launching)?.inherited_permission_mode ?? ''}
-          unavailable={Object.fromEntries((workspace?.preflight?.missing ?? []).map((m) => [m.harness, m.reason]))}
-          path={workspace?.preflight?.path ?? ''}
+          unavailable={Object.fromEntries((projects.find((p) => p.id === launching)?.environment?.missing ?? []).map((m) => [m.harness, m.reason]))}
           onClose={() => setLaunching(null)}
           onLaunched={(conversation) => {
             setLaunching(null)

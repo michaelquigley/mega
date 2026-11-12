@@ -170,6 +170,10 @@ func TestWrongSessionReportedDuringLaunchIsStopped(t *testing.T) {
 	waitFor(t, "the runtime to exit", rt.Exited)
 
 	r.fake.DuringLaunch(func(next *harnesstest.Runtime) {
+		// held open on close, so it stays stopping until the test exits it;
+		// otherwise the fake's close settles it to none before the test can
+		// look, as it did under load.
+		next.HoldOnClose()
 		next.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: "another"}})
 		// a later report naming no session, as an idle claude launch's ready.
 		next.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Model: "m"}})

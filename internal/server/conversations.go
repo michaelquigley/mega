@@ -58,7 +58,12 @@ type conversationView struct {
 	// Background is the work the runtime keeps running outside a turn;
 	// absent when none.
 	Background []*backgroundView `dd:",+omitempty"`
-	Pending    []*requestView
+	// Environment is what the running runtime was launched with, as names and
+	// fingerprints; absent when no runtime runs. EnvironmentStale says it
+	// would start in another environment now.
+	Environment      *runtimeEnvironmentView `dd:",+omitempty"`
+	EnvironmentStale bool                    `dd:",+omitempty"`
+	Pending          []*requestView
 }
 
 // backgroundView is one background job: the harness's id for it, what it is,
@@ -109,6 +114,10 @@ func newConversationView(conv service.ConversationView) *conversationView {
 		view.PermissionModeInherited = conv.Facts.ModeInherited
 		view.PermissionModeRequested = conv.Facts.ModeRequested
 		view.Effort = conv.Facts.Effort
+	}
+	if e := conv.Environment; e != nil {
+		view.Environment = &runtimeEnvironmentView{Source: e.Source, Activation: e.Activation, Changed: append([]string{}, e.Changed...), Fingerprint: e.Fingerprint}
+		view.EnvironmentStale = conv.EnvironmentStale
 	}
 	for _, job := range conv.Background {
 		view.Background = append(view.Background, &backgroundView{ID: job.ID, Description: job.Description, Kind: job.Kind, StartedAt: job.StartedAt})
@@ -432,4 +441,14 @@ func (s *Server) command(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// runtimeEnvironmentView is a runtime's launch environment: where its
+// activation came from and that activation's fingerprint, the names it
+// changed, and the fingerprint of the whole. never a value.
+type runtimeEnvironmentView struct {
+	Source      string
+	Activation  string `dd:",+omitempty"`
+	Changed     []string
+	Fingerprint string
 }

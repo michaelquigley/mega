@@ -32,7 +32,7 @@ func writeSettings(t *testing.T, path, mode string) {
 
 func TestInheritedPermissionModeFollowsClaudesPrecedence(t *testing.T) {
 	h, cwd := settingsHarness(t)
-	if mode := h.InheritedPermissionMode(cwd); mode != "" {
+	if mode := h.InheritedPermissionMode(cwd, os.Environ()); mode != "" {
 		t.Fatalf("no settings named a mode, got %q", mode)
 	}
 	layers := []struct{ path, mode string }{
@@ -43,7 +43,7 @@ func TestInheritedPermissionModeFollowsClaudesPrecedence(t *testing.T) {
 	}
 	for _, layer := range layers {
 		writeSettings(t, layer.path, layer.mode)
-		if got := h.InheritedPermissionMode(cwd); got != layer.mode {
+		if got := h.InheritedPermissionMode(cwd, os.Environ()); got != layer.mode {
 			t.Errorf("after %s: got %q, want %q", layer.path, got, layer.mode)
 		}
 	}
@@ -71,19 +71,19 @@ func TestNestedCheckoutReadsLocalAtTheRootAndSharedInPlace(t *testing.T) {
 	root, cwd := nestedCheckout(t)
 
 	writeSettings(t, filepath.Join(root, ".claude", "settings.json"), "plan")
-	if got := h.InheritedPermissionMode(cwd); got != "" {
+	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "" {
 		t.Errorf("the root's shared settings were inherited from below it: %q", got)
 	}
 	writeSettings(t, filepath.Join(cwd, ".claude", "settings.json"), "acceptEdits")
-	if got := h.InheritedPermissionMode(cwd); got != "acceptEdits" {
+	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "acceptEdits" {
 		t.Errorf("the checkout's own shared settings: %q", got)
 	}
 	writeSettings(t, filepath.Join(cwd, ".claude", "settings.local.json"), "default")
-	if got := h.InheritedPermissionMode(cwd); got != "default" {
+	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "default" {
 		t.Errorf("the checkout's own local settings: %q", got)
 	}
 	writeSettings(t, filepath.Join(root, ".claude", "settings.local.json"), "plan")
-	if got := h.InheritedPermissionMode(cwd); got != "plan" {
+	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "plan" {
 		t.Errorf("the root's local settings win over the checkout's: %q", got)
 	}
 }
@@ -100,12 +100,12 @@ func TestLocalSettingsStayInPlaceOutsideARepositoryOrInAWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeSettings(t, filepath.Join(root, ".claude", "settings.local.json"), "plan")
-	if got := h.InheritedPermissionMode(cwd); got != "" {
+	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "" {
 		t.Errorf("a worktree root's local settings were read from below it: %q", got)
 	}
 	plain := t.TempDir()
 	writeSettings(t, filepath.Join(plain, ".claude", "settings.local.json"), "acceptEdits")
-	if got := h.InheritedPermissionMode(plain); got != "acceptEdits" {
+	if got := h.InheritedPermissionMode(plain, os.Environ()); got != "acceptEdits" {
 		t.Errorf("outside a repository: %q", got)
 	}
 }
@@ -117,11 +117,11 @@ func TestAutoAndBypassFromProjectFilesAreNotInherited(t *testing.T) {
 	h, cwd := settingsHarness(t)
 	writeSettings(t, filepath.Join(cwd, ".claude", "settings.local.json"), "auto")
 	writeSettings(t, filepath.Join(cwd, ".claude", "settings.json"), "bypassPermissions")
-	if mode, inherited := h.launchMode(cwd, ""); mode != model.PermissionModeDefault || inherited {
+	if mode, inherited := h.launchMode(cwd, "", os.Environ()); mode != model.PermissionModeDefault || inherited {
 		t.Errorf("launch mode = %q, inherited %v", mode, inherited)
 	}
 	writeSettings(t, filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json"), "auto")
-	if got := h.InheritedPermissionMode(cwd); got != "auto" {
+	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "auto" {
 		t.Errorf("auto from the user's own settings: %q", got)
 	}
 }
@@ -135,7 +135,7 @@ func TestUnreadableSettingsLeadToTheManualMode(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"permissions":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if mode, inherited := h.launchMode(cwd, ""); mode != model.PermissionModeDefault || inherited {
+	if mode, inherited := h.launchMode(cwd, "", os.Environ()); mode != model.PermissionModeDefault || inherited {
 		t.Errorf("launch mode = %q, inherited %v", mode, inherited)
 	}
 }
@@ -144,7 +144,7 @@ func TestUnreadableSettingsLeadToTheManualMode(t *testing.T) {
 // exits, and returns them.
 func launchArgs(t *testing.T, h *Harness, cwd, mode string) []string {
 	t.Helper()
-	return launchArgsFor(t, h, harness.Spec{Cwd: cwd, PermissionMode: mode})
+	return launchArgsFor(t, h, harness.Spec{Env: os.Environ(), Cwd: cwd, PermissionMode: mode})
 }
 
 // launchArgsFor is launchArgs for a whole launch spec.

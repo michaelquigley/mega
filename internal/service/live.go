@@ -41,7 +41,15 @@ type ConversationView struct {
 	// memory; empty when none, or when there is no runtime to ask.
 	Background []model.BackgroundJob
 	Facts      *model.RuntimeFacts
-	Pending    []model.Request
+	// EnvironmentStale says the running runtime would start in another
+	// environment now: its project's activation, or the fingerprint of the
+	// project's latest resolution, has changed since it started. it is
+	// computed on every read; the runtime keeps what it started with.
+	EnvironmentStale bool
+	// Environment is what the running runtime was launched with, as names
+	// and fingerprints; absent when no runtime runs.
+	Environment *model.EnvironmentFacts
+	Pending     []model.Request
 
 	// Attention is computed from the facts above every time it is read, and
 	// AttentionAt is when the fact behind it happened: the oldest pending
@@ -122,6 +130,9 @@ type live struct {
 // call from a runtime that has been replaced changes nothing.
 type incarnation struct {
 	exited chan struct{}
+	// env is the environment the runtime was launched with, as names and
+	// fingerprints, recorded with its started report.
+	env *model.EnvironmentFacts
 }
 
 // liveLocked returns the conversation's live state, opening its log on first
@@ -181,6 +192,9 @@ func (s *Service) record(l *live, ev *model.Event) error {
 	if ev.NativeID != "" {
 		l.seen[ev.NativeID] = true
 	}
+	// publish gives every subscriber its own copy, never the event the caller
+	// goes on to read: what the service does next follows only what was
+	// recorded.
 	s.publish(Update{ConversationID: l.id, Event: ev})
 	return nil
 }
@@ -230,9 +244,9 @@ func (l *live) noteRuntime(status string) {
 // on screen and the log's sticky refusal of later writes says a restart is
 // needed. it reports whether the failure was recorded. callers hold s.mu.
 func (s *Service) failedLaunch(l *live, reason error, beforeLaunch bool) bool {
-	ev := &model.Event{Status: model.StatusNotStarted, Text: fmt.Sprintf("the runtime did not start: %v", reason)}
+	ev := &model.Event{Status: model.StatusNotStarted, Text: fmt.Sprintf("the runtime did not start: %s", recordable(reason))}
 	if !beforeLaunch && !errors.Is(reason, harness.ErrNotStarted) {
-		ev = &model.Event{Status: model.StatusError, Text: fmt.Sprintf("the launch failed and whether it created a session is unknown: %v", reason)}
+		ev = &model.Event{Status: model.StatusError, Text: fmt.Sprintf("the launch failed and whether it created a session is unknown: %s", recordable(reason))}
 	}
 	if err := s.transition(l, ev, "", nil); err != nil {
 		dl.Errorf("%v", err)
@@ -274,7 +288,12 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 	if l.turnActive {
 		view.TurnStartedAt = l.turnStartedAt
 	}
-	view.Facts = l.facts
+	// a copy, so a reader of the view can never change the service's facts.
+	view.Facts = cloneFacts(l.facts)
+	if l.runtime != nil && view.Facts != nil {
+		view.Environment = view.Facts.Environment
+		view.EnvironmentStale = s.envStaleLocked(conv, l.facts.Environment)
+	}
 	view.Background = slices.Clone(l.background)
 	view.ModelNext, view.EffortNext = l.nextModel.value, l.nextEffort.value
 	view.ModelNextInherit = l.nextModel.set && l.nextModel.value == ""
@@ -282,7 +301,8 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 	view.Pending = make([]model.Request, 0, len(l.pending))
 	view.PendingAt = make(map[string]time.Time, len(l.pending))
 	for _, req := range l.pending {
-		view.Pending = append(view.Pending, *req)
+		// a copy, payload and all: the pending set stays the service's own.
+		view.Pending = append(view.Pending, req.Clone())
 		view.PendingAt[req.ID] = l.pendingAt[req.ID]
 	}
 	view.Attention, view.AttentionAt = l.attention(conv)
@@ -536,7 +556,19 @@ func (k *sink) started(ev *model.Event) {
 		s.beginStopLocked(l, refusal)
 		return
 	}
-	facts := ev.Facts
+	if k.inc.env != nil {
+		// the start records what it was launched with, as names and
+		// fingerprints only.
+		withEnv := model.RuntimeFacts{}
+		if ev.Facts != nil {
+			withEnv = *ev.Facts
+		}
+		withEnv.Environment = k.inc.env
+		ev.Facts = cloneFacts(&withEnv)
+	}
+	// the facts the service keeps are its own: the event goes to every
+	// subscriber, and none of them may reach what later reads show.
+	facts := cloneFacts(ev.Facts)
 	// a release asked for before the runtime reported (an idle start's report
 	// can take half a second) keeps the stopping it recorded: the runtime is
 	// on its way out, and only its exit settles it.
@@ -585,7 +617,10 @@ func (k *sink) Request(kind string, payload any) string {
 		return req.ID
 	}
 	l := k.l
-	recorded := &model.Event{Kind: model.EventRequest, Origin: model.OriginManaged, Text: kind, Req: req}
+	// the event, which every subscriber receives, carries its own copy; the
+	// pending set keeps the service's.
+	published := req.Clone()
+	recorded := &model.Event{Kind: model.EventRequest, Origin: model.OriginManaged, Text: kind, Req: &published}
 	if err := s.record(l, recorded); err != nil {
 		dl.Errorf("request '%s' for '%s' could not be recorded and is not answerable: %v", req.ID, l.id, err)
 		return req.ID
@@ -702,4 +737,19 @@ func (l *live) beginTurn(at time.Time) {
 type pendingSetting struct {
 	value string
 	set   bool
+}
+
+// cloneFacts copies runtime facts with nothing mutable shared: the
+// environment, and its changed names, are copied too. nil stays nil.
+func cloneFacts(f *model.RuntimeFacts) *model.RuntimeFacts {
+	if f == nil {
+		return nil
+	}
+	c := *f
+	if f.Environment != nil {
+		env := *f.Environment
+		env.Changed = slices.Clone(env.Changed)
+		c.Environment = &env
+	}
+	return &c
 }

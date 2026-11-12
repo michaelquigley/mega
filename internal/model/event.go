@@ -107,4 +107,51 @@ type RuntimeFacts struct {
 	// (codex does; claude does not).
 	Effort string `dd:",+omitempty"`
 	Cwd    string `dd:",+omitempty"`
+	// Environment is what the runtime was launched with, as names and
+	// fingerprints only: an environment carries credentials, so no value is
+	// ever recorded.
+	Environment *EnvironmentFacts `dd:",+omitempty"`
+}
+
+// environment sources: where a runtime's activation came from.
+const (
+	EnvSourceNone     = "none"     // no file: the shell's own environment
+	EnvSourceFile     = "file"     // the checkout's approved .mega/environment.yaml
+	EnvSourceIgnored  = "ignored"  // the operator's override ignores the file
+	EnvSourceOverride = "override" // the operator's own activation
+)
+
+// EnvironmentFacts is the environment a runtime started in: where its
+// activation came from and that activation's fingerprint, the names of the
+// variables the activation changed against the shell's own environment, and
+// the fingerprint of the whole.
+type EnvironmentFacts struct {
+	Source      string
+	Activation  string   `dd:",+omitempty"`
+	Changed     []string `dd:",+omitempty"`
+	Fingerprint string
+}
+
+// Clone returns a copy of e that shares nothing mutable with it: the request,
+// the facts and the raw payload are copied all the way down.
+func (e *Event) Clone() *Event {
+	if e == nil {
+		return nil
+	}
+	c := *e
+	if e.Req != nil {
+		req := e.Req.Clone()
+		c.Req = &req
+	}
+	if e.Facts != nil {
+		facts := *e.Facts
+		if e.Facts.Environment != nil {
+			env := *e.Facts.Environment
+			env.Changed = append([]string(nil), env.Changed...)
+			facts.Environment = &env
+		}
+		c.Facts = &facts
+	}
+	c.Raw = clonePayload(e.Raw)
+	return &c
 }

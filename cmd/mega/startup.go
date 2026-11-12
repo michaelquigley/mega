@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/michaelquigley/df/dl"
 
 	"github.com/michaelquigley/mega/internal/config"
+	"github.com/michaelquigley/mega/internal/environ"
 	"github.com/michaelquigley/mega/internal/harness"
 	"github.com/michaelquigley/mega/internal/harness/claude"
 	"github.com/michaelquigley/mega/internal/harness/codex"
@@ -54,7 +56,8 @@ type instance struct {
 func start(cfg *config.Config) (*instance, error) {
 	// every harness and every command an agent runs inherits this PATH, so it
 	// is worth seeing when a tool cannot be found.
-	dl.Infof("PATH at start-up: '%s'", os.Getenv("PATH"))
+	// mega's own PATH, not what its agents get: each project resolves its own.
+	dl.Infof("mega's own PATH at start-up: '%s'", os.Getenv("PATH"))
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return nil, bindError(cfg.Listen, err)
@@ -89,11 +92,18 @@ func start(cfg *config.Config) (*instance, error) {
 		listener.Close()
 		return nil, fmt.Errorf("loading registry: %w", err)
 	}
+	resolver, err := environmentResolver(cfg.Environment)
+	if err != nil {
+		lock.Release()
+		listener.Close()
+		return nil, err
+	}
 	claudeHarness := claude.New(claude.Config{Node: cfg.Claude.Node, Shim: cfg.Claude.Shim, Executable: cfg.Claude.Executable})
 	svc, err := service.New(reg, service.Options{
 		IsUntrusted:   untrustedChecker(),
 		InheritedMode: claudeHarness.InheritedPermissionMode,
 		EventLogPath:  cfg.EventLogPath,
+		Resolver:      resolver,
 		Harnesses: []harness.Harness{
 			claudeHarness,
 			codex.New(codex.Config{Binary: cfg.Codex.Binary}),
@@ -106,6 +116,7 @@ func start(cfg *config.Config) (*instance, error) {
 	}
 	dl.Debugf("claude: node='%s' shim='%s' executable='%s'", cfg.Claude.Node, cfg.Claude.Shim, cfg.Claude.Executable)
 	dl.Debugf("codex: binary='%s'", cfg.Codex.Binary)
+	dl.Infof("project environments resolve through '%s', within %s", resolver.Shell, resolver.Timeout)
 	return &instance{
 		cfg:      cfg,
 		listener: listener,
@@ -203,4 +214,26 @@ func untrustedChecker() service.UntrustedChecker {
 		}
 		return !trusted
 	}
+}
+
+// environmentResolver resolves each project's environment through the
+// operator's shell from a base scrubbed of mega's own environment, so a mega
+// started from an activated terminal resolves as one started from the
+// launcher does. the config may name another shell or timeout.
+func environmentResolver(cfg config.Environment) (*environ.Resolver, error) {
+	resolver := service.DefaultResolver(os.Environ())
+	if cfg.Shell != "" {
+		if !filepath.IsAbs(cfg.Shell) {
+			return nil, fmt.Errorf("environment.shell is '%s'; it must be an absolute path", cfg.Shell)
+		}
+		resolver.Shell = cfg.Shell
+	}
+	if cfg.Timeout != "" {
+		timeout, err := time.ParseDuration(cfg.Timeout)
+		if err != nil || timeout <= 0 {
+			return nil, fmt.Errorf("environment.timeout is '%s'; it must be a positive duration such as '10s'", cfg.Timeout)
+		}
+		resolver.Timeout = timeout
+	}
+	return resolver, nil
 }

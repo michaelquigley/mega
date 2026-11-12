@@ -123,6 +123,7 @@ func (s *Service) Close() {
 		s.drop(sub)
 	}
 	s.closeLogsLocked()
+	s.stopWatchLocked()
 }
 
 func (s *Service) closeLogs() {

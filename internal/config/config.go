@@ -34,6 +34,16 @@ type Config struct {
 	Data   string
 	Claude Claude
 	Codex  Codex
+	// Environment is how each project's shell environment is resolved.
+	Environment Environment
+}
+
+// Environment says how a project's environment is resolved: the shell to run
+// (empty is the one SHELL names, else /bin/sh) and how long a resolution may
+// take, as a Go duration such as "10s" (empty is ten seconds).
+type Environment struct {
+	Shell   string
+	Timeout string
 }
 
 // Codex locates the codex executable, whose app-server the codex adapter runs.

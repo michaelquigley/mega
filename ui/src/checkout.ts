@@ -8,3 +8,10 @@ export function missingReason(project: Project | undefined): string | null {
   }
   return `The checkout is missing: '${project.checkout}' (${project.checkout_missing})`
 }
+
+// environmentReason is why nothing can start in a project whose environment
+// may not run (its .mega/environment.yaml unapproved, changed or malformed),
+// as the service words its refusal, or null when it may.
+export function environmentReason(project: Project | undefined): string | null {
+  return project?.environment?.refusal?.message ?? null
+}

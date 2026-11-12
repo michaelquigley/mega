@@ -26,10 +26,17 @@ type Document struct {
 	Conversations []model.Conversation
 }
 
+// clone copies the document deeply enough that nothing in the copy is shared
+// with it: a project's approval and override are pointers, so each project is
+// cloned.
 func (d *Document) clone() *Document {
+	projects := make([]model.Project, len(d.Projects))
+	for i, p := range d.Projects {
+		projects[i] = p.Clone()
+	}
 	return &Document{
 		Version:       d.Version,
-		Projects:      slices.Clone(d.Projects),
+		Projects:      projects,
 		Conversations: slices.Clone(d.Conversations),
 	}
 }

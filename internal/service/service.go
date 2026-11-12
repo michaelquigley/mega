@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/michaelquigley/mega/internal/environ"
 	"github.com/michaelquigley/mega/internal/harness"
 	"github.com/michaelquigley/mega/internal/model"
 	"github.com/michaelquigley/mega/internal/registry"
@@ -24,9 +25,12 @@ type Options struct {
 	IsUntrusted UntrustedChecker
 	// InheritedMode returns the claude permission mode the operator's settings
 	// name for a checkout, or empty.
-	InheritedMode func(checkout string) string
-	EventLogPath  func(conversationID string) string
-	Harnesses     []harness.Harness
+	InheritedMode func(checkout string, env []string) string
+	// Resolver resolves each project's environment. everything mega starts
+	// in a project's name runs in what it resolves, never in mega's own.
+	Resolver     Resolver
+	EventLogPath func(conversationID string) string
+	Harnesses    []harness.Harness
 }
 
 // Workspace is the arrangement as the service last confirmed it.
@@ -41,8 +45,9 @@ type Workspace struct {
 	// Gate is the "shut down when idle" state and what is in its way.
 	Gate Gate
 
-	// Preflight is whether each harness can run from mega's environment.
-	Preflight Preflight
+	// Environments is each project's environment as it stands now, by project
+	// id: its file, approval and override, and its latest resolution.
+	Environments map[string]EnvState
 }
 
 // Service owns the registry, the event logs, the runtimes and their pending
@@ -51,7 +56,11 @@ type Service struct {
 	mu          sync.Mutex
 	reg         *registry.Registry
 	isUntrusted UntrustedChecker
-	inherited   func(checkout string) string
+	inherited   func(checkout string, env []string) string
+	resolver    Resolver
+	base        []string              // the scrubbed base environment, for reading the repository
+	envs        map[string]*envRecord // each project's latest resolution, in memory only
+	stopWatch   chan struct{}         // closed when the service closes, ending the file watch
 	logPath     func(conversationID string) string
 	harnesses   map[string]harness.Harness
 	live        map[string]*live
@@ -73,14 +82,20 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 		logPath:     opts.EventLogPath,
 		harnesses:   make(map[string]harness.Harness),
 		live:        make(map[string]*live),
+		envs:        make(map[string]*envRecord),
+		resolver:    opts.Resolver,
+		base:        environ.Base(os.Environ()),
 		subs:        make(map[*Subscription]struct{}),
 		gate:        shutdownGate{requested: make(chan struct{})},
 	}
 	if s.isUntrusted == nil {
 		s.isUntrusted = func(string) bool { return false }
 	}
+	if s.resolver == nil {
+		s.resolver = DefaultResolver(os.Environ())
+	}
 	if s.inherited == nil {
-		s.inherited = func(string) string { return "" }
+		s.inherited = func(string, []string) string { return "" }
 	}
 	for _, h := range opts.Harnesses {
 		s.harnesses[h.Name()] = h
@@ -89,6 +104,8 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 		s.closeLogs()
 		return nil, err
 	}
+	s.stopWatch = make(chan struct{})
+	go s.watchEnvFiles(envWatchEvery, s.stopWatch)
 	return s, nil
 }
 
@@ -106,11 +123,14 @@ func (s *Service) Workspace() Workspace {
 			gate.Blockers = append(gate.Blockers, b)
 		}
 	}
-	s.mu.Unlock()
+	states := make(map[string]EnvState, len(doc.Projects))
 	for i := range doc.Projects {
-		s.applyTrust(&doc.Projects[i])
+		s.applyTrustLocked(&doc.Projects[i])
+		states[doc.Projects[i].ID] = s.envStateLocked(doc.Projects[i])
 	}
-	return Workspace{Projects: doc.Projects, Conversations: conversations, NeedsYou: needsYou(conversations), Gate: gate, Preflight: s.preflight()}
+	s.resolveStaleLocked(doc.Projects, states)
+	s.mu.Unlock()
+	return Workspace{Projects: doc.Projects, Conversations: conversations, NeedsYou: needsYou(conversations), Gate: gate, Environments: states}
 }
 
 // RegisterProject adds an existing checkout to the workspace. an empty name
@@ -140,7 +160,7 @@ func (s *Service) RegisterProject(name, checkout string) (model.Project, error) 
 	if err != nil {
 		return model.Project{}, err
 	}
-	s.applyTrust(&project)
+	s.applyTrustLocked(&project)
 	return project, nil
 }
 
@@ -184,13 +204,13 @@ func (s *Service) UpdateProject(id string, change ProjectChange) (model.Project,
 		if change.Starred != nil {
 			doc.Projects[i].Starred = *change.Starred
 		}
-		project = doc.Projects[i]
+		project = doc.Projects[i].Clone()
 		return nil
 	})
 	if err != nil {
 		return model.Project{}, err
 	}
-	s.applyTrust(&project)
+	s.applyTrustLocked(&project)
 	return project, nil
 }
 
@@ -233,6 +253,7 @@ func (s *Service) RemoveProject(id string) error {
 		return err
 	}
 	s.dropLogsLocked(removed...)
+	delete(s.envs, id)
 	return nil
 }
 
@@ -270,8 +291,12 @@ func (s *Service) update(fn func(*registry.Document) error) error {
 // subscribers see updates in the order they were confirmed.
 func (s *Service) publish(update Update) {
 	for sub := range s.subs {
+		// each subscriber gets its own copy of an event, so none can change
+		// what another, or the service, sees.
+		own := update
+		own.Event = update.Event.Clone()
 		select {
-		case sub.updates <- update:
+		case sub.updates <- own:
 		default:
 			s.drop(sub)
 		}
@@ -287,13 +312,18 @@ func (s *Service) drop(sub *Subscription) {
 	close(sub.updates)
 }
 
-// applyTrust fills what is read each time a project is read: whether its
-// checkout can be worked in, and, from the operator's claude configuration,
-// the trust notice and the inherited permission mode.
-func (s *Service) applyTrust(project *model.Project) {
+// applyTrustLocked fills what is read each time a project is read: whether
+// its checkout can be worked in, and, from the operator's claude
+// configuration, the trust notice and the inherited permission mode, as the
+// project's latest resolved environment points claude at it. callers hold s.mu.
+func (s *Service) applyTrustLocked(project *model.Project) {
 	project.CheckoutMissing = checkoutProblem(project.Checkout)
 	project.Untrusted = s.isUntrusted(project.Checkout)
-	project.InheritedPermissionMode = s.inherited(project.Checkout)
+	var env []string
+	if rec := s.envs[project.ID]; rec != nil && rec.resolved != nil {
+		env = rec.resolved.env
+	}
+	project.InheritedPermissionMode = s.inherited(project.Checkout, env)
 }
 
 func validateCheckout(checkout string) (string, error) {

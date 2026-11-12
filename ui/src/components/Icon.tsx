@@ -36,9 +36,17 @@ import unfoldLess from '@material-design-icons/svg/filled/unfold_less.svg?raw'
 import unfoldMore from '@material-design-icons/svg/filled/unfold_more.svg?raw'
 import verticalAlignTop from '@material-design-icons/svg/filled/vertical_align_top.svg?raw'
 import visibility from '@material-design-icons/svg/filled/visibility.svg?raw'
+import refresh from '@material-design-icons/svg/filled/refresh.svg?raw'
+import taskAlt from '@material-design-icons/svg/filled/task_alt.svg?raw'
+import visibilityOff from '@material-design-icons/svg/filled/visibility_off.svg?raw'
+import save from '@material-design-icons/svg/filled/save.svg?raw'
 import type { ButtonHTMLAttributes } from 'react'
 
 const icons = {
+  save,
+  visibility_off: visibilityOff,
+  task_alt: taskAlt,
+  refresh,
   add_comment: addComment,
   arrow_downward: arrowDownward,
   arrow_upward: arrowUpward,

@@ -21,3 +21,44 @@ type Request struct {
 	Payload any    `dd:",+opaque,+nullable,+omitempty"`
 	Outcome string `dd:",+omitempty"`
 }
+
+// Clone returns a copy of r whose payload shares nothing mutable with r's:
+// maps and lists, as decoded JSON holds them, are copied all the way down.
+func (r Request) Clone() Request {
+	c := r
+	c.Payload = clonePayload(r.Payload)
+	return c
+}
+
+func clonePayload(v any) any {
+	switch v := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, e := range v {
+			out[k] = clonePayload(e)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, e := range v {
+			out[i] = clonePayload(e)
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]string, len(v))
+		for k, e := range v {
+			out[k] = e
+		}
+		return out
+	case []string:
+		return append([]string(nil), v...)
+	case []map[string]any:
+		out := make([]map[string]any, len(v))
+		for i, e := range v {
+			out[i] = clonePayload(e).(map[string]any)
+		}
+		return out
+	default:
+		return v
+	}
+}

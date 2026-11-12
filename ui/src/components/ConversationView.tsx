@@ -123,6 +123,14 @@ export function ConversationView(props: ConversationViewProps) {
             .filter(Boolean)
             .join(' · ')}
         </p>
+        {conversation.environment && (
+          <p className={`facts${conversation.environment_stale ? ' env-stale' : ''}`}>
+            environment {conversation.environment.fingerprint}
+            {conversation.environment.changed.length > 0 && ` · ${conversation.environment.changed.join(', ')}`}
+            {conversation.environment_stale &&
+              ' · started in an older environment: the project’s has changed since, and the next start picks it up'}
+          </p>
+        )}
         <p className="facts">
           <code>{project.checkout}</code>
           {conversation.native_id && (

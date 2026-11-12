@@ -20,18 +20,18 @@ func TestFindExecutable(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 	for _, ok := range []string{"tool", tool} {
-		if err := FindExecutable("h", ok); err != nil {
+		if err := FindExecutable("h", ok, os.Environ()); err != nil {
 			t.Errorf("%s: %v", ok, err)
 		}
 	}
 	for name, reason := range map[string]string{
-		"absent":                   "'absent' was not found on mega's PATH",
+		"absent":                   "'absent' was not found on the project's PATH",
 		filepath.Join(dir, "gone"): "does not exist",
 		plain:                      "is not an executable file",
 		dir:                        "is not an executable file",
 		"":                         "no executable is configured",
 	} {
-		err := FindExecutable("h", name)
+		err := FindExecutable("h", name, os.Environ())
 		var missing *MissingError
 		if !errors.As(err, &missing) || !errors.Is(err, ErrExecutableMissing) || !strings.Contains(err.Error(), reason) || missing.Executable != name {
 			t.Errorf("%q: %v", name, err)

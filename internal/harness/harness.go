@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -56,24 +57,33 @@ type Harness interface {
 
 	// History reads the native session's stored messages without a runtime.
 	// every event carries a NativeID so the caller can match without text.
-	History(ctx context.Context, cwd, nativeID string) (History, error)
+	History(ctx context.Context, place Place, nativeID string) (History, error)
 
-	// Discover lists the native sessions stored for cwd, for the operator to
-	// choose from. it never picks one.
-	Discover(ctx context.Context, cwd string) ([]Session, error)
+	// Discover lists the native sessions stored for the place's checkout, for
+	// the operator to choose from. it never picks one.
+	Discover(ctx context.Context, place Place) ([]Session, error)
 
 	// Models lists the models the harness offers, with the harness version
 	// the list came from. it starts no conversation and leaves no session.
-	Models(ctx context.Context, cwd string) (Catalog, error)
+	Models(ctx context.Context, place Place) (Catalog, error)
 
 	// Inherited says what model and effort a launch with no choice gets in
-	// cwd, from the operator's own settings, or empty where unknown.
-	Inherited(ctx context.Context, cwd string) (model, effort string, err error)
+	// the place, from the operator's own settings, or empty where unknown.
+	Inherited(ctx context.Context, place Place) (model, effort string, err error)
 
-	// Check reports whether what the harness runs can be found now, from
-	// mega's own PATH and configuration: nil, or a *MissingError naming the
-	// first thing missing. it starts nothing and reads only names and modes.
-	Check() error
+	// Check reports whether what the harness runs can be found in env, a
+	// project's resolved environment, and in mega's configuration: nil, or a
+	// *MissingError naming the first thing missing. it starts nothing and
+	// reads only names and modes.
+	Check(env []string) error
+}
+
+// Place is where a harness process runs on a project's behalf: the checkout,
+// and the project's resolved environment, which every process the adapter
+// starts gets in full, and nothing of mega's own.
+type Place struct {
+	Cwd string
+	Env []string
 }
 
 // ErrExecutableMissing marks a harness that cannot run because something it
@@ -95,9 +105,10 @@ func (e *MissingError) Is(target error) bool {
 	return target == ErrExecutableMissing
 }
 
-// FindExecutable checks that name can be run: a path is checked as given, a
-// bare name is looked up on mega's PATH, as exec does.
-func FindExecutable(harnessName, name string) error {
+// FindExecutable checks that name can be run in env: a path is checked as
+// given, a bare name is looked up on env's PATH, as a shell in that
+// environment would.
+func FindExecutable(harnessName, name string, env []string) error {
 	if name == "" {
 		return &MissingError{Harness: harnessName, Executable: name, Reason: "no executable is configured"}
 	}
@@ -111,10 +122,35 @@ func FindExecutable(harnessName, name string) error {
 		}
 		return nil
 	}
-	if _, err := exec.LookPath(name); err != nil {
-		return &MissingError{Harness: harnessName, Executable: name, Reason: fmt.Sprintf("'%s' was not found on mega's PATH", name)}
+	if _, err := LookPath(name, env); err != nil {
+		return &MissingError{Harness: harnessName, Executable: name, Reason: fmt.Sprintf("'%s' was not found on the project's PATH", name)}
 	}
 	return nil
+}
+
+// LookPath finds name as exec would, but on env's PATH rather than mega's own:
+// a path is returned as it is, a bare name is searched for in each of env's
+// PATH entries in order.
+func LookPath(name string, env []string) (string, error) {
+	if strings.Contains(name, "/") {
+		return exec.LookPath(name)
+	}
+	var path string
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			path = v
+		}
+	}
+	for _, dir := range filepath.SplitList(path) {
+		if dir == "" || !filepath.IsAbs(dir) {
+			continue
+		}
+		candidate := filepath.Join(dir, name)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("'%s': %w", name, exec.ErrNotFound)
 }
 
 // Catalog is the models a harness offers.
@@ -154,7 +190,10 @@ type Session struct {
 
 // Spec describes a runtime to launch.
 type Spec struct {
-	Cwd      string
+	Cwd string
+	// Env is the project's resolved environment, which the runtime's process
+	// gets in full and nothing of mega's own.
+	Env      []string
 	NativeID string
 	// Model and Effort are the operator's choice; empty passes nothing, so
 	// the harness's own settings apply.

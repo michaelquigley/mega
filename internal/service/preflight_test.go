@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"github.com/michaelquigley/mega/internal/environ"
 	"os"
 	"os/exec"
 	"strings"
@@ -11,9 +12,10 @@ import (
 	"github.com/michaelquigley/mega/internal/model"
 )
 
-// a harness whose executable cannot be found is named on every workspace
-// read with mega's PATH, refuses launch, prompt and Start with its own code
-// naming the executable, and comes back when it can be found again.
+// a harness whose executable cannot be found in the project's resolved
+// environment is named on every workspace read, refuses launch, prompt and
+// Start with its own code naming the executable, and comes back when it can
+// be found again. the check runs in the project's environment, never mega's.
 func TestAMissingExecutableIsPreflightedAndRefused(t *testing.T) {
 	r := newRig(t)
 	running := r.start("one")
@@ -28,19 +30,28 @@ func TestAMissingExecutableIsPreflightedAndRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the release", stoppedRT.Exited)
-	if p := r.svc.Workspace().Preflight; len(p.Missing) != 0 || p.Path != os.Getenv("PATH") {
-		t.Fatalf("all found: %+v", p)
+	if st := r.svc.Workspace().Environments[r.project.ID]; len(st.Missing) != 0 || st.Resolved == nil {
+		t.Fatalf("all found: %+v", st)
+	}
+	checked := r.fake.Checked()
+	if len(checked) == 0 {
+		t.Fatal("the harness was never checked")
+	}
+	for _, env := range checked {
+		if home, _ := environ.Value(env, "HOME"); home == os.Getenv("HOME") || home == "" {
+			t.Fatalf("checked in mega's own environment, or none: HOME is %q", home)
+		}
 	}
 
-	r.fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "node", Reason: "'node' was not found on mega's PATH"})
-	p := r.svc.Workspace().Preflight
-	if len(p.Missing) != 1 || p.Missing[0].Executable != "node" || p.Missing[0].Harness != model.HarnessClaude || p.Path != os.Getenv("PATH") {
-		t.Fatalf("missing node: %+v", p)
+	r.fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "node", Reason: "'node' was not found on the project's PATH"})
+	st := r.svc.Workspace().Environments[r.project.ID]
+	if len(st.Missing) != 1 || st.Missing[0].Executable != "node" || st.Missing[0].Harness != model.HarnessClaude {
+		t.Fatalf("missing node: %+v", st.Missing)
 	}
 	want := func(err error) {
 		t.Helper()
 		wantCode(t, err, CodeExecutableMissing)
-		if err == nil || !strings.Contains(err.Error(), "'node' was not found on mega's PATH") {
+		if err == nil || !strings.Contains(err.Error(), "'node' was not found on the project's PATH") {
 			t.Errorf("message = %v", err)
 		}
 	}
@@ -55,8 +66,8 @@ func TestAMissingExecutableIsPreflightedAndRefused(t *testing.T) {
 	}
 
 	r.fake.SetMissing(nil)
-	if p := r.svc.Workspace().Preflight; len(p.Missing) != 0 {
-		t.Errorf("found again: %+v", p)
+	if st := r.svc.Workspace().Environments[r.project.ID]; len(st.Missing) != 0 {
+		t.Errorf("found again: %+v", st.Missing)
 	}
 	if err := r.svc.Start(stopped.ID); err != nil {
 		t.Errorf("start once found: %v", err)
@@ -77,7 +88,7 @@ func TestAMissingExecutableWhileReadingHistoryIsNamed(t *testing.T) {
 	waitFor(t, "the release", rt.Exited)
 
 	r.fake.FailHistory(&exec.Error{Name: "node", Err: exec.ErrNotFound})
-	r.fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "node", Reason: "'node' was not found on mega's PATH"})
+	r.fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "node", Reason: "'node' was not found on the project's PATH"})
 	err := r.svc.Resume(conv.ID)
 	wantCode(t, err, CodeExecutableMissing)
 	if err == nil || !strings.Contains(err.Error(), "node") {

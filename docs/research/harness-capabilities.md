@@ -632,6 +632,34 @@ Whether a Claude session resumes by exact id from a checkout's new path once the
 
 So moving the store directory to the new path's name, with the service stopped and no terminal open, carries the sessions across. mega's import (`getSessionMessages` with the checkout as `dir`) and its resume by id (`--resume` in the new `cwd`) both work from the new path.
 
+## Follow-up (2026-11-12): the environment a harness's commands run in
+
+Whether a launch environment reaches the commands each harness runs, and how a project's environment is best resolved. This is for running each project in its own shell environment. Claude Code 2.1.322 on `PATH` and 2.1.318, mega's pinned executable; codex-cli 0.166.0; GNU bash 5.3.9; `devprj` from the tools repository.
+
+The fixtures `claude-rt1` and `codex-rt1` each gained a scratch `.devprj` and `envprobe.sh`. The probe prints a marker variable, `GOPATH`, the first two `PATH` entries, whether a `devprj` environment is active, and where `$GOPATH/bin` sits on `PATH`, never the whole environment. `claude-rt1` gained `.claude/settings.local.json` allowing `Bash(./envprobe.sh)` and nothing else; `codex-rt1`'s configuration was not changed. Each run set `MEGA_MARKER`, a scratch `GOPATH`, and `PATH` with that Go path's bin first.
+
+### Claude Code 2.1.322 and 2.1.318
+
+- A command run with the Bash tool sees the launch environment: the marker, the Go path, and the Go path's bin as the first `PATH` entry `[observed]`, under `claude -p` with `haiku`, on both versions. The shell snapshot Claude sources for each command does not reorder `PATH` ahead of the launch's entries in these runs.
+- A session resumed by exact id with a different environment sees the new one: a second marker and a second Go path, the bin again first `[observed]`. A runtime keeps the environment it was started with, and the next start takes whatever it is given.
+- mega runs Claude through Agent SDK 0.3.318 with no `env` option, so the CLI gets the shim's own process environment, which is what mega starts the shim with `[inferred]` (SDK default).
+
+### codex-cli 0.166.0
+
+- A command sees the launch environment: the marker and the Go path pass through `[observed]`, with the default shell environment policy (the fixture sets none).
+- The order of `PATH` is not kept. Codex runs each command as `/bin/bash -lc`, a login shell, inside `codex-linux-sandbox` `[observed]`. The first entry is the npm wrapper's vendored `codex-path` directory. `~/.profile` then prepends `~/bin` and `~/.local/bin` when they exist, so the Go path's bin arrived fifth `[observed]`.
+- So the project's own bin is on `PATH` and the Go path is the project's. A tool the project builds can be shadowed by one of the same name in those earlier directories. `make` and `go install` use `GOPATH` and are unaffected.
+- A thread resumed with a different environment (`codex exec resume`) sees the new marker and Go path `[observed]`.
+
+### Resolving a project's environment
+
+- An interactive bash started from a scrubbed base (`HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG` and a system `PATH`) in the checkout took 0.02 to 0.03 s, and the same with `devprj` evaluated (three runs each). It prints "cannot set terminal process group" and "no job control" to stderr with no terminal; both are harmless.
+- `devprj` prints "activated devprj environment: …" to stdout. A resolver must take the environment on its own channel, not from the shell's stdout.
+- From a base where a `devprj` environment is already active (`_DEVPRJ_NAME` set), `devprj` prints an error to stderr and the evaluation exits 0. Nothing changes, so the refusal cannot be seen in the exit status `[observed]`.
+- Deactivating first (`noprj`, then `devprj`) works, but only with the `_DEVPRJ_OLD_*` values the earlier activation exported. Resolving from a scrubbed base never carries `_DEVPRJ_*`, so the refusal cannot arise. That is the better choice, and it is also what makes a mega started from an activated terminal behave like one started from the launcher.
+
+No harness rebuilds its environment so that the launch environment fails to reach its commands. Codex reorders `PATH` through its login shell, which mega does not control and does not change.
+
 ## Recommendations
 
 - Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. mega should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.

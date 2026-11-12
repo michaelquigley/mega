@@ -37,12 +37,18 @@ func (s *Service) Discover(projectID, harnessName string) ([]harness.Session, er
 	if checkoutProblem(project.Checkout) != "" {
 		return []harness.Session{}, nil
 	}
+	// discovery runs the harness in the project's environment, which must be
+	// one mega may run.
+	place, err := s.placeFor(projectID)
+	if err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), discoverTimeout)
 	defer cancel()
-	sessions, err := h.Discover(ctx, project.Checkout)
+	sessions, err := h.Discover(ctx, place)
 	if err != nil {
-		return nil, s.explain(harnessName, fmt.Errorf("discovering sessions for '%s': %w", projectID, err))
+		return nil, s.explain(harnessName, place.Env, fmt.Errorf("discovering sessions for '%s': %w", projectID, err))
 	}
 	return slices.DeleteFunc(sessions, func(session harness.Session) bool { return held[session.NativeID] }), nil
 }
@@ -141,12 +147,16 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 	l.busy = true
 	s.mu.Unlock()
 
-	result, importErr := s.importHistory(conv, l)
+	place, importErr := s.placeFor(projectID)
+	var result imported
+	if importErr == nil {
+		result, importErr = s.importHistory(conv, l, place)
+	}
 
 	s.mu.Lock()
 	l.busy = false
 	if importErr != nil {
-		if err := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read: %v", importErr)}, "", nil); err != nil {
+		if err := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read: %s", recordable(importErr))}, "", nil); err != nil {
 			dl.Errorf("%v", err)
 		}
 		s.mu.Unlock()

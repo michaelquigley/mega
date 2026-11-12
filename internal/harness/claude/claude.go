@@ -48,10 +48,11 @@ func (h *Harness) Name() string {
 	return model.HarnessClaude
 }
 
-// Check reports whether node and the shim can be found: node on mega's
-// PATH (or at its configured path), the shim script and its installed sdk.
-func (h *Harness) Check() error {
-	if err := harness.FindExecutable(model.HarnessClaude, h.cfg.Node); err != nil {
+// Check reports whether node and the shim can be found: node on the
+// project's PATH in env (or at its configured path), the shim script and its
+// installed sdk.
+func (h *Harness) Check(env []string) error {
+	if err := harness.FindExecutable(model.HarnessClaude, h.cfg.Node, env); err != nil {
 		return err
 	}
 	if _, err := h.script(); err != nil {
@@ -74,12 +75,21 @@ func (h *Harness) script() (string, error) {
 	return path, nil
 }
 
-func (h *Harness) command(ctx context.Context, args ...string) (*exec.Cmd, error) {
+// command runs the shim with node found on env's PATH, in env and nothing of
+// mega's own: the project's environment reaches the claude the shim starts,
+// and every command claude runs.
+func (h *Harness) command(ctx context.Context, env []string, args ...string) (*exec.Cmd, error) {
 	script, err := h.script()
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, h.cfg.Node, append([]string{script}, args...)...)
+	node, err := harness.LookPath(h.cfg.Node, env)
+	if err != nil {
+		return nil, &harness.MissingError{Harness: model.HarnessClaude, Executable: h.cfg.Node, Reason: fmt.Sprintf("'%s' was not found on the project's PATH", h.cfg.Node)}
+	}
+	cmd := exec.CommandContext(ctx, node, append([]string{script}, args...)...)
+	// never nil, which exec would fill with mega's own environment.
+	cmd.Env = append([]string{}, env...)
 	cmd.Dir = h.cfg.Shim
 	// its own process group, so a terminal interrupt aimed at the service does
 	// not reach the shim and cut short the orderly release.
@@ -96,7 +106,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		sessionFlag = "--session-id"
 	}
 	args := []string{"run", "--cwd", spec.Cwd, "--exec", h.cfg.Executable, sessionFlag, nativeID}
-	mode, inherited := h.launchMode(spec.Cwd, spec.PermissionMode)
+	mode, inherited := h.launchMode(spec.Cwd, spec.PermissionMode, spec.Env)
 	if mode != "" {
 		args = append(args, "--permission-mode", mode)
 	}
@@ -113,7 +123,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	if spec.Idle {
 		args = append(args, "--idle")
 	}
-	cmd, err := h.command(context.Background(), args...)
+	cmd, err := h.command(context.Background(), spec.Env, args...)
 	if err != nil {
 		// the shim was never started, so no session can exist.
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
@@ -123,7 +133,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	// launch reports it until claude does.
 	launchMode := mode
 	if inherited {
-		launchMode = h.InheritedPermissionMode(spec.Cwd)
+		launchMode = h.InheritedPermissionMode(spec.Cwd, spec.Env)
 	}
 	r, err := start(cmd, nativeID, sink, inherited, launchMode, spec.Idle)
 	if err != nil {
@@ -137,8 +147,8 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 
 // History reads the session's stored messages through the shim. a claude
 // transcript carries no turn status, so no event is reported open.
-func (h *Harness) History(ctx context.Context, cwd, nativeID string) (harness.History, error) {
-	cmd, err := h.command(ctx, "messages", "--session", nativeID, "--cwd", cwd)
+func (h *Harness) History(ctx context.Context, place harness.Place, nativeID string) (harness.History, error) {
+	cmd, err := h.command(ctx, place.Env, "messages", "--session", nativeID, "--cwd", place.Cwd)
 	if err != nil {
 		return harness.History{}, err
 	}
@@ -190,8 +200,8 @@ type shimModels struct {
 // Models lists the models claude offers, from an idle session through the
 // shim: no prompt is sent, so no turn runs and no session is stored
 // (capability report, 2.1.318).
-func (h *Harness) Models(ctx context.Context, cwd string) (harness.Catalog, error) {
-	cmd, err := h.command(ctx, "models", "--cwd", cwd, "--exec", h.cfg.Executable)
+func (h *Harness) Models(ctx context.Context, place harness.Place) (harness.Catalog, error) {
+	cmd, err := h.command(ctx, place.Env, "models", "--cwd", place.Cwd, "--exec", h.cfg.Executable)
 	if err != nil {
 		return harness.Catalog{}, err
 	}
@@ -226,8 +236,9 @@ type sessionInfo struct {
 
 // Discover lists the sessions claude stores for cwd, newest first as the sdk
 // returns them.
-func (h *Harness) Discover(ctx context.Context, cwd string) ([]harness.Session, error) {
-	cmd, err := h.command(ctx, "list", "--cwd", cwd)
+func (h *Harness) Discover(ctx context.Context, place harness.Place) ([]harness.Session, error) {
+	cwd := place.Cwd
+	cmd, err := h.command(ctx, place.Env, "list", "--cwd", cwd)
 	if err != nil {
 		return nil, err
 	}

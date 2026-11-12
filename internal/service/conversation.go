@@ -59,7 +59,30 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 		s.mu.Unlock()
 		return ConversationView{}, err
 	}
-	if err := s.harnessReady(harnessName); err != nil {
+	if err := s.envReadyLocked(project); err != nil {
+		s.mu.Unlock()
+		return ConversationView{}, err
+	}
+	if err := s.harnessReadyLocked(projectID, harnessName); err != nil {
+		s.mu.Unlock()
+		return ConversationView{}, err
+	}
+	s.mu.Unlock()
+	// the project's environment is resolved before the conversation exists,
+	// so an activation that fails leaves nothing behind but the refusal.
+	place, facts, err := s.resolveProject(projectID)
+	if err != nil {
+		return ConversationView{}, err
+	}
+	if err := missingCoded(s.harnesses[harnessName].Check(place.Env)); err != nil {
+		return ConversationView{}, err
+	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return ConversationView{}, newError(CodeUnavailable, "the service is shutting down")
+	}
+	if err := s.refuseNewWorkLocked(); err != nil {
 		s.mu.Unlock()
 		return ConversationView{}, err
 	}
@@ -97,9 +120,9 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 		return s.view(conv.ID), err
 	}
 	s.mu.Unlock()
-	err = s.startRuntime(conv.ID, l, false)
+	err = s.startRuntime(conv.ID, l, false, place, facts)
 	if err != nil {
-		return s.view(conv.ID), s.explain(harnessName, err)
+		return s.view(conv.ID), s.explain(harnessName, place.Env, err)
 	}
 	if err := s.send(conv.ID, prompt); err != nil {
 		return s.view(conv.ID), err
@@ -128,7 +151,11 @@ func (s *Service) Prompt(conversationID, text string) error {
 		s.mu.Unlock()
 		return err
 	}
-	if err := s.harnessReady(conv.Harness); err != nil {
+	if err := s.conversationEnvReadyLocked(conv); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.harnessReadyLocked(conv.ProjectID, conv.Harness); err != nil {
 		s.mu.Unlock()
 		return err
 	}
@@ -162,11 +189,15 @@ func (s *Service) Prompt(conversationID, text string) error {
 	conv.NativeID = l.sessionOf(conv)
 	s.mu.Unlock()
 
-	if err := s.importBeforeLaunch(conv, l); err != nil {
+	place, facts, err := s.resolveForStart(conv, l)
+	if err != nil {
 		return err
 	}
-	if err := s.startRuntime(conversationID, l, false); err != nil {
-		return s.explain(conv.Harness, err)
+	if err := s.importBeforeLaunch(conv, l, place); err != nil {
+		return err
+	}
+	if err := s.startRuntime(conversationID, l, false, place, facts); err != nil {
+		return s.explain(conv.Harness, place.Env, err)
 	}
 	return s.send(conversationID, text)
 }
@@ -193,7 +224,11 @@ func (s *Service) Start(conversationID string) error {
 		s.mu.Unlock()
 		return err
 	}
-	if err := s.harnessReady(conv.Harness); err != nil {
+	if err := s.conversationEnvReadyLocked(conv); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.harnessReadyLocked(conv.ProjectID, conv.Harness); err != nil {
 		s.mu.Unlock()
 		return err
 	}
@@ -221,24 +256,57 @@ func (s *Service) Start(conversationID string) error {
 	}
 	s.mu.Unlock()
 
-	if err := s.importBeforeLaunch(conv, l); err != nil {
+	place, facts, err := s.resolveForStart(conv, l)
+	if err != nil {
 		return err
 	}
-	return s.explain(conv.Harness, s.startRuntime(conversationID, l, true))
+	if err := s.importBeforeLaunch(conv, l, place); err != nil {
+		return err
+	}
+	return s.explain(conv.Harness, place.Env, s.startRuntime(conversationID, l, true, place, facts))
+}
+
+// conversationEnvReadyLocked refuses work in a conversation whose project's
+// environment may not run. callers hold s.mu.
+func (s *Service) conversationEnvReadyLocked(conv model.Conversation) error {
+	project, err := s.projectLocked(conv.ProjectID)
+	if err != nil {
+		return err
+	}
+	return s.envReadyLocked(project)
+}
+
+// resolveForStart resolves the project's environment for a runtime start,
+// after beginStartLocked, and checks the harness can run in it. a failure ends
+// the start, recorded as not started (no process was), with what may be
+// recorded of it and never the activation's output. callers do not hold s.mu.
+func (s *Service) resolveForStart(conv model.Conversation, l *live) (harness.Place, *model.EnvironmentFacts, error) {
+	place, facts, err := s.resolveProject(conv.ProjectID)
+	if err == nil {
+		err = missingCoded(s.harnesses[conv.Harness].Check(place.Env))
+	}
+	if err != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		l.busy = false
+		s.failedLaunch(l, err, true)
+		return harness.Place{}, nil, err
+	}
+	return place, facts, nil
 }
 
 // importBeforeLaunch brings the cache up to date with the native session
 // before a runtime resumes it, after beginStartLocked. a failure ends the
 // start, recorded, with no runtime launched. callers do not hold s.mu.
-func (s *Service) importBeforeLaunch(conv model.Conversation, l *live) error {
+func (s *Service) importBeforeLaunch(conv model.Conversation, l *live, place harness.Place) error {
 	if conv.NativeID == "" {
 		return nil
 	}
-	if _, err := s.importHistory(conv, l); err != nil {
+	if _, err := s.importHistory(conv, l, place); err != nil {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		l.busy = false
-		if recordErr := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read, so no runtime was started: %v", err)}, "", nil); recordErr != nil {
+		if recordErr := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read, so no runtime was started: %s", recordable(err))}, "", nil); recordErr != nil {
 			dl.Errorf("%v", recordErr)
 		}
 		return err
@@ -290,10 +358,17 @@ func (s *Service) beginStartLocked(l *live) error {
 // because a harness may report to its sink before Launch returns; busy keeps
 // other starts, resumes and prompts away meanwhile. idle is a start with no
 // prompt following. callers do not hold s.mu.
-func (s *Service) startRuntime(conversationID string, l *live, idle bool) error {
+func (s *Service) startRuntime(conversationID string, l *live, idle bool, place harness.Place, facts *model.EnvironmentFacts) error {
 	s.mu.Lock()
-	h, spec, inc, err := s.prepareLaunchLocked(conversationID, l)
+	h, spec, inc, err := s.prepareLaunchLocked(conversationID, l, facts)
 	spec.Idle = idle
+	// the project's resolved environment, in full, and nothing of mega's own;
+	// what it was is recorded with the runtime's start, as names and
+	// fingerprints.
+	spec.Env = place.Env
+	if inc != nil {
+		inc.env = facts
+	}
 	if err != nil {
 		l.busy = false
 		s.failedLaunch(l, err, true)
@@ -361,13 +436,19 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool) error 
 
 // prepareLaunchLocked checks a conversation can launch, records it running and
 // opens its incarnation. callers hold s.mu.
-func (s *Service) prepareLaunchLocked(conversationID string, l *live) (harness.Harness, harness.Spec, *incarnation, error) {
+func (s *Service) prepareLaunchLocked(conversationID string, l *live, env *model.EnvironmentFacts) (harness.Harness, harness.Spec, *incarnation, error) {
 	conv, err := s.conversationLocked(conversationID)
 	if err != nil {
 		return nil, harness.Spec{}, nil, err
 	}
 	project, err := s.projectLocked(conv.ProjectID)
 	if err != nil {
+		return nil, harness.Spec{}, nil, err
+	}
+	// the environment was resolved, and history may have been imported, since
+	// the file was checked: the launch is committed only while the project's
+	// environment may still run and is still the activation that was resolved.
+	if err := s.envUnchangedLocked(project, env); err != nil {
 		return nil, harness.Spec{}, nil, err
 	}
 	h, ok := s.harnesses[conv.Harness]
@@ -570,6 +651,12 @@ func (s *Service) Resume(conversationID string) error {
 		s.mu.Unlock()
 		return newError(CodeConflict, "the conversation has a runtime or is starting; release it before resuming")
 	}
+	// reading native history runs the harness in the project's environment,
+	// so it waits on that environment as a start does.
+	if err := s.conversationEnvReadyLocked(conv); err != nil {
+		s.mu.Unlock()
+		return err
+	}
 	if err := s.transition(l, &model.Event{Status: model.StatusResuming}, StateResuming, nil); err != nil {
 		s.mu.Unlock()
 		return err
@@ -583,14 +670,18 @@ func (s *Service) Resume(conversationID string) error {
 	conv.NativeID = l.sessionOf(conv)
 	s.mu.Unlock()
 	if conv.NativeID != "" {
-		result, importErr = s.importHistory(conv, l)
+		var place harness.Place
+		place, importErr = s.placeFor(conv.ProjectID)
+		if importErr == nil {
+			result, importErr = s.importHistory(conv, l, place)
+		}
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	l.busy = false
 	if importErr != nil {
-		if err := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read: %v", importErr)}, "", nil); err != nil {
+		if err := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read: %s", recordable(importErr))}, "", nil); err != nil {
 			dl.Errorf("%v", err)
 		}
 		return importErr
@@ -629,22 +720,18 @@ type imported struct {
 // importHistory appends the native messages the cache lacks, matched by native
 // identity, as native-origin events, and reports what it added. it never
 // rewrites what the log holds, and never moves the unread marker itself.
-func (s *Service) importHistory(conv model.Conversation, l *live) (imported, error) {
+func (s *Service) importHistory(conv model.Conversation, l *live, place harness.Place) (imported, error) {
 	s.mu.Lock()
 	h, ok := s.harnesses[conv.Harness]
-	project, projectErr := s.projectLocked(conv.ProjectID)
 	s.mu.Unlock()
 	if !ok {
 		return imported{}, newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", conv.Harness))
 	}
-	if projectErr != nil {
-		return imported{}, projectErr
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), historyTimeout)
 	defer cancel()
-	history, err := h.History(ctx, project.Checkout, conv.NativeID)
+	history, err := h.History(ctx, place, conv.NativeID)
 	if err != nil {
-		return imported{}, s.explain(conv.Harness, fmt.Errorf("importing history of '%s': %w", conv.ID, err))
+		return imported{}, s.explain(conv.Harness, place.Env, fmt.Errorf("importing history of '%s': %w", conv.ID, err))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

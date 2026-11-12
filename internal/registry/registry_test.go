@@ -278,3 +278,30 @@ func TestFailedDirectorySyncAfterRenameIsSticky(t *testing.T) {
 		t.Errorf("refused update changed the file")
 	}
 }
+
+// a snapshot shares nothing mutable with the registry: changing a copy's
+// approval or override changes nothing the registry holds.
+func TestASnapshotSharesNoApprovalOrOverride(t *testing.T) {
+	reg, err := Load(filepath.Join(t.TempDir(), "registry.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = reg.Update(func(doc *Document) error {
+		doc.Projects = append(doc.Projects, model.Project{
+			ID: "p", Name: "p", Checkout: "/tmp/p",
+			EnvApproved: &model.EnvApproval{Fingerprint: "sha256:aaaa"},
+			EnvOverride: &model.EnvOverride{Activate: "devprj"},
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied := reg.Snapshot()
+	copied.Projects[0].EnvApproved.Fingerprint = "sha256:bbbb"
+	copied.Projects[0].EnvOverride.Activate = "something else"
+	held := reg.Snapshot().Projects[0]
+	if held.EnvApproved.Fingerprint != "sha256:aaaa" || held.EnvOverride.Activate != "devprj" {
+		t.Errorf("changing a snapshot changed the registry: %+v %+v", held.EnvApproved, held.EnvOverride)
+	}
+}

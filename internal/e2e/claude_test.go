@@ -3,7 +3,13 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
+	"github.com/michaelquigley/df/dd"
+	"github.com/michaelquigley/mega/internal/server"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +55,48 @@ type session struct {
 	t   *testing.T
 	svc *service.Service
 	id  string
+	api *httptest.Server // the service's own HTTP handler, for answers
+}
+
+// answerBody is what a browser posts to answer a request.
+type answerBody struct {
+	RequestID string
+	Decision  string
+}
+
+type errorReply struct {
+	Code    string
+	Message string
+}
+
+// answer answers a request the way a browser does: POST
+// /api/conversations/{id}/answer to the service's own HTTP handler, never a
+// call into the service or the harness. it returns the error code the API
+// answered with, or empty for an accepted answer.
+func (s *session) answer(requestID, decision string) string {
+	s.t.Helper()
+	if s.api == nil {
+		s.api = httptest.NewServer(server.New(s.svc).Handler())
+		s.t.Cleanup(s.api.Close)
+	}
+	body, err := dd.UnbindJSON(&answerBody{RequestID: requestID, Decision: decision})
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	resp, err := http.Post(s.api.URL+"/api/conversations/"+s.id+"/answer", "application/json", bytes.NewReader(body))
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusAccepted {
+		return ""
+	}
+	data, _ := io.ReadAll(resp.Body)
+	reply := &errorReply{}
+	if err := dd.BindJSON(reply, data); err != nil || reply.Code == "" {
+		s.t.Fatalf("answering %s: %d %s", requestID, resp.StatusCode, data)
+	}
+	return reply.Code
 }
 
 func (s *session) view() service.ConversationView {
@@ -105,6 +153,51 @@ func (s *session) expectReply(contains ...string) {
 	}
 }
 
+// approvalWant is the one approval an approval round trip means to answer:
+// the tool, and the exact command, or the MCP server and tool.
+type approvalWant struct {
+	tool      string
+	command   string
+	mcpServer string
+	mcpTool   string
+}
+
+// unwrapShell takes the command codex reports out of the login shell it runs
+// it in ("/bin/bash -lc '...'"), so the test can compare the command itself.
+func unwrapShell(command string) string {
+	if inner, ok := strings.CutPrefix(command, "/bin/bash -lc '"); ok && strings.HasSuffix(inner, "'") {
+		return strings.TrimSuffix(inner, "'")
+	}
+	return command
+}
+
+// expectApproval waits for the conversation's pending requests and asserts
+// they are exactly one permission request for want, before anything answers
+// it. any other request fails the test and is left unanswered: a test plays
+// the operator only for the approval it is about.
+func (s *session) expectApproval(want approvalWant) model.Request {
+	s.t.Helper()
+	view := s.waitFor("the approval", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
+	if len(view.Pending) != 1 {
+		s.t.Fatalf("expected exactly one pending request, got %+v; none was answered", view.Pending)
+	}
+	req := view.Pending[0]
+	payload, _ := req.Payload.(map[string]any)
+	input, _ := payload["input"].(map[string]any)
+	command, _ := input["command"].(string)
+	switch {
+	case req.Kind != model.RequestPermission:
+		s.t.Fatalf("expected a permission request, got %+v; it was not answered", req)
+	case payload["tool"] != want.tool:
+		s.t.Fatalf("expected an approval for %q, got %v; it was not answered", want.tool, payload["tool"])
+	case want.command != "" && unwrapShell(command) != want.command:
+		s.t.Fatalf("expected an approval for exactly %q, got %q; it was not answered", want.command, command)
+	case want.mcpServer != "" && (payload["mcp_server"] != want.mcpServer || payload["mcp_tool"] != want.mcpTool):
+		s.t.Fatalf("expected an approval for %s/%s, got %v/%v; it was not answered", want.mcpServer, want.mcpTool, payload["mcp_server"], payload["mcp_tool"])
+	}
+	return req
+}
+
 func (s *session) prompt(text string) {
 	s.t.Helper()
 	if err := s.svc.Prompt(s.id, text); err != nil {
@@ -114,6 +207,12 @@ func (s *session) prompt(text string) {
 
 // TestClaudeRoundTrip is C1 to C4 and C6 from the capability report through the
 // service, without the terminal visit (C5), which the operator does by hand.
+//
+// the approval round trip is what C3 tests: a real permission request reaches
+// the operator, the turn waits on it, and the command runs only after the
+// answer. the test plays the operator for exactly that request (Bash, `sleep
+// 3`), asserted before it answers, through the HTTP API a
+// browser uses; anything else fails the test unanswered.
 func TestClaudeRoundTrip(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	h := newClaudeHarness(t)
@@ -150,22 +249,18 @@ func TestClaudeRoundTrip(t *testing.T) {
 
 	// C3: a real permission request waits for a delayed approval.
 	s.prompt(approvalPrompt)
-	view = s.waitFor("the approval", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
-	approval := view.Pending[0]
-	if approval.Kind != model.RequestPermission {
-		t.Fatalf("expected a permission request, got %+v", approval)
-	}
+	approval := s.expectApproval(approvalWant{tool: "Bash", command: "sleep 3"})
 	time.Sleep(4 * time.Second)
 	if s.view().TurnActive == false {
 		t.Error("the turn ended while the approval was pending")
 	}
-	if err := svc.Answer(s.id, approval.ID, harness.Answer{Decision: harness.DecisionAllow}); err != nil {
-		t.Fatal(err)
+	if code := s.answer(approval.ID, "allow"); code != "" {
+		t.Fatalf("the answer was refused: %s", code)
 	}
 	s.idle()
 	s.expectReply("DELTA-7a8b")
-	if err := svc.Answer(s.id, approval.ID, harness.Answer{Decision: harness.DecisionAllow}); service.ErrorCode(err) != service.CodeNotPending {
-		t.Errorf("late answer: %v", err)
+	if code := s.answer(approval.ID, "allow"); code != service.CodeNotPending {
+		t.Errorf("late answer: %q", code)
 	}
 
 	// C4: release, and the runtime is seen to exit.
@@ -200,7 +295,7 @@ func TestClaudeRoundTrip(t *testing.T) {
 	for _, ev := range after {
 		recorded[ev.NativeID] = true
 	}
-	history, err := h.History(context.Background(), fixture, conv.NativeID)
+	history, err := h.History(context.Background(), harness.Place{Cwd: fixture, Env: os.Environ()}, conv.NativeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,6 +343,12 @@ func newClaudeHarness(t *testing.T) *claude.Harness {
 // fixture's sleep turn, which its project ask rule keeps out of the
 // classifier's hands: the residue must still arrive as a request, raised in
 // auto mode, and wait for the operator's answer.
+//
+// the approval round trip is what it tests: in auto mode, the residue the
+// classifier leaves still reaches the operator as a request. the test plays
+// the operator for exactly that request (Bash, `sleep 3`, raised in auto
+// mode), asserted before it answers, through the HTTP API a
+// browser uses; anything else fails the test unanswered.
 func TestClaudeAutoMode(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	svc := newE2EService(t, newClaudeHarness(t))
@@ -260,17 +361,15 @@ func TestClaudeAutoMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &session{t: t, svc: svc, id: conv.ID}
-	view := s.waitFor("the approval", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
-	if facts := view.Facts; facts == nil || facts.PermissionMode != "auto" || facts.ModeInherited {
+	approval := s.expectApproval(approvalWant{tool: "Bash", command: "sleep 3"})
+	if facts := s.view().Facts; facts == nil || facts.PermissionMode != "auto" || facts.ModeInherited {
 		t.Errorf("runtime facts = %+v", facts)
 	}
-	approval := view.Pending[0]
-	payload, _ := approval.Payload.(map[string]any)
-	if approval.Kind != model.RequestPermission || payload["permission_mode"] != "auto" {
-		t.Fatalf("expected a permission request raised in auto mode, got %+v", approval)
+	if payload, _ := approval.Payload.(map[string]any); payload["permission_mode"] != "auto" {
+		t.Fatalf("expected the request raised in auto mode, got %+v; it was not answered", approval)
 	}
-	if err := svc.Answer(s.id, approval.ID, harness.Answer{Decision: harness.DecisionAllow}); err != nil {
-		t.Fatal(err)
+	if code := s.answer(approval.ID, "allow"); code != "" {
+		t.Fatalf("the answer was refused: %s", code)
 	}
 	s.idle()
 	s.expectReply("DELTA-7a8b")
@@ -282,7 +381,11 @@ func TestClaudeAutoMode(t *testing.T) {
 // sleep turn waits on an approval, mid-turn. claude must confirm the switch,
 // the live mode must follow from its report, the pending request must survive
 // and be answerable, and the next turn's system/init, as claude re-sends it,
-// must report the same mode the header shows.
+// must report the same mode the header shows. its subject is the switch, not
+// the approval, so it answers nothing: once the request is seen to survive the
+// switch, the turn is interrupted, which settles the request without a
+// decision and runs nothing. the next turn's report is checked through the
+// normalized facts and events, never claude's own frames.
 func TestClaudeModeSwitch(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	svc := newE2EService(t, newClaudeHarness(t))
@@ -295,11 +398,11 @@ func TestClaudeModeSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &session{t: t, svc: svc, id: conv.ID}
-	view := s.waitFor("the approval", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
+	approval := s.expectApproval(approvalWant{tool: "Bash", command: "sleep 3"})
+	view := s.view()
 	if view.Facts == nil || view.Facts.PermissionMode != "default" {
 		t.Fatalf("started in %+v", view.Facts)
 	}
-	approval := view.Pending[0]
 
 	outcome, err := svc.SetPermissionMode(s.id, "auto")
 	if err != nil || outcome.Outcome != service.ModeConfirmed {
@@ -312,13 +415,18 @@ func TestClaudeModeSwitch(t *testing.T) {
 	if len(view.Pending) != 1 || view.Pending[0].ID != approval.ID {
 		t.Fatalf("the pending request did not survive the switch: %+v", view.Pending)
 	}
-	if err := svc.Answer(s.id, approval.ID, harness.Answer{Decision: harness.DecisionAllow}); err != nil {
+	if err := svc.Interrupt(s.id); err != nil {
 		t.Fatal(err)
 	}
 	s.idle()
-	s.expectReply("DELTA-7a8b")
+	if len(s.view().Pending) != 0 {
+		t.Errorf("the interrupted turn's request is still pending: %+v", s.view().Pending)
+	}
 
-	// the next turn's init is claude's own report of the mode.
+	// the next turn's init is claude's own report of the mode. the adapter
+	// turns a report of any other mode into a mode_changed event, so the
+	// normalized facts tell it: the header still says auto, and no change away
+	// from auto was recorded after the switch.
 	s.prompt(markerPrompt)
 	s.idle()
 	s.expectReply("ALPHA-1a2b")
@@ -326,23 +434,20 @@ func TestClaudeModeSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var lastInit string
-	for _, ev := range evs {
-		if ev.Kind != model.EventNative || ev.Text != "system/init" {
-			continue
-		}
-		if raw, ok := ev.Raw.(map[string]any); ok {
-			lastInit, _ = raw["permissionMode"].(string)
-		}
-	}
-	if lastInit != "auto" || s.view().Facts.PermissionMode != "auto" {
-		t.Errorf("the next turn's init reported %q; the header shows %q", lastInit, s.view().Facts.PermissionMode)
+	if mode := s.view().Facts.PermissionMode; mode != "auto" {
+		t.Errorf("after the next turn the header shows %q, want auto", mode)
 	}
 	var changes []string
 	for _, ev := range evs {
 		if ev.Kind == model.EventRuntime && ev.Status == model.StatusModeChanged {
 			changes = append(changes, ev.Facts.PermissionMode+": "+ev.Text)
+			if ev.Facts.PermissionMode != "auto" {
+				t.Errorf("a change away from auto was recorded after the switch: %s %q", ev.Facts.PermissionMode, ev.Text)
+			}
 		}
+	}
+	if len(changes) == 0 {
+		t.Error("the switch to auto was not recorded")
 	}
 	t.Logf("mode changes recorded: %v", changes)
 	shutdown(t, svc, s)

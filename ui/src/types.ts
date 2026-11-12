@@ -14,6 +14,41 @@ export interface Project {
   // exist", "not a directory", "not readable"), computed on every read;
   // absent when it can.
   checkout_missing?: string
+  // the project's environment as it stands now; it comes with the workspace
+  // read.
+  environment?: ProjectEnvironment
+}
+
+// ProjectEnvironment is a project's shell environment: the repository's
+// .mega/environment.yaml as read now, the operator's approval (a fingerprint
+// and when) and override, where the activation comes from, whether work may
+// start, the latest resolution (names and a fingerprint, never values), and
+// what each harness cannot find in it.
+export interface ProjectEnvironment {
+  file: {
+    path: string
+    present: boolean
+    content?: string
+    fingerprint?: string
+    modified_at?: string
+    malformed?: string
+  }
+  approved?: { fingerprint: string; at: string }
+  override?: { ignore: boolean; activate?: string }
+  // none (no file), file, ignored (the override ignores the file), override.
+  source: 'none' | 'file' | 'ignored' | 'override'
+  status: 'ready' | 'unapproved' | 'changed' | 'malformed'
+  refusal?: { code: string; message: string }
+  resolved?: { at: string; source: string; changed: string[]; fingerprint?: string; error?: string }
+  missing: { harness: string; executable: string; reason: string }[]
+}
+
+// a running runtime's launch environment: names and fingerprints only.
+export interface RuntimeEnvironment {
+  source: string
+  activation?: string
+  changed: string[]
+  fingerprint: string
 }
 
 // what a conversation asks of the operator, computed by the service.
@@ -126,6 +161,10 @@ export interface Conversation {
   // the runtime's background jobs; absent when none, or when there is no
   // runtime to ask (unknown, for an unsupervised conversation).
   background?: BackgroundJob[]
+  // what the running runtime was launched with; absent with no runtime.
+  environment?: RuntimeEnvironment
+  // the runtime would start in another environment now.
+  environment_stale?: boolean
 }
 
 // one model a harness offers, and the effort levels it takes (none for a
@@ -155,15 +194,6 @@ export interface Workspace {
   needs_you: string[]
   // the "shut down when idle" gate and what is in its way.
   shutdown?: ShutdownGate
-  // whether each harness can run from mega's environment.
-  preflight?: Preflight
-}
-
-// Preflight is computed on every read: mega's PATH, and each harness that
-// cannot run because something it executes cannot be found.
-export interface Preflight {
-  path: string
-  missing: { harness: string; executable: string; reason: string }[]
 }
 
 // Blocker is one conversation holding the shutdown gate, by kind.

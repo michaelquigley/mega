@@ -4,20 +4,22 @@ horizon:
   - start-up-reads-every-log.md
   - mega-as-the-development-hub.md
 researching:
-  - each-project-runs-in-its-own-environment.md
   - ui-test-runner.md
   - version-metadata-in-web-ui.md
+  - you.md
+  - center-conversation.md
   - claude-shim-distribution.md
   - mcp-tool-visibility.md
+  - mega-on-twentytwo.md
+  - action-view-improvements.md
   - codex-approval-policy.md
   - codex-discovery-e2e-reads-its-own-thread.md
   - relocate-a-projects-checkout.md
   - expanded-states.md
 evaluating:
+  - each-project-runs-in-its-own-environment.md
+  - live-approval-tests-answer-for-the-operator.md
   - opening-a-conversation-costs-its-whole-history.md
-  - name-and-tagline.md
-  - the-launcher-starts-mega-without-the-operators-environment.md
   - dfw-daemon-mode.md
-  - start-or-reattach-a-runtime-without-a-turn.md
   - path-search-in-the-input-panel.md
   - model-and-effort-selection.md

@@ -1,9 +1,11 @@
 package service
 
 import (
+	"github.com/michaelquigley/mega/internal/environ"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/michaelquigley/mega/internal/harness"
 	"github.com/michaelquigley/mega/internal/model"
@@ -23,6 +25,7 @@ func newService(t *testing.T, registryPath string, checker UntrustedChecker, har
 		IsUntrusted:  checker,
 		EventLogPath: func(id string) string { return filepath.Join(logs, id, "events.jsonl") },
 		Harnesses:    harnesses,
+		Resolver:     testResolver(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -133,6 +136,7 @@ func TestRemoveLeavesCheckoutAndOtherProjectsAlone(t *testing.T) {
 	}
 	svc, err := New(reg, Options{
 		EventLogPath: func(id string) string { return filepath.Join(filepath.Dir(path), "conversations", id, "events.jsonl") },
+		Resolver:     testResolver(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -275,4 +279,16 @@ func TestCloseIsSafeInEveryOrder(t *testing.T) {
 		t.Error("subscribing after close delivered a live channel")
 	}
 	late.Close()
+}
+
+// testResolver resolves through bash from a base with a temporary HOME, so no
+// start-up file of the operator's is read and nothing of the test's own
+// environment but a system PATH reaches what it resolves.
+func testResolver(t *testing.T) *environ.Resolver {
+	t.Helper()
+	shell := "/bin/bash"
+	if _, err := os.Stat(shell); err != nil {
+		t.Skip("bash is not installed")
+	}
+	return &environ.Resolver{Shell: shell, Base: []string{"HOME=" + t.TempDir(), "PATH=/usr/local/bin:/usr/bin:/bin"}, Timeout: 5 * time.Second}
 }

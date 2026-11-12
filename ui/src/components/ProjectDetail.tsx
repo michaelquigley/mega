@@ -3,6 +3,7 @@ import { select } from '../selection'
 import { removeProject, renameProject } from '../api'
 import type { Conversation, Project } from '../types'
 import { AttentionMark } from './AttentionMark'
+import { EnvironmentSection } from './EnvironmentSection'
 import { IconButton } from './Icon'
 
 interface ProjectDetailProps {
@@ -57,6 +58,7 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
         </p>
       )}
       {error && <p className="error">{error}</p>}
+      <EnvironmentSection key={project.id} project={project} />
       <section>
         <div className="section-head">
           <h2>Conversations</h2>

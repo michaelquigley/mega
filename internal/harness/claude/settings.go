@@ -5,11 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/michaelquigley/df/dd"
 	"github.com/michaelquigley/df/dl"
 
+	"github.com/michaelquigley/mega/internal/harness"
 	"github.com/michaelquigley/mega/internal/model"
 )
 
@@ -42,13 +44,14 @@ var ignoredInProject = map[string]bool{"auto": true, "bypassPermissions": true}
 // local settings.local.json at the repository root, then the one in cwd; the
 // shared .claude/settings.json in cwd (never the repository root's, which
 // claude does not read for a session below it); then the user's settings.json
-// ($CLAUDE_CONFIG_DIR, else ~/.claude). auto and bypassPermissions named in a
+// ($CLAUDE_CONFIG_DIR, else ~/.claude, as env, the project's resolved
+// environment, names them; with none, mega's home). auto and bypassPermissions named in a
 // project or local file are skipped, as claude ignores them there. it only
 // reads. a file that cannot be read is skipped with a warning. every way this
 // can differ from claude ends in mega passing the manual mode, never in
 // passing nothing where claude would find no mode.
-func (h *Harness) InheritedPermissionMode(cwd string) string {
-	for _, layer := range h.settingsLayers(cwd) {
+func (h *Harness) InheritedPermissionMode(cwd string, env []string) string {
+	for _, layer := range h.settingsLayers(cwd, env) {
 		settings := &claudeSettings{}
 		if err := dd.BindJSONFile(settings, layer.path); err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
@@ -70,9 +73,9 @@ func (h *Harness) InheritedPermissionMode(cwd string) string {
 // precedence, that names each. per-model effort overrides (modelSettings)
 // and environment variables are not read, so this is what the settings files
 // say at the top level. it only reads.
-func (h *Harness) Inherited(_ context.Context, cwd string) (string, string, error) {
+func (h *Harness) Inherited(_ context.Context, place harness.Place) (string, string, error) {
 	var model, effort string
-	for _, layer := range h.settingsLayers(cwd) {
+	for _, layer := range h.settingsLayers(place.Cwd, place.Env) {
 		settings := &claudeSettings{}
 		if err := dd.BindJSONFile(settings, layer.path); err != nil {
 			continue
@@ -87,7 +90,7 @@ func (h *Harness) Inherited(_ context.Context, cwd string) (string, string, erro
 	return model, effort, nil
 }
 
-func (h *Harness) settingsLayers(cwd string) []settingsLayer {
+func (h *Harness) settingsLayers(cwd string, env []string) []settingsLayer {
 	managed := h.cfg.ManagedSettings
 	if managed == "" {
 		managed = DefaultManagedSettings
@@ -100,10 +103,16 @@ func (h *Harness) settingsLayers(cwd string) []settingsLayer {
 		settingsLayer{path: filepath.Join(cwd, ".claude", "settings.local.json"), project: true},
 		settingsLayer{path: filepath.Join(cwd, ".claude", "settings.json"), project: true},
 	)
-	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+	// the claude a launch starts reads its user settings where the project's
+	// environment points it, so this does too.
+	if dir, ok := lookup(env, "CLAUDE_CONFIG_DIR"); ok && dir != "" {
 		return append(layers, settingsLayer{path: filepath.Join(dir, "settings.json")})
 	}
-	if home, err := os.UserHomeDir(); err == nil {
+	home, ok := lookup(env, "HOME")
+	if !ok || home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	if home != "" {
 		layers = append(layers, settingsLayer{path: filepath.Join(home, ".claude", "settings.json")})
 	}
 	return layers
@@ -162,12 +171,22 @@ func ownedByMe(path string) bool {
 // passed as it is. no choice is mega's default: inherit what the
 // settings name, else pass the manual mode explicitly, so a claude whose own
 // fallback changes cannot pick a looser mode on mega's behalf.
-func (h *Harness) launchMode(cwd, chosen string) (mode string, inherited bool) {
+func (h *Harness) launchMode(cwd, chosen string, env []string) (mode string, inherited bool) {
 	if chosen != "" {
 		return chosen, false
 	}
-	if h.InheritedPermissionMode(cwd) != "" {
+	if h.InheritedPermissionMode(cwd, env) != "" {
 		return "", true
 	}
 	return model.PermissionModeDefault, false
+}
+
+// lookup reads a variable from an environment list.
+func lookup(env []string, name string) (string, bool) {
+	for _, kv := range env {
+		if n, v, ok := strings.Cut(kv, "="); ok && n == name {
+			return v, true
+		}
+	}
+	return "", false
 }

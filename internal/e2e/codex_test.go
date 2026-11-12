@@ -24,7 +24,7 @@ func TestCodexDiscoveryAndHistory(t *testing.T) {
 	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	sessions, err := h.Discover(ctx, fixture)
+	sessions, err := h.Discover(ctx, harness.Place{Cwd: fixture, Env: os.Environ()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestCodexDiscoveryAndHistory(t *testing.T) {
 	for _, s := range sessions[:min(3, len(sessions))] {
 		t.Logf("thread %s updated %s: %.60q", s.NativeID, s.UpdatedAt.Format(time.RFC3339), s.Preview)
 	}
-	history, err := h.History(ctx, fixture, sessions[0].NativeID)
+	history, err := h.History(ctx, harness.Place{Cwd: fixture, Env: os.Environ()}, sessions[0].NativeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,13 +58,22 @@ const (
 	codexMarkerPrompt = "Reply with the project instruction marker token from your project instructions (AGENTS.md), followed by the word ALPHA-1a2b. Nothing else."
 	// the fixture is trusted in the operator's codex config, which gives it a
 	// workspace-write sandbox, so only a write outside the checkout needs approval.
-	codexApprovalPrompt = "Using a shell command, create the file ../codex-rt1-approval.txt (in the parent of the working directory) containing the single line GAMMA-5e6f. Then reply with GAMMA-5e6f. Nothing else."
-	codexQuestionPrompt = "Before doing anything else, ask me a question using your user-input question mechanism: which color do I prefer, Red or Blue? Wait for my answer. Then reply with my chosen color followed by STEER-GAMMA-5e6f. Nothing else."
-	codexReturnPrompt   = "List every marker token you have seen in this conversation so far, in order, one per line, then append RESUME-SDK-c3d4 on its own line. Nothing else."
+	codexApprovalPrompt = "Run exactly this shell command, and no other: echo GAMMA-5e6f > ../codex-rt1-approval.txt (it writes in the parent of the working directory). Then reply with GAMMA-5e6f. Nothing else."
+	// the one command the approval round trip expects to be asked about.
+	codexApprovalCommand = "echo GAMMA-5e6f > ../codex-rt1-approval.txt"
+	codexQuestionPrompt  = "Before doing anything else, ask me a question using your user-input question mechanism: which color do I prefer, Red or Blue? Wait for my answer. Then reply with my chosen color followed by STEER-GAMMA-5e6f. Nothing else."
+	codexReturnPrompt    = "List every marker token you have seen in this conversation so far, in order, one per line, then append RESUME-SDK-c3d4 on its own line. Nothing else."
 )
 
 // TestCodexRoundTrip is X1 to X4 and an X7-style resumed turn through the
 // service, without the terminal visit (X5), which the operator does by hand.
+//
+// the approval round trip is what X2 tests: a genuine command approval
+// reaches the operator, the turn waits on it, and the command runs only after
+// the answer. the test plays the operator for exactly that request (shell,
+// `echo GAMMA-5e6f > ../codex-rt1-approval.txt`), asserted before it answers,
+// through the HTTP API a browser uses; anything else fails the test
+// unanswered.
 func TestCodexRoundTrip(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
 	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
@@ -90,24 +99,20 @@ func TestCodexRoundTrip(t *testing.T) {
 
 	// X2: a genuine approval waits for a delayed answer.
 	s.prompt(codexApprovalPrompt)
-	view := s.waitFor("the approval", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
-	approval := view.Pending[0]
-	if approval.Kind != model.RequestPermission {
-		t.Fatalf("expected a permission request, got %+v", approval)
-	}
+	approval := s.expectApproval(approvalWant{tool: "shell", command: codexApprovalCommand})
 	time.Sleep(4 * time.Second)
 	if !s.view().TurnActive {
 		t.Error("the turn ended while the approval was pending")
 	}
-	if err := svc.Answer(s.id, approval.ID, harness.Answer{Decision: harness.DecisionAllow}); err != nil {
-		t.Fatal(err)
+	if code := s.answer(approval.ID, "allow"); code != "" {
+		t.Fatalf("the answer was refused: %s", code)
 	}
 	s.idle()
 	s.expectReply("GAMMA-5e6f")
 
 	// X3: the default-mode async question is a request, answered into its turn.
 	s.prompt(codexQuestionPrompt)
-	view = s.waitFor("the question", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
+	view := s.waitFor("the question", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
 	question := view.Pending[0]
 	payload, _ := question.Payload.(map[string]any)
 	questions, _ := payload["questions"].([]any)
@@ -152,7 +157,7 @@ func TestCodexRoundTrip(t *testing.T) {
 	for _, ev := range after {
 		recorded[ev.NativeID] = true
 	}
-	history, err := h.History(context.Background(), fixture, conv.NativeID)
+	history, err := h.History(context.Background(), harness.Place{Cwd: fixture, Env: os.Environ()}, conv.NativeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,6 +221,11 @@ func TestCodexReleaseDuringCommand(t *testing.T) {
 // elicitation; it must arrive as a permission card naming fixture/echo with
 // its parameter, the tool must not run while the card waits, and it must run
 // after Allow. the fixture server logs each call to mcp/mcp-calls.log.
+//
+// the approval round trip is what it tests. the test plays the operator for
+// exactly that request (fixture/echo, server fixture, tool echo, text
+// MCP-E2E-7c1d), asserted before it answers, through the HTTP API a
+// browser uses; anything else fails the test unanswered.
 func TestCodexMCPApproval(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
 	calls := filepath.Join(fixture, "mcp", "mcp-calls.log")
@@ -232,21 +242,20 @@ func TestCodexMCPApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &session{t: t, svc: svc, id: conv.ID}
-	view := s.waitFor("the MCP approval", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
-	approval := view.Pending[0]
+	approval := s.expectApproval(approvalWant{tool: "fixture/echo", mcpServer: "fixture", mcpTool: "echo"})
 	payload, _ := approval.Payload.(map[string]any)
-	if approval.Kind != model.RequestPermission || payload["tool"] != "fixture/echo" || payload["allow_session"] != true {
-		t.Fatalf("expected a permission request for fixture/echo, got %+v", approval)
+	if payload["allow_session"] != true {
+		t.Fatalf("expected the MCP approval to offer allow for the session, got %+v; it was not answered", approval)
 	}
 	if input, _ := payload["input"].(map[string]any); input["text"] != "MCP-E2E-7c1d" {
-		t.Errorf("input = %v", payload["input"])
+		t.Fatalf("expected the echo of MCP-E2E-7c1d, got input %v; it was not answered", payload["input"])
 	}
 	time.Sleep(3 * time.Second)
 	if _, err := os.Stat(calls); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the tool ran before it was allowed: %v", err)
 	}
-	if err := svc.Answer(s.id, approval.ID, harness.Answer{Decision: harness.DecisionAllow}); err != nil {
-		t.Fatal(err)
+	if code := s.answer(approval.ID, "allow"); code != "" {
+		t.Fatalf("the answer was refused: %s", code)
 	}
 	s.idle()
 	s.expectReply("echo: MCP-E2E-7c1d")

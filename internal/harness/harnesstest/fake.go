@@ -39,6 +39,25 @@ type Harness struct {
 	missing      error    // what Check reports, under missingMu
 	historyErr   error    // what History fails with, if set
 	reads        []string // native ids History was asked for, in order
+	// places are where History, Discover, Models and Inherited were asked to
+	// run, in order: each checkout with the environment it was given.
+	places []harness.Place
+	// checked are the environments Check was given, under missingMu.
+	checked [][]string
+}
+
+// Places returns where the helpers were asked to run, in order.
+func (h *Harness) Places() []harness.Place {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]harness.Place(nil), h.places...)
+}
+
+// Checked returns the environments Check was given, in order.
+func (h *Harness) Checked() [][]string {
+	h.missingMu.Lock()
+	defer h.missingMu.Unlock()
+	return append([][]string(nil), h.checked...)
 }
 
 // New returns a fake harness registered under name.
@@ -93,9 +112,10 @@ func (h *Harness) DeferModelChanges(deferred bool) {
 	h.deferred = deferred
 }
 
-func (h *Harness) Models(context.Context, string) (harness.Catalog, error) {
+func (h *Harness) Models(_ context.Context, place harness.Place) (harness.Catalog, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.places = append(h.places, place)
 	h.modelLists++
 	return h.catalog, nil
 }
@@ -125,15 +145,17 @@ func (h *Harness) FailHistory(err error) {
 // Check reports what SetMissing set. it takes its own lock, not h.mu: a
 // workspace read runs it, and a test may read the workspace from inside
 // Launch, which holds h.mu.
-func (h *Harness) Check() error {
+func (h *Harness) Check(env []string) error {
 	h.missingMu.Lock()
 	defer h.missingMu.Unlock()
+	h.checked = append(h.checked, env)
 	return h.missing
 }
 
-func (h *Harness) Inherited(context.Context, string) (string, string, error) {
+func (h *Harness) Inherited(_ context.Context, place harness.Place) (string, string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.places = append(h.places, place)
 	return h.inherited[0], h.inherited[1], nil
 }
 
@@ -168,7 +190,10 @@ func (h *Harness) SetSessions(sessions []harness.Session) {
 	h.sessions = sessions
 }
 
-func (h *Harness) Discover(context.Context, string) ([]harness.Session, error) {
+func (h *Harness) Discover(_ context.Context, place harness.Place) ([]harness.Session, error) {
+	h.mu.Lock()
+	h.places = append(h.places, place)
+	h.mu.Unlock()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return slices.Clone(h.sessions), nil
@@ -234,7 +259,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	return r, nil
 }
 
-func (h *Harness) History(_ context.Context, _ string, nativeID string) (harness.History, error) {
+func (h *Harness) History(_ context.Context, place harness.Place, nativeID string) (harness.History, error) {
 	h.mu.Lock()
 	onHistory := h.onHistory
 	h.mu.Unlock()
@@ -244,6 +269,7 @@ func (h *Harness) History(_ context.Context, _ string, nativeID string) (harness
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.reads = append(h.reads, nativeID)
+	h.places = append(h.places, place)
 	if h.historyErr != nil {
 		return harness.History{}, h.historyErr
 	}
@@ -281,6 +307,7 @@ type Runtime struct {
 	interrupts  int
 	closed      bool
 	exited      bool
+	settled     bool // the sink has handled the exit
 	holdOnClose bool
 	modes       []string
 	models      []string // "model/effort" for each model change accepted
@@ -481,6 +508,12 @@ func (r *Runtime) Exit(err error) {
 	r.exited = true
 	r.mu.Unlock()
 	r.sink.Exited(err)
+	// exited only once the sink has handled it: a test that waits on Exited
+	// then sees the service settled, never the moment before it records the
+	// stop.
+	r.mu.Lock()
+	r.settled = true
+	r.mu.Unlock()
 }
 
 // Prompts lists the prompts received.
@@ -515,5 +548,5 @@ func (r *Runtime) Closed() bool {
 func (r *Runtime) Exited() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.exited
+	return r.settled
 }

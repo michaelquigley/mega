@@ -80,17 +80,23 @@ func (s *Service) Models(projectID, harnessName string) (Models, error) {
 	if !ok {
 		return Models{}, newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", harnessName))
 	}
+	// the harness runs in the project's environment, which must be one mega
+	// may run.
+	place, err := s.placeFor(projectID)
+	if err != nil {
+		return Models{}, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), modelsTimeout)
 	defer cancel()
 	catalog, cached := s.catalogs.get(harnessName)
 	if !cached {
-		catalog, err = h.Models(ctx, project.Checkout)
+		catalog, err = h.Models(ctx, place)
 		if err != nil {
-			return Models{}, s.explain(harnessName, fmt.Errorf("listing '%s' models: %w", harnessName, err))
+			return Models{}, s.explain(harnessName, place.Env, fmt.Errorf("listing '%s' models: %w", harnessName, err))
 		}
 		s.catalogs.put(harnessName, catalog)
 	}
-	inheritedModel, inheritedEffort, err := h.Inherited(ctx, project.Checkout)
+	inheritedModel, inheritedEffort, err := h.Inherited(ctx, place)
 	if err != nil {
 		// what inherit means is a courtesy; the list stands without it.
 		dl.Warnf("reading what '%s' inherits in '%s': %v", harnessName, project.Checkout, err)

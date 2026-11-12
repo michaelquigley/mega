@@ -53,7 +53,7 @@ func (h *Harness) Name() string {
 // returns.
 func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime, error) {
 	r := newRuntime(sink)
-	c, err := dial(h.cfg.Binary, spec.Cwd, r)
+	c, err := dial(h.cfg.Binary, harness.Place{Cwd: spec.Cwd, Env: spec.Env}, r)
 	if err != nil {
 		// the app-server never started.
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
@@ -125,9 +125,9 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 
 // History reads the thread's stored turns from a short-lived app-server. items
 // of a turn still in progress are reported open.
-func (h *Harness) History(ctx context.Context, cwd, nativeID string) (harness.History, error) {
+func (h *Harness) History(ctx context.Context, place harness.Place, nativeID string) (harness.History, error) {
 	read := &threadRead{}
-	if err := h.once(ctx, cwd, "thread/read", &threadReadParams{ThreadID: nativeID, IncludeTurns: true}, read); err != nil {
+	if err := h.once(ctx, place, "thread/read", &threadReadParams{ThreadID: nativeID, IncludeTurns: true}, read); err != nil {
 		return harness.History{}, fmt.Errorf("reading history of '%s': %w", nativeID, err)
 	}
 	history := harness.History{Open: make(map[string]bool)}
@@ -154,10 +154,11 @@ func (h *Harness) History(ctx context.Context, cwd, nativeID string) (harness.Hi
 	return history, nil
 }
 
-// Discover lists the threads codex stores for cwd.
-func (h *Harness) Discover(ctx context.Context, cwd string) ([]harness.Session, error) {
+// Discover lists the threads codex stores for the place's checkout.
+func (h *Harness) Discover(ctx context.Context, place harness.Place) ([]harness.Session, error) {
+	cwd := place.Cwd
 	list := &threadList{}
-	if err := h.once(ctx, cwd, "thread/list", &threadListParams{Cwd: cwd, Limit: discoverLimit}, list); err != nil {
+	if err := h.once(ctx, place, "thread/list", &threadListParams{Cwd: cwd, Limit: discoverLimit}, list); err != nil {
 		return nil, fmt.Errorf("listing threads in '%s': %w", cwd, err)
 	}
 	var sessions []harness.Session
@@ -176,8 +177,8 @@ func (h *Harness) Discover(ctx context.Context, cwd string) ([]harness.Session, 
 }
 
 // once runs one call against a short-lived app-server with no thread loaded.
-func (h *Harness) once(ctx context.Context, cwd, method string, params, out any) error {
-	c, err := dial(h.cfg.Binary, cwd, quiet{})
+func (h *Harness) once(ctx context.Context, place harness.Place, method string, params, out any) error {
+	c, err := dial(h.cfg.Binary, place, quiet{})
 	if err != nil {
 		return err
 	}
@@ -192,12 +193,12 @@ func (h *Harness) once(ctx context.Context, cwd, method string, params, out any)
 // thread, as discovery does. hidden models are left out. the version comes
 // from the app-server's user agent.
 // Check reports whether the configured codex binary can be found.
-func (h *Harness) Check() error {
-	return harness.FindExecutable(model.HarnessCodex, h.cfg.Binary)
+func (h *Harness) Check(env []string) error {
+	return harness.FindExecutable(model.HarnessCodex, h.cfg.Binary, env)
 }
 
-func (h *Harness) Models(ctx context.Context, cwd string) (harness.Catalog, error) {
-	c, err := dial(h.cfg.Binary, cwd, quiet{})
+func (h *Harness) Models(ctx context.Context, place harness.Place) (harness.Catalog, error) {
+	c, err := dial(h.cfg.Binary, place, quiet{})
 	if err != nil {
 		return harness.Catalog{}, err
 	}
@@ -234,8 +235,9 @@ func (h *Harness) Models(ctx context.Context, cwd string) (harness.Catalog, erro
 // Inherited says what model and effort a thread with none chosen gets in
 // cwd: codex's own effective config for the checkout, project layers
 // included, from config/read (capability report, 0.166.0). it only reads.
-func (h *Harness) Inherited(ctx context.Context, cwd string) (string, string, error) {
-	c, err := dial(h.cfg.Binary, cwd, quiet{})
+func (h *Harness) Inherited(ctx context.Context, place harness.Place) (string, string, error) {
+	cwd := place.Cwd
+	c, err := dial(h.cfg.Binary, place, quiet{})
 	if err != nil {
 		return "", "", err
 	}

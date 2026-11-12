@@ -1,6 +1,6 @@
 ---
 title: each project runs in its own environment
-state: researching
+state: evaluating
 created: 2026-11-11
 tags: [defect, spike]
 ---
