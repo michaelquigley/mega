@@ -13,6 +13,8 @@ Two days of building mega through mega showed the tax plainly. Michael carried s
 
 This is consolidation, not invention. Mega is new, but the practice it gathers is more than a year old and maintains on the order of a million lines of code: the roadmap convention is practice-wide, mercurius has about a hundred converged sessions behind it, terminus gates every stage of every project, and the roles and pipeline have been refined in daily use. Mega's part is to be the surface those proven pieces meet on.
 
+The practice has a name, orienteering (the grimoire's `agents/orienteering`): a solo operator keeping a map honest against the ground, with the roadmap, the pipeline, the brokers and the repo disciplines as its parts. Mega is the wedge that refines and streamlines that whole practice into what it can be for a solo operator. The hub is where orienteering is run, and every piece below is one of its named parts arriving on one surface.
+
 ## the principle
 
 Mega carries; it never decides. The spec says mega is not a coordinating agent, not a pipeline engine, and holds no competing copy of project truth. Every integration here is something mega shows the operator or moves at his command. Choosing the next agent, advancing a stage, or keeping its own copy of a card or a verdict would make it the thing the spec ruled out.

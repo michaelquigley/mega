@@ -1,26 +1,17 @@
 building:
-  - the-launcher-starts-mega-without-the-operators-environment.md
 horizon:
   - mega-as-the-development-hub.md
   - ui-test-runner.md
 researching:
   - each-project-runs-in-its-own-environment.md
+  - opening-a-conversation-costs-its-whole-history.md
+  - name-and-tagline.md
   - claude-shim-distribution.md
   - codex-discovery-e2e-reads-its-own-thread.md
   - relocate-a-projects-checkout.md
 evaluating:
+  - the-launcher-starts-mega-without-the-operators-environment.md
   - dfw-daemon-mode.md
-  - favicon.md
-  - a-missing-checkout-is-reported.md
-  - roundhouse-mega.md
-  - path-search-follow-ups.md
-  - start-follow-ups.md
-  - shutdown.md
   - start-or-reattach-a-runtime-without-a-turn.md
   - path-search-in-the-input-panel.md
-  - a-failed-load-never-renders-as-an-empty-workspace.md
-  - operator-panel-expansion-behavior.md
-  - background-jobs.md
-  - side-panel-structure.md
-  - codex-can-return-to-inherit-while-running.md
   - model-and-effort-selection.md

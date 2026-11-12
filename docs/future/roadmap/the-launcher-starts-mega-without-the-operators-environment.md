@@ -1,6 +1,6 @@
 ---
 title: the launcher starts mega without the operator's environment
-state: building
+state: evaluating
 created: 2026-11-11
 tags: [defect]
 ---
