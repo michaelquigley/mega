@@ -1,12 +1,11 @@
 building:
-  - opening-a-conversation-costs-its-whole-history.md
 horizon:
   - hand-off-between-conversations.md
   - start-up-reads-every-log.md
   - mega-as-the-development-hub.md
-  - ui-test-runner.md
 researching:
   - each-project-runs-in-its-own-environment.md
+  - ui-test-runner.md
   - version-metadata-in-web-ui.md
   - claude-shim-distribution.md
   - mcp-tool-visibility.md
@@ -15,6 +14,7 @@ researching:
   - relocate-a-projects-checkout.md
   - expanded-states.md
 evaluating:
+  - opening-a-conversation-costs-its-whole-history.md
   - name-and-tagline.md
   - the-launcher-starts-mega-without-the-operators-environment.md
   - dfw-daemon-mode.md

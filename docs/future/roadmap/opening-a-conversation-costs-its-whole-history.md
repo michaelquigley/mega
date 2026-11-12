@@ -1,6 +1,6 @@
 ---
 title: opening a conversation costs its whole history
-state: building
+state: evaluating
 created: 2026-11-12
 tags: [defect]
 ---
