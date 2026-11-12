@@ -48,11 +48,14 @@ func (h *Harness) Name() string {
 	return model.HarnessClaude
 }
 
-// Check reports whether node and the shim can be found: node on the
-// project's PATH in env (or at its configured path), the shim script and its
-// installed sdk.
-func (h *Harness) Check(env []string) error {
-	if err := harness.FindExecutable(model.HarnessClaude, h.cfg.Node, env); err != nil {
+// Check reports whether node and the shim can be found: node on find's PATH
+// (or at its configured path), the claude executable the same way, the shim
+// script and its installed sdk.
+func (h *Harness) Check(find []string) error {
+	if err := harness.FindExecutable(model.HarnessClaude, h.cfg.Node, find); err != nil {
+		return err
+	}
+	if _, err := h.executable(find); err != nil {
 		return err
 	}
 	if _, err := h.script(); err != nil {
@@ -75,21 +78,67 @@ func (h *Harness) script() (string, error) {
 	return path, nil
 }
 
-// command runs the shim with node found on env's PATH, in env and nothing of
-// mega's own: the project's environment reaches the claude the shim starts,
-// and every command claude runs.
-func (h *Harness) command(ctx context.Context, env []string, args ...string) (*exec.Cmd, error) {
+// executable is the claude code executable the shim starts: a configured path
+// as it is, or a bare name located in find, so the shim never looks it up on
+// the PATH the activation set. it must be a native build: the sdk starts a
+// script through an interpreter it finds by name on the process's PATH, which
+// the activation sets, so a script (a #! line, or a .js, .mjs or .cjs file) is
+// refused rather than handed over.
+func (h *Harness) executable(find []string) (string, error) {
+	path := h.cfg.Executable
+	if !strings.Contains(path, "/") {
+		found, err := harness.LookPath(path, find)
+		if err != nil {
+			return "", &harness.MissingError{Harness: model.HarnessClaude, Executable: path, Reason: fmt.Sprintf("'%s' was not found on the project's PATH", path)}
+		}
+		path = found
+	}
+	if script(path) {
+		return "", &harness.MissingError{Harness: model.HarnessClaude, Executable: path, Reason: fmt.Sprintf("'%s' is a script, and the sdk would start it through an interpreter found on the project's activated PATH; set claude.executable to a native build, such as ~/.local/share/claude/versions/<version>", path)}
+	}
+	return path, nil
+}
+
+// script reports whether path is a script the sdk would run through an
+// interpreter: a JavaScript file, or one that starts with #!. a path that
+// cannot be read is left to fail where it is run.
+func script(path string) bool {
+	switch filepath.Ext(path) {
+	case ".js", ".mjs", ".cjs":
+		return true
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 2)
+	n, _ := f.Read(head)
+	return n == 2 && string(head) == "#!"
+}
+
+// command runs the shim with node located in place.Find, the environment
+// before the project's activation, and gives it place.Env, the project's whole
+// environment, and nothing of mega's own: the activation reaches the claude
+// the shim starts and every command claude runs, but never decides which node
+// mega runs.
+func (h *Harness) command(ctx context.Context, place harness.Place, args ...string) (*exec.Cmd, error) {
 	script, err := h.script()
 	if err != nil {
 		return nil, err
 	}
-	node, err := harness.LookPath(h.cfg.Node, env)
+	node, err := harness.Program(h.cfg.Node, place.Find)
 	if err != nil {
-		return nil, &harness.MissingError{Harness: model.HarnessClaude, Executable: h.cfg.Node, Reason: fmt.Sprintf("'%s' was not found on the project's PATH", h.cfg.Node)}
+		var missing *harness.MissingError
+		if errors.As(err, &missing) {
+			missing.Harness = model.HarnessClaude
+		}
+		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, node, append([]string{script}, args...)...)
+	argv := append(append(node[1:], script), args...)
+	cmd := exec.CommandContext(ctx, node[0], argv...)
 	// never nil, which exec would fill with mega's own environment.
-	cmd.Env = append([]string{}, env...)
+	cmd.Env = append([]string{}, place.Env...)
 	cmd.Dir = h.cfg.Shim
 	// its own process group, so a terminal interrupt aimed at the service does
 	// not reach the shim and cut short the orderly release.
@@ -105,7 +154,11 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		nativeID = newUUID()
 		sessionFlag = "--session-id"
 	}
-	args := []string{"run", "--cwd", spec.Cwd, "--exec", h.cfg.Executable, sessionFlag, nativeID}
+	executable, err := h.executable(spec.Find)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
+	}
+	args := []string{"run", "--cwd", spec.Cwd, "--exec", executable, sessionFlag, nativeID}
 	mode, inherited := h.launchMode(spec.Cwd, spec.PermissionMode, spec.Env)
 	if mode != "" {
 		args = append(args, "--permission-mode", mode)
@@ -123,7 +176,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	if spec.Idle {
 		args = append(args, "--idle")
 	}
-	cmd, err := h.command(context.Background(), spec.Env, args...)
+	cmd, err := h.command(context.Background(), harness.Place{Cwd: spec.Cwd, Env: spec.Env, Find: spec.Find}, args...)
 	if err != nil {
 		// the shim was never started, so no session can exist.
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
@@ -148,7 +201,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 // History reads the session's stored messages through the shim. a claude
 // transcript carries no turn status, so no event is reported open.
 func (h *Harness) History(ctx context.Context, place harness.Place, nativeID string) (harness.History, error) {
-	cmd, err := h.command(ctx, place.Env, "messages", "--session", nativeID, "--cwd", place.Cwd)
+	cmd, err := h.command(ctx, place, "messages", "--session", nativeID, "--cwd", place.Cwd)
 	if err != nil {
 		return harness.History{}, err
 	}
@@ -201,7 +254,11 @@ type shimModels struct {
 // shim: no prompt is sent, so no turn runs and no session is stored
 // (capability report, 2.1.318).
 func (h *Harness) Models(ctx context.Context, place harness.Place) (harness.Catalog, error) {
-	cmd, err := h.command(ctx, place.Env, "models", "--cwd", place.Cwd, "--exec", h.cfg.Executable)
+	executable, err := h.executable(place.Find)
+	if err != nil {
+		return harness.Catalog{}, err
+	}
+	cmd, err := h.command(ctx, place, "models", "--cwd", place.Cwd, "--exec", executable)
 	if err != nil {
 		return harness.Catalog{}, err
 	}
@@ -238,7 +295,7 @@ type sessionInfo struct {
 // returns them.
 func (h *Harness) Discover(ctx context.Context, place harness.Place) ([]harness.Session, error) {
 	cwd := place.Cwd
-	cmd, err := h.command(ctx, place.Env, "list", "--cwd", cwd)
+	cmd, err := h.command(ctx, place, "list", "--cwd", cwd)
 	if err != nil {
 		return nil, err
 	}

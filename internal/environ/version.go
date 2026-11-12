@@ -15,7 +15,7 @@ import (
 // version.
 const versionDepth = 50
 
-// Version is an earlier .mega/environment.yaml found by its fingerprint: its
+// Version is an earlier .mega/environment.yaml found by its digest: its
 // content and where it was found, a commit or the index.
 type Version struct {
 	Content string
@@ -23,12 +23,12 @@ type Version struct {
 }
 
 // FindVersion looks for the version of the checkout's .mega/environment.yaml
-// whose fingerprint is fingerprint, in the git index and the file's last
+// whose full digest is digest, in the git index and the file's last
 // commits, so a changed file can be shown beside the version the operator
 // approved without that version ever being stored. git runs in env with no
 // optional locks. a checkout outside git, or a version that was never
 // committed or staged, is simply not found.
-func FindVersion(ctx context.Context, checkout, fingerprint string, env []string) (Version, bool) {
+func FindVersion(ctx context.Context, checkout, digest string, env []string) (Version, bool) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	path, ok := lookPath("git", env)
@@ -41,7 +41,7 @@ func FindVersion(ctx context.Context, checkout, fingerprint string, env []string
 		cmd.Env = append(append([]string{}, env...), "GIT_OPTIONAL_LOCKS=0")
 		return cmd.Output()
 	}
-	if data, err := git("show", ":"+FilePath); err == nil && Fingerprint(data) == fingerprint {
+	if data, err := git("show", ":"+FilePath); err == nil && Digest(data) == digest {
 		return Version{Content: string(data), Found: "the git index"}, true
 	}
 	out, err := git("log", "-n", strconv.Itoa(versionDepth), "--format=%h", "--", FilePath)
@@ -50,7 +50,7 @@ func FindVersion(ctx context.Context, checkout, fingerprint string, env []string
 	}
 	for _, commit := range strings.Fields(string(bytes.TrimSpace(out))) {
 		data, err := git("show", commit+":"+FilePath)
-		if err == nil && Fingerprint(data) == fingerprint {
+		if err == nil && Digest(data) == digest {
 			return Version{Content: string(data), Found: "commit " + commit}, true
 		}
 	}

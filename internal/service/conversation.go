@@ -74,7 +74,7 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 	if err != nil {
 		return ConversationView{}, err
 	}
-	if err := missingCoded(s.harnesses[harnessName].Check(place.Env)); err != nil {
+	if err := missingCoded(s.harnesses[harnessName].Check(place.Find)); err != nil {
 		return ConversationView{}, err
 	}
 	s.mu.Lock()
@@ -122,7 +122,7 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 	s.mu.Unlock()
 	err = s.startRuntime(conv.ID, l, false, place, facts)
 	if err != nil {
-		return s.view(conv.ID), s.explain(harnessName, place.Env, err)
+		return s.view(conv.ID), s.explain(harnessName, place.Find, err)
 	}
 	if err := s.send(conv.ID, prompt); err != nil {
 		return s.view(conv.ID), err
@@ -197,7 +197,7 @@ func (s *Service) Prompt(conversationID, text string) error {
 		return err
 	}
 	if err := s.startRuntime(conversationID, l, false, place, facts); err != nil {
-		return s.explain(conv.Harness, place.Env, err)
+		return s.explain(conv.Harness, place.Find, err)
 	}
 	return s.send(conversationID, text)
 }
@@ -263,7 +263,7 @@ func (s *Service) Start(conversationID string) error {
 	if err := s.importBeforeLaunch(conv, l, place); err != nil {
 		return err
 	}
-	return s.explain(conv.Harness, place.Env, s.startRuntime(conversationID, l, true, place, facts))
+	return s.explain(conv.Harness, place.Find, s.startRuntime(conversationID, l, true, place, facts))
 }
 
 // conversationEnvReadyLocked refuses work in a conversation whose project's
@@ -283,7 +283,7 @@ func (s *Service) conversationEnvReadyLocked(conv model.Conversation) error {
 func (s *Service) resolveForStart(conv model.Conversation, l *live) (harness.Place, *model.EnvironmentFacts, error) {
 	place, facts, err := s.resolveProject(conv.ProjectID)
 	if err == nil {
-		err = missingCoded(s.harnesses[conv.Harness].Check(place.Env))
+		err = missingCoded(s.harnesses[conv.Harness].Check(place.Find))
 	}
 	if err != nil {
 		s.mu.Lock()
@@ -365,7 +365,7 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 	// the project's resolved environment, in full, and nothing of mega's own;
 	// what it was is recorded with the runtime's start, as names and
 	// fingerprints.
-	spec.Env = place.Env
+	spec.Env, spec.Find = place.Env, place.Find
 	if inc != nil {
 		inc.env = facts
 	}
@@ -731,7 +731,7 @@ func (s *Service) importHistory(conv model.Conversation, l *live, place harness.
 	defer cancel()
 	history, err := h.History(ctx, place, conv.NativeID)
 	if err != nil {
-		return imported{}, s.explain(conv.Harness, place.Env, fmt.Errorf("importing history of '%s': %w", conv.ID, err))
+		return imported{}, s.explain(conv.Harness, place.Find, fmt.Errorf("importing history of '%s': %w", conv.ID, err))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

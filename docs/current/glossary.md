@@ -44,9 +44,10 @@ The words mega's documents, cards and interface use, and what each one means her
 
 - **Project environment.** The shell environment a project's work runs in: the variables every process mega starts for that project is given. It is resolved fresh at each runtime start from the operator's shell, never from the environment mega itself was started in.
 - **Activation.** The short shell snippet that turns a plain shell environment into a project's, such as `devprj`. It is defined in the project's own repository, in `.mega/environment.yaml`.
-- **Approval.** The operator's agreement that mega may run a repository's activation. It is tied to the file's exact content, so a changed file is not run until it has been approved again.
+- **Approval.** The operator's agreement that mega may run a repository's activation. It is tied to the file's exact content by its full SHA-256 digest, so a changed file is not run until it has been approved again. It covers that text only: an activation that reads other files in the repository is trusting them. So the approval also remembers the names of the variables the activation changed, and an activation that later changes others is refused until approved again.
 - **Override.** A local instruction on a project to ignore the repository's file or to run a different activation. Workspace state, not repository content.
-- **Fingerprint.** A short digest that identifies a file's content or a resolved environment without revealing it. Mega records fingerprints and variable names, never values.
+- **Fingerprint.** A short digest, the first 16 hex digits of a SHA-256, that identifies a file's content or a resolved environment for display, without revealing it. Mega records fingerprints and variable names, never values.
+- **Digest.** The full SHA-256 of a file's content, what an approval is bound to. The fingerprint is its short form.
 
 ## Running mega
 

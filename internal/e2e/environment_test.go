@@ -155,7 +155,7 @@ func TestEachProjectRunsInItsOwnEnvironment(t *testing.T) {
 			t.Fatal(err)
 		}
 		// approved in this scratch workspace, at the fingerprint it shows.
-		if _, err := svc.ApproveEnvironment(p.ID, svc.Workspace().Environments[p.ID].File.Fingerprint); err != nil {
+		if _, err := svc.ApproveEnvironment(p.ID, svc.Workspace().Environments[p.ID].File.Digest); err != nil {
 			t.Fatal(err)
 		}
 		return p

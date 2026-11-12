@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/michaelquigley/df/dd"
@@ -31,9 +32,12 @@ type fileBody struct {
 // activation it names. Malformed says why the file cannot be used, or is
 // empty when it can.
 type File struct {
-	Path        string
-	Present     bool
-	Content     string
+	Path    string
+	Present bool
+	Content string
+	// Digest is the full SHA-256 of the content, the binding an approval
+	// stores; Fingerprint is its short form, for display.
+	Digest      string
 	Fingerprint string
 	ModifiedAt  time.Time
 	Activate    string
@@ -64,6 +68,7 @@ func ReadFile(checkout string) File {
 		return f
 	}
 	f.Content = string(data)
+	f.Digest = Digest(data)
 	f.Fingerprint = Fingerprint(data)
 	body := &fileBody{}
 	if err := dd.BindYAML(body, data); err != nil {
@@ -74,9 +79,36 @@ func ReadFile(checkout string) File {
 	return f
 }
 
-// Fingerprint names content by its hash: the first 16 hex digits of its
-// sha256, prefixed so it reads as a fingerprint, never as the content.
+// Fingerprint names content by its hash for display: the first 16 hex digits
+// of its sha256, prefixed so it reads as a fingerprint, never as the content.
+// it tells two things apart; it is not a binding.
 func Fingerprint(data []byte) string {
+	return Short(Digest(data))
+}
+
+// Digest is the full sha256 of content, "sha256:" and 64 hex digits: what an
+// approval is bound to.
+func Digest(data []byte) string {
 	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])[:16]
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// Short is a digest's display form, its first 16 hex digits; a value already
+// short, or not a digest, comes back as it is.
+func Short(digest string) string {
+	if len(digest) > len("sha256:")+16 {
+		return digest[:len("sha256:")+16]
+	}
+	return digest
+}
+
+// IsDigest says whether s is a full digest, as approvals now store, rather
+// than the short form approvals once stored.
+func IsDigest(s string) bool {
+	hexPart, ok := strings.CutPrefix(s, "sha256:")
+	if !ok || len(hexPart) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(hexPart)
+	return err == nil
 }

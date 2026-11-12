@@ -24,7 +24,7 @@ func TestCodexDiscoveryAndHistory(t *testing.T) {
 	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	sessions, err := h.Discover(ctx, harness.Place{Cwd: fixture, Env: os.Environ()})
+	sessions, err := h.Discover(ctx, harness.Place{Cwd: fixture, Env: os.Environ(), Find: os.Environ()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestCodexDiscoveryAndHistory(t *testing.T) {
 	for _, s := range sessions[:min(3, len(sessions))] {
 		t.Logf("thread %s updated %s: %.60q", s.NativeID, s.UpdatedAt.Format(time.RFC3339), s.Preview)
 	}
-	history, err := h.History(ctx, harness.Place{Cwd: fixture, Env: os.Environ()}, sessions[0].NativeID)
+	history, err := h.History(ctx, harness.Place{Cwd: fixture, Env: os.Environ(), Find: os.Environ()}, sessions[0].NativeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestCodexRoundTrip(t *testing.T) {
 	for _, ev := range after {
 		recorded[ev.NativeID] = true
 	}
-	history, err := h.History(context.Background(), harness.Place{Cwd: fixture, Env: os.Environ()}, conv.NativeID)
+	history, err := h.History(context.Background(), harness.Place{Cwd: fixture, Env: os.Environ(), Find: os.Environ()}, conv.NativeID)
 	if err != nil {
 		t.Fatal(err)
 	}

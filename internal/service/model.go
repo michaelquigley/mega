@@ -92,7 +92,7 @@ func (s *Service) Models(projectID, harnessName string) (Models, error) {
 	if !cached {
 		catalog, err = h.Models(ctx, place)
 		if err != nil {
-			return Models{}, s.explain(harnessName, place.Env, fmt.Errorf("listing '%s' models: %w", harnessName, err))
+			return Models{}, s.explain(harnessName, place.Find, fmt.Errorf("listing '%s' models: %w", harnessName, err))
 		}
 		s.catalogs.put(harnessName, catalog)
 	}

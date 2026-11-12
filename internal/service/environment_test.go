@@ -42,7 +42,7 @@ func (r *rig) envState(projectID string) EnvState {
 // approve approves the file as the project page shows it.
 func (r *rig) approve(projectID string) {
 	r.t.Helper()
-	if _, err := r.svc.ApproveEnvironment(projectID, r.envState(projectID).File.Fingerprint); err != nil {
+	if _, err := r.svc.ApproveEnvironment(projectID, r.envState(projectID).File.Digest); err != nil {
 		r.t.Fatal(err)
 	}
 }
@@ -275,7 +275,7 @@ func TestAnUnapprovedFileIsNeverRun(t *testing.T) {
 	}
 
 	// approving at a fingerprint the operator was not shown is refused.
-	if _, err := r.svc.ApproveEnvironment(r.project.ID, "sha256:0000000000000000"); ErrorCode(err) != CodeConflict {
+	if _, err := r.svc.ApproveEnvironment(r.project.ID, environ.Digest([]byte("a version never shown"))); ErrorCode(err) != CodeConflict {
 		t.Errorf("approving another version: %v", err)
 	}
 	r.approve(r.project.ID)
@@ -298,10 +298,10 @@ func TestAnUnapprovedFileIsNeverRun(t *testing.T) {
 	// stored, so outside git it cannot be shown, only named.
 	writeEnvFile(t, r.project.Checkout, "export MEGA_MARKER="+markerTwo)
 	st = r.envState(r.project.ID)
-	if st.Status != EnvChanged || st.Approved == nil || st.Approved.Fingerprint == st.File.Fingerprint {
+	if st.Status != EnvChanged || st.Approved == nil || st.Approved.Digest == st.File.Digest {
 		t.Fatalf("changed: status %s, approved %+v", st.Status, st.Approved)
 	}
-	if v, err := r.svc.ApprovedVersion(r.project.ID); err != nil || v.Available || v.Fingerprint != st.Approved.Fingerprint {
+	if v, err := r.svc.ApprovedVersion(r.project.ID); err != nil || v.Available || v.Digest != st.Approved.Digest {
 		t.Errorf("the approved version outside git: %+v %v", v, err)
 	}
 	wantCode(t, r.svc.Start(conv.ID), CodeEnvironmentChanged)
@@ -356,7 +356,7 @@ func TestAMalformedFileIsReportedAndRefused(t *testing.T) {
 	}
 	_, err := r.startIn(r.project.ID, "hello")
 	wantCode(t, err, CodeEnvironmentInvalid)
-	_, err = r.svc.ApproveEnvironment(r.project.ID, st.File.Fingerprint)
+	_, err = r.svc.ApproveEnvironment(r.project.ID, st.File.Digest)
 	wantCode(t, err, CodeEnvironmentInvalid)
 }
 
@@ -369,7 +369,7 @@ func TestApprovalAndOverrideSurviveARestartAndAnOldRegistryApprovesNothing(t *te
 	}
 	r.restart()
 	st := r.envState(r.project.ID)
-	if st.Approved == nil || st.Approved.Fingerprint != st.File.Fingerprint || st.Override == nil || st.Source != model.EnvSourceOverride {
+	if st.Approved == nil || st.Approved.Digest != st.File.Digest || st.Override == nil || st.Source != model.EnvSourceOverride {
 		t.Fatalf("after a restart: %+v", st)
 	}
 

@@ -137,11 +137,13 @@ func listPaths(place harness.Place) []string {
 func gitFiles(place harness.Place) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), pathsTimeout)
 	defer cancel()
-	git, err := harness.LookPath("git", place.Env)
+	// git is located where the activation cannot have put it, and runs with
+	// the project's whole environment.
+	git, err := harness.Program("git", place.Find)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, git, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	cmd := exec.CommandContext(ctx, git[0], append(git[1:], "ls-files", "-z", "--cached", "--others", "--exclude-standard")...)
 	cmd.Dir = place.Cwd
 	// the project's environment, and a listing takes no optional locks, so it
 	// never refreshes the index.

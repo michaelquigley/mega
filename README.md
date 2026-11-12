@@ -62,7 +62,7 @@ Prebuilt binaries are not offered yet: the Claude shim runs from a checkout with
 
 ## Project environments
 
-Every agent in a project runs in that project's own shell environment: the one a terminal opened in the checkout and activated your usual way would have. mega never hands an agent the environment mega itself was started in. mega starts your interactive shell in the checkout from a clean base and applies the project's activation, at every start of a runtime and for its own helpers.
+Every agent in a project runs in that project's own shell environment: the one a terminal opened in the checkout and activated your usual way would have. mega never hands an agent the environment mega itself was started in. mega starts your shell in the checkout from a clean base, as a login and interactive shell so your profile scripts and start-up files both run, and applies the project's activation, at every start of a runtime and for its own helpers.
 
 The activation lives in the repository, in `.mega/environment.yaml`, as one key:
 
@@ -78,7 +78,11 @@ activate: eval "$(direnv export bash)"
 
 A project with no file gets your shell's own environment in the checkout and nothing more, which suits a project that needs no activation.
 
-**mega will not run a repository's activation until you approve it.** The project page shows the file and an Approve control. If the file changes after you approve it, nothing starts in that project until you have compared the two versions and approved the new one. The approved version is found in the checkout's git history; mega stores only its fingerprint. A local override on the project page lets you ignore the file, or run another activation on this machine. A file that cannot be read, an activation that fails, and one that takes longer than ten seconds each refuse to start anything, and say why.
+**mega will not run a repository's activation until you approve it.** The project page shows the file and an Approve control. If the file changes after you approve it, nothing starts in that project until you have compared the two versions and approved the new one. The approved version is found in the checkout's git history; mega stores only its SHA-256 digest. An approval made before mega stored the full digest needs approving once more. A local override on the project page lets you ignore the file, or run another activation on this machine. A file that cannot be read, an activation that fails, and one that takes longer than ten seconds each refuse to start anything, and say why.
+
+**Approving the file approves its text, nothing more.** An activation that reads other files in the repository is trusting them. `devprj` reads `.devprj`, and a snippet may source a script, and an agent can usually change such a file without asking. Two things limit that:
+- **mega finds its own programs before the activation.** `node`, `git` and the harness binaries come from your shell's environment as it was before the activation ran. An activation can change what an agent's commands see, but never which program mega itself runs.
+- **The approval remembers the names of the variables the activation changed.** If a later start finds it changing a different set, a new `LD_PRELOAD` say, nothing starts until you have looked and approved again. The project page shows the added and removed names, never their values.
 
 mega records which environment each runtime started in by names and a fingerprint, never values. The conversation header says when a running agent started in an older environment than the project's current one. The project page shows the variables the activation changes, and their values only when you ask.
 

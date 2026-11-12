@@ -88,7 +88,7 @@ func fakeHarness(t *testing.T, mode string) *Harness {
 
 func TestNoReplyToThreadStartLeavesTheSessionUnknown(t *testing.T) {
 	h := fakeHarness(t, "no-reply")
-	_, err := h.Launch(harness.Spec{Env: os.Environ(), Cwd: t.TempDir()}, &recordingSink{})
+	_, err := h.Launch(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir()}, &recordingSink{})
 	if err == nil {
 		t.Fatal("expected the launch to fail")
 	}
@@ -99,7 +99,7 @@ func TestNoReplyToThreadStartLeavesTheSessionUnknown(t *testing.T) {
 
 func TestRefusedThreadStartIsNotStarted(t *testing.T) {
 	h := fakeHarness(t, "refuse")
-	_, err := h.Launch(harness.Spec{Env: os.Environ(), Cwd: t.TempDir()}, &recordingSink{})
+	_, err := h.Launch(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir()}, &recordingSink{})
 	if !errors.Is(err, harness.ErrNotStarted) {
 		t.Errorf("an explicit refusal of thread/start: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestRefusedThreadStartIsNotStarted(t *testing.T) {
 
 func TestMissingAppServerIsNotStarted(t *testing.T) {
 	h := New(Config{Binary: "/nonexistent/codex"})
-	_, err := h.Launch(harness.Spec{Env: os.Environ(), Cwd: t.TempDir()}, &recordingSink{})
+	_, err := h.Launch(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir()}, &recordingSink{})
 	if !errors.Is(err, harness.ErrNotStarted) {
 		t.Errorf("a missing app-server: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestMissingAppServerIsNotStarted(t *testing.T) {
 
 func TestHistoryReportsItemsOfATurnInProgressAsOpen(t *testing.T) {
 	h := fakeHarness(t, "history")
-	history, err := h.History(t.Context(), harness.Place{Cwd: t.TempDir(), Env: os.Environ()}, "t-1")
+	history, err := h.History(t.Context(), harness.Place{Cwd: t.TempDir(), Env: os.Environ(), Find: os.Environ()}, "t-1")
 	if err != nil {
 		t.Fatal(err)
 	}

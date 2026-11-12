@@ -46,6 +46,7 @@ func (p Project) Clone() Project {
 	c := p
 	if p.EnvApproved != nil {
 		approved := *p.EnvApproved
+		approved.Changed = append([]string(nil), p.EnvApproved.Changed...)
 		c.EnvApproved = &approved
 	}
 	if p.EnvOverride != nil {
@@ -55,11 +56,19 @@ func (p Project) Clone() Project {
 	return c
 }
 
-// EnvApproval is an approved .mega/environment.yaml: its fingerprint, and
-// when the operator approved it.
+// EnvApproval is an approved .mega/environment.yaml: the full sha256 digest
+// of the approved text, when the operator approved it, and the names of the
+// variables its activation changed then (NamesKnown once a resolution after
+// the approval has recorded them). a later resolution that changes another
+// set of names is refused until the operator approves again. Fingerprint is
+// the short form an approval stored before the full digest; it is only read,
+// so such an approval can be recognized and approved again.
 type EnvApproval struct {
-	Fingerprint string
+	Digest      string `dd:",+omitempty"`
+	Fingerprint string `dd:",+omitempty"`
 	At          time.Time
+	Changed     []string `dd:",+omitempty"`
+	NamesKnown  bool     `dd:",+omitempty"`
 }
 
 // EnvOverride is the operator's local override of a project's environment:

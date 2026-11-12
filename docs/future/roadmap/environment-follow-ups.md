@@ -1,6 +1,6 @@
 ---
 title: environment follow-ups
-state: inbox
+state: evaluating
 created: 2026-11-12
 tags: [defect]
 ---

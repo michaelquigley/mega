@@ -71,19 +71,24 @@ type Harness interface {
 	// the place, from the operator's own settings, or empty where unknown.
 	Inherited(ctx context.Context, place Place) (model, effort string, err error)
 
-	// Check reports whether what the harness runs can be found in env, a
-	// project's resolved environment, and in mega's configuration: nil, or a
-	// *MissingError naming the first thing missing. it starts nothing and
-	// reads only names and modes.
-	Check(env []string) error
+	// Check reports whether what the harness runs can be found in find, the
+	// environment mega locates its own programs in (a project's, before its
+	// activation), and in mega's configuration: nil, or a *MissingError
+	// naming the first thing missing. it starts nothing and reads only names
+	// and modes.
+	Check(find []string) error
 }
 
-// Place is where a harness process runs on a project's behalf: the checkout,
-// and the project's resolved environment, which every process the adapter
-// starts gets in full, and nothing of mega's own.
+// Place is where a harness process runs on a project's behalf: the checkout;
+// Env, the project's resolved environment, which every process the adapter
+// starts gets in full, and nothing of mega's own; and Find, the environment
+// before the project's activation, on whose PATH the adapter locates the
+// programs it runs. an activation can change what an agent's commands see,
+// but never which program mega itself executes.
 type Place struct {
-	Cwd string
-	Env []string
+	Cwd  string
+	Env  []string
+	Find []string
 }
 
 // ErrExecutableMissing marks a harness that cannot run because something it
@@ -105,10 +110,10 @@ func (e *MissingError) Is(target error) bool {
 	return target == ErrExecutableMissing
 }
 
-// FindExecutable checks that name can be run in env: a path is checked as
-// given, a bare name is looked up on env's PATH, as a shell in that
-// environment would.
-func FindExecutable(harnessName, name string, env []string) error {
+// FindExecutable checks that name can be run from find: a path is checked as
+// given, a bare name is looked up on find's PATH, and a script's
+// #!/usr/bin/env interpreter is looked up the same way.
+func FindExecutable(harnessName, name string, find []string) error {
 	if name == "" {
 		return &MissingError{Harness: harnessName, Executable: name, Reason: "no executable is configured"}
 	}
@@ -122,10 +127,101 @@ func FindExecutable(harnessName, name string, env []string) error {
 		}
 		return nil
 	}
-	if _, err := LookPath(name, env); err != nil {
+	if _, err := Program(name, find); err != nil {
+		var missing *MissingError
+		if errors.As(err, &missing) {
+			missing.Harness = harnessName
+			return missing
+		}
 		return &MissingError{Harness: harnessName, Executable: name, Reason: fmt.Sprintf("'%s' was not found on the project's PATH", name)}
 	}
 	return nil
+}
+
+// Program is how mega runs name, located in find: the whole command line,
+// with every interpreter in a script's #! chain resolved through find and
+// named explicitly, so neither the program nor any interpreter it leads to is
+// whatever an activation put first on the PATH the process will see. env is
+// followed in the forms "env PROG" and "env -S PROG ARGS", into find; any
+// other form, env naming env, a relative interpreter, or a chain deeper than
+// programDepth, is refused rather than run unresolved.
+func Program(name string, find []string) ([]string, error) {
+	return program(name, find, 0)
+}
+
+// programDepth bounds an interpreter chain, as the kernel bounds its own.
+const programDepth = 4
+
+func program(name string, find []string, depth int) ([]string, error) {
+	if depth > programDepth {
+		return nil, &MissingError{Executable: name, Reason: fmt.Sprintf("'%s' is reached through a chain of interpreters deeper than %d, so mega will not run it", name, programDepth)}
+	}
+	path, err := LookPath(name, find)
+	if err != nil {
+		return nil, &MissingError{Executable: name, Reason: fmt.Sprintf("'%s' was not found on the project's PATH", name)}
+	}
+	interp, rest, ok := shebang(path)
+	if !ok {
+		return []string{path}, nil
+	}
+	refuse := func() ([]string, error) {
+		return nil, &MissingError{Executable: name, Reason: fmt.Sprintf("'%s' names its interpreter as '%s', a form mega does not follow, so it will not run it; name the interpreter directly", path, strings.TrimSpace(interp+" "+rest))}
+	}
+	if !filepath.IsAbs(interp) {
+		return refuse()
+	}
+	var next string
+	var args []string
+	if filepath.Base(interp) == "env" {
+		command := strings.Fields(rest)
+		switch {
+		case len(command) > 0 && command[0] == "-S":
+			command = command[1:]
+		case len(command) != 1:
+			// without -S the kernel hands env the rest as one word.
+			return refuse()
+		}
+		if len(command) == 0 || strings.HasPrefix(command[0], "-") || strings.Contains(command[0], "=") || filepath.Base(command[0]) == "env" {
+			return refuse()
+		}
+		next, args = command[0], command[1:]
+	} else {
+		// an absolute interpreter gets the rest of the line as one argument,
+		// as the kernel gives it; it may itself be a script, followed too.
+		next = interp
+		if rest != "" {
+			args = []string{rest}
+		}
+	}
+	inner, err := program(next, find, depth+1)
+	if err != nil {
+		var missing *MissingError
+		if errors.As(err, &missing) && missing.Executable == next {
+			missing.Reason = fmt.Sprintf("'%s', the interpreter '%s' names, cannot be run: %s", next, path, missing.Reason)
+		}
+		return nil, err
+	}
+	return append(append(inner, args...), path), nil
+}
+
+// shebang reads a script's #! line: its interpreter and the rest of the line.
+// ok is false for anything that does not start with #!.
+func shebang(path string) (interp, rest string, ok bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", false
+	}
+	defer f.Close()
+	head := make([]byte, 256)
+	n, _ := f.Read(head)
+	line, _, _ := strings.Cut(string(head[:n]), "\n")
+	body, found := strings.CutPrefix(line, "#!")
+	if !found {
+		return "", "", false
+	}
+	body = strings.TrimSpace(body)
+	interp, rest, _ = strings.Cut(body, " ")
+	return interp, strings.TrimSpace(rest), interp != ""
 }
 
 // LookPath finds name as exec would, but on env's PATH rather than mega's own:
@@ -192,8 +288,10 @@ type Session struct {
 type Spec struct {
 	Cwd string
 	// Env is the project's resolved environment, which the runtime's process
-	// gets in full and nothing of mega's own.
+	// gets in full and nothing of mega's own. Find is the environment before
+	// the activation, where the adapter locates the programs it runs.
 	Env      []string
+	Find     []string
 	NativeID string
 	// Model and Effort are the operator's choice; empty passes nothing, so
 	// the harness's own settings apply.

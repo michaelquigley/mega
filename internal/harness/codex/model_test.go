@@ -18,9 +18,9 @@ func TestLaunchPassesTheChosenModelAndReportsWhatCodexRuns(t *testing.T) {
 		spec harness.Spec
 		want string
 	}{
-		{harness.Spec{Env: os.Environ(), Cwd: t.TempDir(), Model: "gpt-b", Effort: "low"}, "gpt-b"},
-		{harness.Spec{Env: os.Environ(), Cwd: t.TempDir()}, "gpt-b"}, // inherit sends the config's model
-		{harness.Spec{Env: os.Environ(), Cwd: t.TempDir(), NativeID: "t-1", Model: "gpt-b"}, "gpt-b"},
+		{harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir(), Model: "gpt-b", Effort: "low"}, "gpt-b"},
+		{harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir()}, "gpt-b"}, // inherit sends the config's model
+		{harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir(), NativeID: "t-1", Model: "gpt-b"}, "gpt-b"},
 	} {
 		sink := &recordingSink{}
 		rt, err := h.Launch(tc.spec, sink)
@@ -104,7 +104,7 @@ func TestSettingsUpdateIsTheLiveModelAndEffort(t *testing.T) {
 
 func TestModelsListsWhatCodexOffersAndInheritedReadsItsConfig(t *testing.T) {
 	h := fakeHarness(t, "models")
-	catalog, err := h.Models(t.Context(), harness.Place{Cwd: t.TempDir(), Env: os.Environ()})
+	catalog, err := h.Models(t.Context(), harness.Place{Cwd: t.TempDir(), Env: os.Environ(), Find: os.Environ()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestModelsListsWhatCodexOffersAndInheritedReadsItsConfig(t *testing.T) {
 	if b.ID != "gpt-b" || strings.Join(b.Efforts, ",") != "low" {
 		t.Errorf("b = %+v", b)
 	}
-	m, e, err := h.Inherited(t.Context(), harness.Place{Cwd: t.TempDir(), Env: os.Environ()})
+	m, e, err := h.Inherited(t.Context(), harness.Place{Cwd: t.TempDir(), Env: os.Environ(), Find: os.Environ()})
 	if err != nil || m != "gpt-b" || e != "low" {
 		t.Errorf("inherited %q %q %v", m, e, err)
 	}
@@ -205,7 +205,7 @@ func TestOverriddenThreadSetBackToInheritSendsTheConfig(t *testing.T) {
 		return params
 	}
 
-	run(harness.Spec{Env: os.Environ(), Cwd: cwd, Model: "gpt-a", Effort: "high"})
+	run(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: cwd, Model: "gpt-a", Effort: "high"})
 	if starts := sent("thread/start"); len(starts) != 1 || starts[0]["model"] != "gpt-a" {
 		t.Fatalf("thread/start = %v", starts)
 	}
@@ -213,7 +213,7 @@ func TestOverriddenThreadSetBackToInheritSendsTheConfig(t *testing.T) {
 		t.Fatalf("the overriding turn = %v", turns)
 	}
 
-	run(harness.Spec{Env: os.Environ(), Cwd: cwd, NativeID: "t-1"})
+	run(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: cwd, NativeID: "t-1"})
 	if resumes := sent("thread/resume"); len(resumes) != 1 || resumes[0]["model"] != "gpt-b" {
 		t.Errorf("thread/resume set back to inherit = %v", resumes)
 	}

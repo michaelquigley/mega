@@ -19,7 +19,7 @@ func TestIdleLaunchResumesTheThreadAndStartsNoTurn(t *testing.T) {
 	frames := filepath.Join(t.TempDir(), "frames")
 	t.Setenv(fakeFrames, frames)
 	sink := &recordingSink{}
-	rt, err := h.Launch(harness.Spec{Env: os.Environ(), Cwd: t.TempDir(), NativeID: "t-1", Idle: true}, sink)
+	rt, err := h.Launch(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir(), NativeID: "t-1", Idle: true}, sink)
 	if err != nil {
 		t.Fatal(err)
 	}

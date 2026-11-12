@@ -62,13 +62,22 @@ type Resolver struct {
 	Base []string
 	// Timeout bounds a resolution; zero is DefaultTimeout.
 	Timeout time.Duration
+	// SkipProfile runs the shell interactive but not as a login shell, so no
+	// profile script is read. it is for tests that resolve many times and do
+	// not test the profile; mega itself always resolves through a login shell.
+	SkipProfile bool
 }
 
 // Resolution is an environment as resolved: every variable, in memory only,
 // the names the activation changed against the shell's own environment
 // before it, and the fingerprint of the whole.
 type Resolution struct {
-	Env         []string
+	Env []string
+	// Before is the shell's own environment before the activation ran, in
+	// memory only. mega finds the programs it runs itself on Before's PATH, so
+	// an activation can change what an agent's commands see but never which
+	// program mega executes.
+	Before      []string
 	Changed     []string
 	Fingerprint string
 	At          time.Time
@@ -119,7 +128,15 @@ func (r *Resolver) Resolve(ctx context.Context, dir, activate string) (*Resoluti
 		return nil, &Failure{Reason: fmt.Sprintf("preparing to resolve: %v", err)}
 	}
 	var output bytes.Buffer
-	cmd := exec.Command(r.Shell, "-i", "-c", script(r.Shell, activate))
+	// a login and interactive shell, so the profile scripts (/etc/profile and
+	// /etc/profile.d, the operator's ~/.profile or its shell's equivalent)
+	// run as well as the interactive start-up files, as for a terminal the
+	// operator's session began in.
+	flags := []string{"-l", "-i"}
+	if r.SkipProfile {
+		flags = []string{"-i"}
+	}
+	cmd := exec.Command(r.Shell, append(flags, "-c", script(r.Shell, activate))...)
 	cmd.Dir = dir
 	cmd.Env = r.Base
 	cmd.Stdin = nil
@@ -164,9 +181,11 @@ func (r *Resolver) Resolve(ctx context.Context, dir, activate string) (*Resoluti
 		return nil, &Failure{Reason: fmt.Sprintf("the activation in '%s' ended the shell before its environment could be read", dir), Output: tail(output.String())}
 	}
 	env := clean(split(afterEnv))
+	own := clean(split(beforeEnv))
 	return &Resolution{
 		Env:         env,
-		Changed:     changed(clean(split(beforeEnv)), env),
+		Before:      own,
+		Changed:     changed(own, env),
 		Fingerprint: EnvFingerprint(env),
 		At:          time.Now().UTC(),
 	}, nil
@@ -249,7 +268,7 @@ func changed(before, after []string) []string {
 	return names
 }
 
-// EnvFingerprint names a whole environment by its hash, so two can be
+// EnvFingerprint names a whole environment by its short hash, so two can be
 // compared without either being recorded.
 func EnvFingerprint(env []string) string {
 	return Fingerprint([]byte(strings.Join(env, "\x00")))

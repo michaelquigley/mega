@@ -47,6 +47,9 @@ const (
 	EnvUnapproved = "unapproved"
 	EnvChanged    = "changed"
 	EnvMalformed  = "malformed"
+	// EnvNamesChanged: the approved activation now changes another set of
+	// variables than it did when approved.
+	EnvNamesChanged = "names_changed"
 )
 
 // EnvState is a project's environment as it stands now: the repository's file
@@ -72,6 +75,10 @@ type EnvState struct {
 	Missing []harness.MissingError
 
 	activate string
+	// fileRefusal is the refusal the file alone decides (unapproved, changed,
+	// malformed), known without running anything. a names refusal is about
+	// the last resolution, so a new one may lift it; only this stops one.
+	fileRefusal *Error
 }
 
 // ResolvedEnv is a resolution as the service holds it: when, from which
@@ -85,9 +92,22 @@ type ResolvedEnv struct {
 	Changed     []string
 	Fingerprint string
 	Error       string
+	// Added and Removed are the names this resolution changed beyond, and
+	// short of, those the approval recorded, when they differ; such a
+	// resolution is refused until the operator approves again.
+	Added   []string
+	Removed []string
 
-	env []string
+	env    []string // the whole resolved environment, in memory only
+	before []string // the environment before the activation, where mega finds its programs
+	// approvedAt is the approval the names were compared with, so a refusal
+	// lapses once the operator approves again.
+	approvedAt time.Time
 }
+
+// namesRefused is whether this resolution was refused for the names it
+// changed.
+func (r *ResolvedEnv) namesRefused() bool { return len(r.Added) > 0 || len(r.Removed) > 0 }
 
 // envRecord is the latest resolution of a project, and whether one runs now.
 type envRecord struct {
@@ -115,7 +135,13 @@ func (s *Service) envStateLocked(project model.Project) EnvState {
 		st.Source = model.EnvSourceFile
 		st.Status = EnvUnapproved
 		st.Refusal = &Error{Code: CodeEnvironmentUnapproved, Message: fmt.Sprintf("'%s' has not been approved, so mega will not run its activation; review and approve it on the project page", st.File.Path)}
-	case project.EnvApproved.Fingerprint != st.File.Fingerprint:
+	case !environ.IsDigest(project.EnvApproved.Digest):
+		// an approval stored before the full digest: its sixteen hex digits
+		// are not binding enough, so it counts for nothing.
+		st.Source = model.EnvSourceFile
+		st.Status = EnvUnapproved
+		st.Refusal = &Error{Code: CodeEnvironmentUnapproved, Message: fmt.Sprintf("'%s' was approved under the short fingerprint mega stored before it bound approvals to the full SHA-256 digest, which is not binding enough; review and approve it again on the project page", st.File.Path)}
+	case project.EnvApproved.Digest != st.File.Digest:
 		st.Source = model.EnvSourceFile
 		st.Status = EnvChanged
 		st.Refusal = &Error{Code: CodeEnvironmentChanged, Message: fmt.Sprintf("'%s' has changed since it was approved, so mega will not run it; compare the two versions and approve the new one on the project page", st.File.Path)}
@@ -126,20 +152,66 @@ func (s *Service) envStateLocked(project model.Project) EnvState {
 	if st.activate != "" {
 		st.Activation = environ.Fingerprint([]byte(st.Source + "\x00" + st.activate))
 	}
+	st.fileRefusal = st.Refusal
 	if rec := s.envs[project.ID]; rec != nil && rec.resolved != nil {
 		// a copy: the record stays the service's own.
 		resolved := *rec.resolved
 		resolved.Changed = slices.Clone(resolved.Changed)
+		resolved.Added, resolved.Removed = slices.Clone(resolved.Added), slices.Clone(resolved.Removed)
 		st.Resolved = &resolved
-		if rec.resolved.Error == "" {
-			st.Missing = s.preflightIn(rec.resolved.env)
+		r := rec.resolved
+		// a names refusal stands while it is about this activation under this
+		// approval; approving again, or another activation, lifts it.
+		if st.Refusal == nil && r.namesRefused() && st.Source == model.EnvSourceFile && r.Activation == st.Activation &&
+			project.EnvApproved != nil && r.approvedAt.Equal(project.EnvApproved.At) {
+			st.Status = EnvNamesChanged
+			st.Refusal = namesRefusal(st.File.Path, r.Added, r.Removed)
+		}
+		if r.Error == "" && !r.namesRefused() {
+			st.Missing = s.preflightIn(r.before)
 		}
 	}
 	return st
 }
 
-// preflightIn checks every harness, in name order, in a resolved environment.
-func (s *Service) preflightIn(env []string) []harness.MissingError {
+// namesRefusal is the refusal for an activation that changes another set of
+// variables than it did when approved. names only, never values.
+func namesRefusal(path string, added, removed []string) *Error {
+	quoted := func(names []string) string {
+		q := make([]string, len(names))
+		for i, n := range names {
+			q[i] = "'" + n + "'"
+		}
+		return strings.Join(q, ", ")
+	}
+	var diff []string
+	if len(added) > 0 {
+		diff = append(diff, "now also changes "+quoted(added))
+	}
+	if len(removed) > 0 {
+		diff = append(diff, "no longer changes "+quoted(removed))
+	}
+	return &Error{Code: CodeEnvironmentNamesChanged, Message: fmt.Sprintf("the activation in '%s' %s, so mega will not run it until you have looked; approve it again on the project page", path, strings.Join(diff, " and "))}
+}
+
+// nameDiff is what after has that before lacks, and the other way round.
+func nameDiff(before, after []string) (added, removed []string) {
+	for _, n := range after {
+		if !slices.Contains(before, n) {
+			added = append(added, n)
+		}
+	}
+	for _, n := range before {
+		if !slices.Contains(after, n) {
+			removed = append(removed, n)
+		}
+	}
+	return added, removed
+}
+
+// preflightIn checks every harness, in name order, in find: the environment
+// before the activation, where mega locates the programs it runs.
+func (s *Service) preflightIn(find []string) []harness.MissingError {
 	names := make([]string, 0, len(s.harnesses))
 	for name := range s.harnesses {
 		names = append(names, name)
@@ -148,7 +220,7 @@ func (s *Service) preflightIn(env []string) []harness.MissingError {
 	var missing []harness.MissingError
 	for _, name := range names {
 		var m *harness.MissingError
-		if errors.As(s.harnesses[name].Check(env), &m) {
+		if errors.As(s.harnesses[name].Check(find), &m) {
 			missing = append(missing, *m)
 		}
 	}
@@ -158,8 +230,8 @@ func (s *Service) preflightIn(env []string) []harness.MissingError {
 // envReadyLocked refuses work in a project whose environment may not run:
 // its file is unapproved, changed or malformed. callers hold s.mu.
 func (s *Service) envReadyLocked(project model.Project) error {
-	if st := s.envStateLocked(project); st.Refusal != nil {
-		return st.Refusal
+	if st := s.envStateLocked(project); st.fileRefusal != nil {
+		return st.fileRefusal
 	}
 	return nil
 }
@@ -183,9 +255,9 @@ func (s *Service) resolveProject(projectID string) (harness.Place, *model.Enviro
 		return harness.Place{}, nil, err
 	}
 	st := s.envStateLocked(project)
-	if st.Refusal != nil {
+	if st.fileRefusal != nil {
 		s.mu.Unlock()
-		return harness.Place{}, nil, st.Refusal
+		return harness.Place{}, nil, st.fileRefusal
 	}
 	rec := s.envs[projectID]
 	if rec == nil {
@@ -213,22 +285,57 @@ func (s *Service) resolveProject(projectID string) (harness.Place, *model.Enviro
 			Recorded: fmt.Sprintf("%s could not be resolved: %s", where, reason),
 		}
 	} else {
-		resolved.At, resolved.Changed, resolved.Fingerprint, resolved.env = res.At, slices.Clone(res.Changed), res.Fingerprint, res.Env
+		resolved.At, resolved.Changed, resolved.Fingerprint = res.At, slices.Clone(res.Changed), res.Fingerprint
+		resolved.env, resolved.before = res.Env, res.Before
 	}
 
 	s.mu.Lock()
+	if failure == nil && st.Source == model.EnvSourceFile {
+		failure = s.checkNamesLocked(projectID, st, resolved)
+	}
 	rec.resolved, rec.running = resolved, false
 	s.changed()
 	s.mu.Unlock()
 	if failure != nil {
 		return harness.Place{}, nil, failure
 	}
-	return harness.Place{Cwd: project.Checkout, Env: res.Env}, &model.EnvironmentFacts{
+	return harness.Place{Cwd: project.Checkout, Env: res.Env, Find: res.Before}, &model.EnvironmentFacts{
 		Source:      st.Source,
 		Activation:  st.Activation,
 		Changed:     res.Changed,
 		Fingerprint: res.Fingerprint,
 	}, nil
+}
+
+// checkNamesLocked holds an approved file's resolution to the names its
+// activation changed when it was approved. the first resolution after an
+// approval records them with it, through the registry; a later one that
+// changes another set is refused, and the difference kept for the project
+// page. only the approval the resolution began under counts: if the operator
+// approved again meanwhile, the next resolution decides. callers hold s.mu.
+func (s *Service) checkNamesLocked(projectID string, st EnvState, resolved *ResolvedEnv) error {
+	project, err := s.projectLocked(projectID)
+	if err != nil || project.EnvApproved == nil || st.Approved == nil || !project.EnvApproved.At.Equal(st.Approved.At) || project.EnvApproved.Digest != st.File.Digest {
+		return nil
+	}
+	resolved.approvedAt = project.EnvApproved.At
+	if !project.EnvApproved.NamesKnown {
+		names := slices.Clone(resolved.Changed)
+		if _, err := s.changeProjectLocked(projectID, func(p *model.Project) {
+			if p.EnvApproved != nil && p.EnvApproved.At.Equal(resolved.approvedAt) {
+				p.EnvApproved.Changed, p.EnvApproved.NamesKnown = names, true
+			}
+		}); err != nil {
+			dl.Errorf("recording the names the approved activation of '%s' changes: %v", projectID, err)
+		}
+		return nil
+	}
+	added, removed := nameDiff(project.EnvApproved.Changed, resolved.Changed)
+	if len(added) == 0 && len(removed) == 0 {
+		return nil
+	}
+	resolved.Added, resolved.Removed = added, removed
+	return namesRefusal(st.File.Path, added, removed)
 }
 
 // envWhere names where an activation came from, for a message: the file's
@@ -252,13 +359,13 @@ func (s *Service) placeFor(projectID string) (harness.Place, error) {
 	project, err := s.projectLocked(projectID)
 	if err == nil {
 		st := s.envStateLocked(project)
-		if st.Refusal != nil {
+		if st.fileRefusal != nil {
 			s.mu.Unlock()
-			return harness.Place{}, st.Refusal
+			return harness.Place{}, st.fileRefusal
 		}
-		if r := st.Resolved; r != nil && r.Error == "" && r.Activation == st.Activation && r.Source == st.Source && time.Since(r.At) < helperFresh {
+		if r := st.Resolved; r != nil && r.Error == "" && !r.namesRefused() && r.Activation == st.Activation && r.Source == st.Source && time.Since(r.At) < helperFresh {
 			s.mu.Unlock()
-			return harness.Place{Cwd: project.Checkout, Env: r.env}, nil
+			return harness.Place{Cwd: project.Checkout, Env: r.env, Find: r.before}, nil
 		}
 	}
 	s.mu.Unlock()
@@ -299,26 +406,50 @@ func (s *Service) resolveStaleLocked(projects []model.Project, states map[string
 // ApproveEnvironment approves the checkout's .mega/environment.yaml at the
 // fingerprint the operator was shown. a file that has changed since is
 // refused, so an approval never covers content the operator did not see.
-func (s *Service) ApproveEnvironment(projectID, fingerprint string) (model.Project, error) {
+func (s *Service) ApproveEnvironment(projectID, digest string) (model.Project, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	project, err := s.projectLocked(projectID)
 	if err != nil {
+		s.mu.Unlock()
 		return model.Project{}, err
 	}
 	file := environ.ReadFile(project.Checkout)
 	switch {
 	case !file.Present:
+		s.mu.Unlock()
 		return model.Project{}, newError(CodeConflict, fmt.Sprintf("'%s' does not exist, so there is nothing to approve", file.Path))
 	case file.Malformed != "":
+		s.mu.Unlock()
 		return model.Project{}, newError(CodeEnvironmentInvalid, file.Malformed)
-	case strings.TrimSpace(fingerprint) == "":
-		return model.Project{}, newError(CodeInvalid, "the fingerprint of the version being approved is required")
-	case file.Fingerprint != fingerprint:
-		return model.Project{}, newError(CodeConflict, fmt.Sprintf("'%s' has changed since it was shown (now '%s', shown '%s'); review it again", file.Path, file.Fingerprint, fingerprint))
+	case !environ.IsDigest(strings.TrimSpace(digest)):
+		s.mu.Unlock()
+		return model.Project{}, newError(CodeInvalid, "the full sha256 digest of the version being approved is required")
+	case file.Digest != digest:
+		s.mu.Unlock()
+		return model.Project{}, newError(CodeConflict, fmt.Sprintf("'%s' has changed since it was shown (now '%s', shown '%s'); review it again", file.Path, environ.Short(file.Digest), environ.Short(digest)))
 	}
-	approval := &model.EnvApproval{Fingerprint: file.Fingerprint, At: time.Now().UTC()}
-	return s.changeProjectLocked(projectID, func(p *model.Project) { p.EnvApproved = approval })
+	// a new approval, even of the same text, forgets the names the last one
+	// recorded: the resolution that follows records what the activation
+	// changes now, as the operator has just approved it.
+	approval := &model.EnvApproval{Digest: file.Digest, At: time.Now().UTC()}
+	approved, err := s.changeProjectLocked(projectID, func(p *model.Project) { p.EnvApproved = approval })
+	s.mu.Unlock()
+	if err != nil {
+		return model.Project{}, err
+	}
+	// resolve at once, so the approval records the names its activation
+	// changes. a failure leaves the approval standing without them; the next
+	// resolution records them.
+	if _, _, err := s.resolveProject(projectID); err != nil {
+		dl.Debugf("resolving '%s' after its approval: %s", projectID, recordable(err))
+	}
+	s.mu.Lock()
+	if current, err := s.projectLocked(projectID); err == nil {
+		approved = current
+		s.applyTrustLocked(&approved)
+	}
+	s.mu.Unlock()
+	return approved, nil
 }
 
 // SetEnvironmentOverride sets the operator's local override for a project:
@@ -427,11 +558,11 @@ func (s *Service) envStaleLocked(conv model.Conversation, facts *model.Environme
 // fingerprint is stored, so a version that was never committed or staged
 // cannot be shown.
 type ApprovedVersion struct {
-	Fingerprint string
-	At          time.Time
-	Available   bool
-	Content     string
-	Found       string
+	Digest    string
+	At        time.Time
+	Available bool
+	Content   string
+	Found     string
 }
 
 // ApprovedVersion finds the approved version of a project's file for the
@@ -448,8 +579,13 @@ func (s *Service) ApprovedVersion(projectID string) (ApprovedVersion, error) {
 	if project.EnvApproved == nil {
 		return ApprovedVersion{}, newError(CodeNotFound, fmt.Sprintf("nothing has been approved for '%s'", environ.ReadFile(project.Checkout).Path))
 	}
-	out := ApprovedVersion{Fingerprint: project.EnvApproved.Fingerprint, At: project.EnvApproved.At}
-	if v, ok := environ.FindVersion(context.Background(), project.Checkout, out.Fingerprint, s.base); ok {
+	out := ApprovedVersion{Digest: project.EnvApproved.Digest, At: project.EnvApproved.At}
+	if !environ.IsDigest(out.Digest) {
+		// an approval in the old short form names no version that can be
+		// found by its full digest; it needs approving again.
+		return out, nil
+	}
+	if v, ok := environ.FindVersion(context.Background(), project.Checkout, out.Digest, s.base); ok {
 		out.Available, out.Content, out.Found = true, v.Content, v.Found
 	}
 	return out, nil

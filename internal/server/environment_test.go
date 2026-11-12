@@ -43,14 +43,18 @@ func TestTheEnvironmentOnTheWire(t *testing.T) {
 
 	// approving another version is refused; the shown one is accepted.
 	base := "/api/projects/" + pid + "/environment"
-	if status, body := f.do(t, http.MethodPost, base+"/approve", jsonBody(map[string]string{"fingerprint": "sha256:0000000000000000"})); status != http.StatusConflict {
+	if status, body := f.do(t, http.MethodPost, base+"/approve", jsonBody(map[string]string{"digest": "sha256:" + strings.Repeat("0", 64)})); status != http.StatusConflict {
 		t.Errorf("approving another version: %d %v", status, body)
 	}
-	if status, body := f.do(t, http.MethodPost, base+"/approve", jsonBody(map[string]string{"fingerprint": file["fingerprint"].(string)})); status != http.StatusOK {
+	if status, body := f.do(t, http.MethodPost, base+"/approve", jsonBody(map[string]string{"digest": file["digest"].(string)})); status != http.StatusOK {
 		t.Fatalf("approve: %d %v", status, body)
 	}
-	if e := env(); e["status"] != "ready" || e["approved"].(map[string]any)["fingerprint"] != file["fingerprint"] {
+	if e := env(); e["status"] != "ready" || e["approved"].(map[string]any)["digest"] != file["digest"] {
 		t.Errorf("approved: %v", e)
+	}
+	// approving resolved at once and recorded the names it changes.
+	if a := env()["approved"].(map[string]any); a["names_known"] != true || fmt.Sprint(a["changed"]) != "[MEGA_MARKER]" || !strings.HasPrefix(a["fingerprint"].(string), "sha256:") || len(a["fingerprint"].(string)) != len("sha256:")+16 {
+		t.Errorf("the approval's names and short form: %v", a)
 	}
 	if status, body := f.do(t, http.MethodGet, base+"/approved", ""); status != http.StatusOK || body["available"] != false {
 		t.Errorf("the approved version outside git: %d %v", status, body)

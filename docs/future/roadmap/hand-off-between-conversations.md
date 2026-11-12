@@ -7,6 +7,10 @@ tags: [feature]
 
 Let the operator send a message, a reply or a selection from one conversation to another as a prompt, without leaving mega and without the clipboard. The first step of the hub epic.
 
+## this is an interim
+
+Michael deferred this on 2026-11-12 because the real subject is larger than passing a prompt: what the agents in a project are to one another, which roles exist, when each begins and ends, and what moves between them. That conversation has its own card, `agents-roles-and-lifecycles-in-a-project`. This card is only the short-term mechanism, and it must not prejudge the larger one: it knows nothing of roles, pairs or pipelines, records no relationship between two conversations beyond the one row that says a message was sent, and should be easy to replace.
+
 ## why
 
 Building mega through mega, Michael carried some forty implementer reports to the planning conversation by hand and carried the planning agent's prompts back. That is transport, the tax mercurius exists to remove between a design agent and a reviewer, and mega is where both ends already are.

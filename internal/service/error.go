@@ -30,6 +30,10 @@ const (
 	// CodeEnvironmentFailed refuses work in a project whose environment could
 	// not be resolved: the activation failed, exited or timed out.
 	CodeEnvironmentFailed = "environment_failed"
+	// CodeEnvironmentNamesChanged refuses work in a project whose approved
+	// activation now changes another set of variables than it did when it
+	// was approved, until the operator approves it again.
+	CodeEnvironmentNamesChanged = "environment_names_changed"
 )
 
 // Error is a failure the caller can act on, as opposed to an internal fault.

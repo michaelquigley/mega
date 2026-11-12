@@ -14,14 +14,14 @@ import (
 
 func TestLaunchPassesTheChosenModelAndEffortOnlyWhenChosen(t *testing.T) {
 	h, cwd := settingsHarness(t)
-	args := launchArgsFor(t, h, harness.Spec{Env: os.Environ(), Cwd: cwd, Model: "sonnet", Effort: "low"})
+	args := launchArgsFor(t, h, harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: cwd, Model: "sonnet", Effort: "low"})
 	if got, ok := argValue(args, "--model"); !ok || got != "sonnet" {
 		t.Errorf("--model %q (%v) in %v", got, ok, args)
 	}
 	if got, ok := argValue(args, "--effort"); !ok || got != "low" {
 		t.Errorf("--effort %q (%v) in %v", got, ok, args)
 	}
-	args = launchArgsFor(t, h, harness.Spec{Env: os.Environ(), Cwd: cwd})
+	args = launchArgsFor(t, h, harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: cwd})
 	for _, name := range []string{"--model", "--effort"} {
 		if got, ok := argValue(args, name); ok {
 			t.Errorf("unchosen, yet passed %s %q", name, got)
@@ -150,12 +150,12 @@ func TestInheritedReadsTheFirstLayerNamingEach(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if m, e, err := h.Inherited(t.Context(), harness.Place{Cwd: cwd, Env: os.Environ()}); err != nil || m != "" || e != "" {
+	if m, e, err := h.Inherited(t.Context(), harness.Place{Cwd: cwd, Env: os.Environ(), Find: os.Environ()}); err != nil || m != "" || e != "" {
 		t.Fatalf("no settings: %q %q %v", m, e, err)
 	}
 	write(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json"), `{"model":"opus","effortLevel":"high"}`)
 	write(filepath.Join(cwd, ".claude", "settings.json"), `{"model":"sonnet"}`)
-	if m, e, _ := h.Inherited(t.Context(), harness.Place{Cwd: cwd, Env: os.Environ()}); m != "sonnet" || e != "high" {
+	if m, e, _ := h.Inherited(t.Context(), harness.Place{Cwd: cwd, Env: os.Environ(), Find: os.Environ()}); m != "sonnet" || e != "high" {
 		t.Errorf("project model over user effort: %q %q", m, e)
 	}
 }
@@ -178,7 +178,7 @@ func TestModelsReadsTheShimsCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.cfg.Node, h.cfg.Shim, h.cfg.Executable = node, shim, "/x"
-	catalog, err := h.Models(t.Context(), harness.Place{Cwd: cwd, Env: os.Environ()})
+	catalog, err := h.Models(t.Context(), harness.Place{Cwd: cwd, Env: os.Environ(), Find: os.Environ()})
 	if err != nil {
 		t.Fatal(err)
 	}

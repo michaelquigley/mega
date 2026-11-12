@@ -67,14 +67,20 @@ type callResult struct {
 }
 
 // dial starts the app-server in the place's checkout with the project's
-// environment and nothing of mega's own, finding the binary on that
-// environment's PATH.
+// environment and nothing of mega's own. the binary, and the interpreter a
+// script binary names (the npm wrapper's node), are located in place.Find,
+// the environment before the activation, so the activation never decides
+// which program mega runs.
 func dial(binary string, place harness.Place, h handler) (*conn, error) {
-	path, err := harness.LookPath(binary, place.Env)
+	argv, err := harness.Program(binary, place.Find)
 	if err != nil {
-		return nil, &harness.MissingError{Harness: model.HarnessCodex, Executable: binary, Reason: fmt.Sprintf("'%s' was not found on the project's PATH", binary)}
+		var missing *harness.MissingError
+		if errors.As(err, &missing) {
+			missing.Harness = model.HarnessCodex
+		}
+		return nil, err
 	}
-	cmd := exec.Command(path, "app-server")
+	cmd := exec.Command(argv[0], append(argv[1:], "app-server")...)
 	cmd.Dir = place.Cwd
 	// never nil, which exec would fill with mega's own environment.
 	cmd.Env = append([]string{}, place.Env...)

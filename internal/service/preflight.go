@@ -26,25 +26,25 @@ func (s *Service) harnessReadyLocked(projectID, harnessName string) error {
 		return nil
 	}
 	rec := s.envs[projectID]
-	if rec == nil || rec.resolved == nil || rec.resolved.Error != "" {
+	if rec == nil || rec.resolved == nil || rec.resolved.Error != "" || rec.resolved.namesRefused() {
 		return nil
 	}
-	return missingCoded(h.Check(rec.resolved.env))
+	return missingCoded(h.Check(rec.resolved.before))
 }
 
 // explain names a harness failure that a missing executable caused: an exec
 // that could not start (a raw "executable file not found") is checked against
-// the harness in env, the environment it ran in, and reported as the missing
-// executable it was. other failures pass through.
-func (s *Service) explain(harnessName string, env []string, err error) error {
+// the harness in find, the environment it located its programs in, and
+// reported as the missing executable it was. other failures pass through.
+func (s *Service) explain(harnessName string, find []string, err error) error {
 	if err == nil {
 		return nil
 	}
 	if coded := missingCoded(err); coded != err {
 		return coded
 	}
-	if h, ok := s.harnesses[harnessName]; ok && env != nil {
-		if missing := missingCoded(h.Check(env)); missing != nil {
+	if h, ok := s.harnesses[harnessName]; ok && find != nil {
+		if missing := missingCoded(h.Check(find)); missing != nil {
 			return missing
 		}
 	}

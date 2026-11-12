@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/michaelquigley/mega/internal/environ"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -51,7 +52,7 @@ func startWith(t *testing.T, heartbeat time.Duration) *fixture {
 		Harnesses:    []harness.Harness{fake},
 		// bash from a base with a temporary HOME: no start-up file of the
 		// operator's is read.
-		Resolver: service.DefaultResolver([]string{"HOME=" + t.TempDir(), "SHELL=/bin/bash"}),
+		Resolver: noProfile(service.DefaultResolver([]string{"HOME=" + t.TempDir(), "SHELL=/bin/bash"})),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -428,4 +429,11 @@ func TestPathSearchEndpoint(t *testing.T) {
 	if status, body := f.do(t, http.MethodGet, "/api/projects/nope/paths?q=md", ""); status != http.StatusNotFound {
 		t.Fatalf("unknown project: %d %v", status, body)
 	}
+}
+
+// noProfile skips the profile scripts in a test resolver: these tests are not
+// about them, and reading the system's on every resolution is slow.
+func noProfile(r *environ.Resolver) *environ.Resolver {
+	r.SkipProfile = true
+	return r
 }

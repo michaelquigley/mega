@@ -290,5 +290,7 @@ func testResolver(t *testing.T) *environ.Resolver {
 	if _, err := os.Stat(shell); err != nil {
 		t.Skip("bash is not installed")
 	}
-	return &environ.Resolver{Shell: shell, Base: []string{"HOME=" + t.TempDir(), "PATH=/usr/local/bin:/usr/bin:/bin"}, Timeout: 5 * time.Second}
+	// no profile scripts: these tests resolve many times and are not about
+	// the profile, which internal/environ tests.
+	return &environ.Resolver{Shell: shell, Base: []string{"HOME=" + t.TempDir(), "PATH=/usr/local/bin:/usr/bin:/bin"}, Timeout: 5 * time.Second, SkipProfile: true}
 }

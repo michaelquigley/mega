@@ -16,10 +16,12 @@
 // and Adopt; approval; a launch whose header shows the environment's
 // fingerprint and changed names; a changed file shown beside the approved
 // version (from git), its refusal on Send and Start, and the header saying the
-// runtime started in an older environment; approving again; the override
-// (ignore the file, a changed file labelled as such under it, then use it
-// again); the changed variables' values shown
-// only on request; a project with no file; no page errors and nothing fetched
+// runtime started in an older environment; approving again; the changed
+// variables' values shown only on request; an approval recording the names
+// its activation changes, a sourced file that adds one refused with the added
+// name shown (never its value), and approving again taking the new names; the
+// override (ignore the file, a changed file labelled as such under it, then
+// use it again); a project with no file; no page errors and nothing fetched
 // off 127.0.0.1.
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdirSync, openSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -205,6 +207,40 @@ const table = await env.locator('table.env-values').textContent()
 check(table.includes('MEGA_MARKER') && table.includes('alpha-check-marker') && table.includes('EXTRA'), 'the values show on request')
 await env.getByRole('button', { name: 'Hide the values' }).click()
 check((await env.locator('table.env-values').count()) === 0, 'hiding them removes them from the page')
+
+// the approval holds the activation to the names it changed when approved.
+// the file now sources a script in the checkout, which the approval does not
+// cover; a change there that adds a name is refused until approved again.
+writeFileSync(join(alpha, 'envrc-check'), 'export MEGA_MARKER=alpha-check-marker\n')
+envFile('activate: . ./envrc-check\n')
+await until('the new file waits', async () => (await projectOf(A.id)).environment.status === 'changed')
+await page.reload()
+await env.waitFor()
+await env.locator('.env-compare').waitFor()
+await env.getByRole('button', { name: 'Approve the changed version, so mega runs it' }).click()
+await until('ready with its names', async () => {
+  const e = (await projectOf(A.id)).environment
+  return e.status === 'ready' && e.approved.names_known && e.approved.changed.join() === 'MEGA_MARKER'
+})
+await until('the page says what it changes', async () => (await env.textContent()).includes('approved as changing MEGA_MARKER'))
+check(true, 'approving records the names the activation changes')
+writeFileSync(join(alpha, 'envrc-check'), 'export MEGA_MARKER=alpha-check-marker\nexport GIT_SSH_COMMAND=check-only\n')
+await env.getByRole('button', { name: 'Resolve the environment now' }).click()
+await until('names changed', async () => (await projectOf(A.id)).environment.status === 'names_changed')
+const namesRefusal = (await projectOf(A.id)).environment.refusal
+check(namesRefusal.code === 'environment_names_changed' && namesRefusal.message.includes('GIT_SSH_COMMAND'), `a changed set of names is refused with its own code: ${namesRefusal.message}`)
+await until('the page shows the added name', async () => (await env.locator('.env-names-changed').count()) === 1 && (await env.locator('.env-added').textContent()) === 'GIT_SSH_COMMAND')
+check((await page.locator(`.section-actions button[aria-label="${namesRefusal.message}"]`).count()) === 2, 'New conversation and Adopt carry the names refusal')
+check(!(await env.textContent()).includes('check-only'), 'the page shows the name, never its value')
+check((await env.locator('p.error').count()) === 0 && (await env.textContent()).includes('approved'), 'the refusal is shown once, and the file is still the approved one')
+await shot('names-changed')
+await env.getByRole('button', { name: 'Approve again, with the names it changes now' }).click()
+await until('ready again with the new names', async () => {
+  const e = (await projectOf(A.id)).environment
+  return e.status === 'ready' && e.approved.changed.join() === 'GIT_SSH_COMMAND,MEGA_MARKER'
+})
+await until('New conversation is enabled again', async () => page.locator('.section-actions button[aria-label="New conversation"]').isEnabled())
+check(true, 'approving again takes the new names and lifts the refusal')
 
 // the override: ignore the file, then use it again.
 await env.locator('details.env-override summary').click()

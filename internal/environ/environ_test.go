@@ -151,3 +151,57 @@ func TestTheFileIsReadWithItsFingerprint(t *testing.T) {
 		t.Errorf("not yaml: %+v", g)
 	}
 }
+
+// the shell is a login shell too: a variable set only in a profile script,
+// as cargo, Homebrew on Linux or Nix set theirs, is in the environment.
+func TestAProfileScriptsVariableSurvives(t *testing.T) {
+	r := resolver(t)
+	home, _ := Value(r.Base, "HOME")
+	if err := os.WriteFile(filepath.Join(home, ".profile"), []byte("export MEGA_PROFILE_ONLY=from-the-profile\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Resolve(context.Background(), t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := Value(res.Env, "MEGA_PROFILE_ONLY"); v != "from-the-profile" {
+		t.Errorf("a profile script's variable is %q", v)
+	}
+	if v, _ := Value(res.Before, "MEGA_PROFILE_ONLY"); v != "from-the-profile" {
+		t.Errorf("before the activation, the profile's variable is %q", v)
+	}
+}
+
+// the environment before the activation is kept, so mega can find its own
+// programs where the activation cannot have put them.
+func TestTheEnvironmentBeforeTheActivationIsKept(t *testing.T) {
+	r := resolver(t)
+	res, err := r.Resolve(context.Background(), t.TempDir(), "export PATH=/planted/by/the/activation:$PATH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := Value(res.Env, "PATH")
+	before, _ := Value(res.Before, "PATH")
+	if !strings.HasPrefix(after, "/planted/by/the/activation:") || strings.Contains(before, "/planted") {
+		t.Errorf("PATH after %q, before %q", after, before)
+	}
+	if !slices.Equal(res.Changed, []string{"PATH"}) {
+		t.Errorf("changed: %v", res.Changed)
+	}
+}
+
+func TestTheDigestIsFullAndTheFingerprintShort(t *testing.T) {
+	d := Digest([]byte("activate: devprj\n"))
+	if !IsDigest(d) || len(d) != len("sha256:")+64 {
+		t.Errorf("digest %q", d)
+	}
+	f := Fingerprint([]byte("activate: devprj\n"))
+	if f != Short(d) || len(f) != len("sha256:")+16 || IsDigest(f) {
+		t.Errorf("fingerprint %q of digest %q", f, d)
+	}
+	for _, not := range []string{"", "sha256:", f, "sha256:" + strings.Repeat("z", 64), "md5:" + strings.Repeat("a", 64)} {
+		if IsDigest(not) {
+			t.Errorf("%q reads as a digest", not)
+		}
+	}
+}

@@ -144,7 +144,7 @@ func TestUnreadableSettingsLeadToTheManualMode(t *testing.T) {
 // exits, and returns them.
 func launchArgs(t *testing.T, h *Harness, cwd, mode string) []string {
 	t.Helper()
-	return launchArgsFor(t, h, harness.Spec{Env: os.Environ(), Cwd: cwd, PermissionMode: mode})
+	return launchArgsFor(t, h, harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: cwd, PermissionMode: mode})
 }
 
 // launchArgsFor is launchArgs for a whole launch spec.

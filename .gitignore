@@ -2,3 +2,4 @@
 mercurius.yaml
 node_modules
 ui/dist
+/.mega/environment.yaml

@@ -1,5 +1,6 @@
 building:
 horizon:
+  - agents-roles-and-lifecycles-in-a-project.md
   - hand-off-between-conversations.md
   - start-up-reads-every-log.md
   - mega-as-the-development-hub.md
@@ -17,6 +18,7 @@ researching:
   - relocate-a-projects-checkout.md
   - expanded-states.md
 evaluating:
+  - environment-follow-ups.md
   - each-project-runs-in-its-own-environment.md
   - live-approval-tests-answer-for-the-operator.md
   - opening-a-conversation-costs-its-whole-history.md

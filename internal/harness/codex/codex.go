@@ -53,7 +53,7 @@ func (h *Harness) Name() string {
 // returns.
 func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime, error) {
 	r := newRuntime(sink)
-	c, err := dial(h.cfg.Binary, harness.Place{Cwd: spec.Cwd, Env: spec.Env}, r)
+	c, err := dial(h.cfg.Binary, harness.Place{Cwd: spec.Cwd, Env: spec.Env, Find: spec.Find}, r)
 	if err != nil {
 		// the app-server never started.
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
@@ -193,8 +193,8 @@ func (h *Harness) once(ctx context.Context, place harness.Place, method string, 
 // thread, as discovery does. hidden models are left out. the version comes
 // from the app-server's user agent.
 // Check reports whether the configured codex binary can be found.
-func (h *Harness) Check(env []string) error {
-	return harness.FindExecutable(model.HarnessCodex, h.cfg.Binary, env)
+func (h *Harness) Check(find []string) error {
+	return harness.FindExecutable(model.HarnessCodex, h.cfg.Binary, find)
 }
 
 func (h *Harness) Models(ctx context.Context, place harness.Place) (harness.Catalog, error) {

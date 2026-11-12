@@ -29,17 +29,24 @@ export interface ProjectEnvironment {
     path: string
     present: boolean
     content?: string
+    // the full sha256 an approval binds, and its short form for display.
+    digest?: string
     fingerprint?: string
     modified_at?: string
     malformed?: string
   }
-  approved?: { fingerprint: string; at: string }
+  // the approval: its full digest (absent for one stored in the old short
+  // form, which no longer counts), its short fingerprint, when, and the names
+  // the activation changed then, once known.
+  approved?: { digest?: string; fingerprint: string; at: string; changed: string[]; names_known: boolean }
   override?: { ignore: boolean; activate?: string }
   // none (no file), file, ignored (the override ignores the file), override.
   source: 'none' | 'file' | 'ignored' | 'override'
-  status: 'ready' | 'unapproved' | 'changed' | 'malformed'
+  status: 'ready' | 'unapproved' | 'changed' | 'malformed' | 'names_changed'
   refusal?: { code: string; message: string }
-  resolved?: { at: string; source: string; changed: string[]; fingerprint?: string; error?: string }
+  // the latest resolution; added and removed are the names it changed beyond,
+  // and short of, the approval's, when they differ.
+  resolved?: { at: string; source: string; changed: string[]; fingerprint?: string; error?: string; added?: string[]; removed?: string[] }
   missing: { harness: string; executable: string; reason: string }[]
 }
 

@@ -295,7 +295,7 @@ func TestClaudeRoundTrip(t *testing.T) {
 	for _, ev := range after {
 		recorded[ev.NativeID] = true
 	}
-	history, err := h.History(context.Background(), harness.Place{Cwd: fixture, Env: os.Environ()}, conv.NativeID)
+	history, err := h.History(context.Background(), harness.Place{Cwd: fixture, Env: os.Environ(), Find: os.Environ()}, conv.NativeID)
 	if err != nil {
 		t.Fatal(err)
 	}

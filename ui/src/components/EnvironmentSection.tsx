@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  ApiError,
   approveEnvironment,
   clearEnvironmentOverride,
   getApprovedVersion,
@@ -37,7 +38,11 @@ export function EnvironmentSection({ project }: { project: Project }) {
       await action()
       return true
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      // a resolution refused for the names it changes is the section's own
+      // notice already; it is not also an error.
+      if (!(failure instanceof ApiError && failure.code === 'environment_names_changed')) {
+        setError(failure instanceof Error ? failure.message : String(failure))
+      }
       return false
     } finally {
       setBusy(false)
@@ -53,7 +58,7 @@ export function EnvironmentSection({ project }: { project: Project }) {
       <div className="section-head">
         <h2>Environment</h2>
         <span className="section-actions">
-          <IconButton icon="refresh" label="Resolve the environment now" disabled={busy || !!env.refusal} onClick={() => void attempt(() => resolveEnvironment(project.id, false))} />
+          <IconButton icon="refresh" label="Resolve the environment now" disabled={busy || (!!env.refusal && env.status !== 'names_changed')} onClick={() => void attempt(() => resolveEnvironment(project.id, false))} />
           {values ? (
             <IconButton icon="visibility_off" label="Hide the values" onClick={() => setValues(null)} />
           ) : (
@@ -67,11 +72,16 @@ export function EnvironmentSection({ project }: { project: Project }) {
           {env.refusal.message}
         </p>
       )}
+      {env.status === 'names_changed' && <NamesChanged env={env} />}
       {env.status === 'changed' ? (
-        <Compare projectId={project.id} env={env} busy={busy} onApprove={(fp) => void attempt(() => approveEnvironment(project.id, fp))} />
+        <Compare projectId={project.id} env={env} busy={busy} onApprove={(digest) => void attempt(() => approveEnvironment(project.id, digest))} />
       ) : (
         env.file.present && (
-          <FileBox env={env} onApprove={env.status === 'unapproved' ? (fp) => void attempt(() => approveEnvironment(project.id, fp)) : undefined} busy={busy} />
+          <FileBox
+            env={env}
+            onApprove={env.status === 'unapproved' || env.status === 'names_changed' ? (digest) => void attempt(() => approveEnvironment(project.id, digest)) : undefined}
+            busy={busy}
+          />
         )
       )}
       <Resolution env={env} values={values} />
@@ -135,7 +145,7 @@ function Summary({ env }: { env: ProjectEnvironment }) {
     case 'override':
       return <p>A local activation, your override, runs in place of the repository&apos;s file.</p>
     default:
-      if (env.status === 'ready') {
+      if (env.status === 'ready' || env.status === 'names_changed') {
         return (
           <p>
             From <code>{env.file.path}</code>, approved {when(env.approved?.at)}.
@@ -152,15 +162,26 @@ function Summary({ env }: { env: ProjectEnvironment }) {
 
 // FileBox is the file as it is now: its content, its fingerprint, when it
 // last changed, and Approve while it waits on approval.
-function FileBox({ env, onApprove, busy }: { env: ProjectEnvironment; onApprove?: (fingerprint: string) => void; busy: boolean }) {
+function FileBox({ env, onApprove, busy }: { env: ProjectEnvironment; onApprove?: (digest: string) => void; busy: boolean }) {
   return (
     <div className="env-version">
       <p className="facts">
         {fileApproval(env)} · changed {when(env.file.modified_at)} · {env.file.fingerprint}
       </p>
       <pre className="env-file">{env.file.content}</pre>
-      {onApprove && env.file.fingerprint && (
-        <IconButton icon="task_alt" label="Approve this version, so mega runs it" word="Approve" disabled={busy} onClick={() => onApprove(env.file.fingerprint!)} />
+      {env.approved?.names_known && (
+        <p className="facts">
+          approved as changing {env.approved.changed.length === 0 ? 'nothing' : env.approved.changed.join(', ')}
+        </p>
+      )}
+      {onApprove && env.file.digest && (
+        <IconButton
+          icon="task_alt"
+          label={env.status === 'names_changed' ? 'Approve again, with the names it changes now' : 'Approve this version, so mega runs it'}
+          word={env.status === 'names_changed' ? 'Approve again' : 'Approve'}
+          disabled={busy}
+          onClick={() => onApprove(env.file.digest!)}
+        />
       )}
     </div>
   )
@@ -176,16 +197,19 @@ function fileApproval(env: ProjectEnvironment): string {
   if (!env.approved) {
     return 'not approved'
   }
-  return env.approved.fingerprint === env.file.fingerprint ? 'approved' : 'changed since it was approved'
+  if (!env.approved.digest) {
+    return 'approved under the old short fingerprint, which no longer counts'
+  }
+  return env.approved.digest === env.file.digest ? 'approved' : 'changed since it was approved'
 }
 
 // Compare shows the approved version beside the current one, so the change
 // is seen before it is approved. the approved version is found in the
 // checkout's git history by its fingerprint; it is never stored.
-function Compare({ projectId, env, busy, onApprove }: { projectId: string; env: ProjectEnvironment; busy: boolean; onApprove: (fingerprint: string) => void }) {
+function Compare({ projectId, env, busy, onApprove }: { projectId: string; env: ProjectEnvironment; busy: boolean; onApprove: (digest: string) => void }) {
   const [approved, setApproved] = useState<ApprovedVersion | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const key = `${env.approved?.fingerprint}:${env.file.fingerprint}`
+  const key = `${env.approved?.digest}:${env.file.digest}`
   useEffect(() => {
     let cancelled = false
     getApprovedVersion(projectId)
@@ -215,10 +239,35 @@ function Compare({ projectId, env, busy, onApprove }: { projectId: string; env: 
         <h3>Now, changed {when(env.file.modified_at)}</h3>
         <p className="facts">{env.file.fingerprint}</p>
         <pre className="env-file">{env.file.content}</pre>
-        {env.file.fingerprint && (
-          <IconButton icon="task_alt" label="Approve the changed version, so mega runs it" word="Approve" disabled={busy} onClick={() => onApprove(env.file.fingerprint!)} />
+        {env.file.digest && (
+          <IconButton icon="task_alt" label="Approve the changed version, so mega runs it" word="Approve" disabled={busy} onClick={() => onApprove(env.file.digest!)} />
         )}
       </div>
+    </div>
+  )
+}
+
+// NamesChanged says what the approved activation changes now that it did not
+// when approved, and what it no longer changes: names only. the file's text is
+// the same; something it reads is not.
+function NamesChanged({ env }: { env: ProjectEnvironment }) {
+  const added = env.resolved?.added ?? []
+  const removed = env.resolved?.removed ?? []
+  return (
+    <div className="env-names-changed">
+      <p>
+        The file is the one you approved, but its activation now changes other variables, so something it reads has changed.
+      </p>
+      {added.length > 0 && (
+        <p className="facts">
+          now also changes <span className="env-added">{added.join(', ')}</span>
+        </p>
+      )}
+      {removed.length > 0 && (
+        <p className="facts">
+          no longer changes <span className="env-removed">{removed.join(', ')}</span>
+        </p>
+      )}
     </div>
   )
 }
