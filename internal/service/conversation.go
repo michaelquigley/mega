@@ -715,6 +715,74 @@ func (s *Service) Events(conversationID string, since int64) ([]*model.Event, er
 	return l.log.Since(since)
 }
 
+// HistoryQuery names the part of a conversation's history a read wants.
+type HistoryQuery struct {
+	// Turns, when positive, reads that many turns. with Before zero they are
+	// the newest, plus the turn in flight; otherwise the ones before Before.
+	Turns int
+	// Before, when positive, reads history before that seq: Turns of it, or
+	// all of it when Turns is zero.
+	Before int64
+	// Since reads every event after it, when Turns and Before are both zero.
+	Since int64
+	// Native includes native events, which are otherwise left out.
+	Native bool
+}
+
+// History is a stretch of a conversation's history, From through Through.
+// native events are left out unless asked for, but the stretch still covers
+// them: a reader holding it has been given everything up to Through.
+type History struct {
+	Events  []*model.Event
+	From    int64
+	Through int64
+	// Windowed: the read was by turns, so Earlier says what lies before From.
+	Windowed bool
+	// EarlierTurns is how many turns start before From.
+	EarlierTurns int
+}
+
+// EarlierEvents is how many events lie before From, native ones included.
+func (h History) EarlierEvents() int64 { return max(h.From-1, 0) }
+
+// History reads part of a conversation's history: the newest turns, the turns
+// before an event, or everything after one, through the log's index, so a read
+// parses about what it returns. a windowed read starts at a turn's first
+// event, so a tool call never arrives without its result's turn or a reply
+// without its prompt.
+func (s *Service) History(conversationID string, q HistoryQuery) (History, error) {
+	s.mu.Lock()
+	if _, err := s.conversationLocked(conversationID); err != nil {
+		s.mu.Unlock()
+		return History{}, err
+	}
+	l, err := s.liveLocked(conversationID)
+	s.mu.Unlock()
+	if err != nil {
+		return History{}, err
+	}
+	var h History
+	switch {
+	case q.Turns > 0 || q.Before > 0:
+		h.Windowed = true
+		h.From, h.EarlierTurns, h.Through = l.log.TurnsBefore(q.Before, q.Turns)
+		if q.Before > 0 {
+			h.Through = min(q.Before-1, h.Through)
+		}
+	default:
+		h.From, h.Through = q.Since+1, l.log.LastSeq()
+	}
+	if h.Through < h.From {
+		return h, nil
+	}
+	var keep func(*model.Event) bool
+	if !q.Native {
+		keep = func(ev *model.Event) bool { return ev.Kind != model.EventNative }
+	}
+	h.Events, err = l.log.Range(h.From, h.Through, keep)
+	return h, err
+}
+
 // UpdateConversation changes a conversation's name and label.
 func (s *Service) UpdateConversation(conversationID, name, label string) (ConversationView, error) {
 	name = strings.TrimSpace(name)

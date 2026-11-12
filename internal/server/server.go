@@ -39,7 +39,7 @@ func New(svc *service.Service) *Server {
 // Handler returns the complete HTTP surface: API and stream under /api/, the
 // embedded UI behind everything else, and the loopback guard in front of both.
 func (s *Server) Handler() http.Handler {
-	return guard(ui.Middleware(s.api()))
+	return guard(slowRequests(ui.Middleware(s.api()), slowAfter, logSlow))
 }
 
 func (s *Server) api() http.Handler {

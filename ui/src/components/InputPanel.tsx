@@ -435,6 +435,7 @@ export function InputPanel(props: InputPanelProps) {
                     title="Show the harness's own events in the history"
                     aria-label="Native events"
                     className="menu-item"
+                    disabled={!log?.loaded}
                     onClick={() => {
                       setMenu(false)
                       onShowNative(!showNative)

@@ -1,4 +1,4 @@
-import type { Conversation, ConversationEvent, Models, Project, Workspace } from './types'
+import type { Conversation, History, Models, Project, Workspace } from './types'
 
 export class ApiError extends Error {
   readonly code: string
@@ -96,8 +96,36 @@ export const updateConversation = (id: string, name: string, label: string) =>
 
 export const removeConversation = (id: string) => request<void>('DELETE', conversationPath(id))
 
-export const getEvents = (id: string, since: number) =>
-  request<{ events: ConversationEvent[] }>('GET', `${conversationPath(id)}/events?since=${since}`)
+// HistoryRead names a part of a conversation's history: the newest turns
+// (turns alone), the turns before a seq (before, with turns), everything
+// before a seq (before alone), or everything after one (since).
+export interface HistoryRead {
+  turns?: number
+  before?: number
+  since?: number
+  native: boolean
+}
+
+// historyPath is the request a history read makes, which the page also shows
+// while it waits.
+export function historyPath(id: string, read: HistoryRead): string {
+  const query = new URLSearchParams()
+  if (read.since !== undefined) {
+    query.set('since', String(read.since))
+  }
+  if (read.before !== undefined) {
+    query.set('before', String(read.before))
+  }
+  if (read.turns !== undefined) {
+    query.set('turns', String(read.turns))
+  }
+  if (read.native) {
+    query.set('native', '1')
+  }
+  return `${conversationPath(id)}/events?${query.toString()}`
+}
+
+export const getHistory = (id: string, read: HistoryRead) => request<History>('GET', historyPath(id, read))
 
 export const sendPrompt = (id: string, text: string) => request<void>('POST', `${conversationPath(id)}/prompt`, { text })
 

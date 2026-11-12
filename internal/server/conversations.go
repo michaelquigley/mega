@@ -188,8 +188,19 @@ type answerRequest struct {
 	Answers   map[string]string
 }
 
+// eventsView is a stretch of history, From through Through. native events are
+// left out unless asked for, but the stretch covers them. Earlier is present
+// for a read by turns: what lies before From.
 type eventsView struct {
-	Events []*model.Event
+	Events  []*model.Event
+	From    int64
+	Through int64
+	Earlier *earlierView `dd:",+omitempty"`
+}
+
+type earlierView struct {
+	Turns  int
+	Events int64
 }
 
 type sessionView struct {
@@ -269,25 +280,59 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// getEvents reads history: ?turns=N for the newest N turns and the turn in
+// flight, ?before=S&turns=N for the N turns before seq S (all of them without
+// turns), or ?since=N for everything after seq N. native events come only
+// with native=1.
 func (s *Server) getEvents(w http.ResponseWriter, r *http.Request) {
-	var since int64
-	if raw := r.URL.Query().Get("since"); raw != "" {
-		parsed, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || parsed < 0 {
-			writeJSON(w, r, http.StatusBadRequest, &errorBody{Code: service.CodeInvalid, Message: "since must be a non-negative integer"})
+	query := r.URL.Query()
+	var q service.HistoryQuery
+	for _, field := range []struct {
+		name string
+		into *int64
+	}{{"since", &q.Since}, {"before", &q.Before}} {
+		if raw := query.Get(field.name); raw != "" {
+			parsed, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || parsed < 0 {
+				writeJSON(w, r, http.StatusBadRequest, &errorBody{Code: service.CodeInvalid, Message: field.name + " must be a non-negative integer"})
+				return
+			}
+			*field.into = parsed
+		}
+	}
+	if raw := query.Get("turns"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			writeJSON(w, r, http.StatusBadRequest, &errorBody{Code: service.CodeInvalid, Message: "turns must be a positive integer"})
 			return
 		}
-		since = parsed
+		q.Turns = parsed
 	}
-	evs, err := s.svc.Events(r.PathValue("id"), since)
+	if query.Get("since") != "" && (q.Turns > 0 || q.Before > 0) {
+		writeJSON(w, r, http.StatusBadRequest, &errorBody{Code: service.CodeInvalid, Message: "since reads everything after an event; it does not combine with turns or before"})
+		return
+	}
+	switch raw := query.Get("native"); raw {
+	case "", "0", "false":
+	case "1", "true":
+		q.Native = true
+	default:
+		writeJSON(w, r, http.StatusBadRequest, &errorBody{Code: service.CodeInvalid, Message: "native must be 1 or 0"})
+		return
+	}
+	h, err := s.svc.History(r.PathValue("id"), q)
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	if evs == nil {
-		evs = []*model.Event{}
+	view := &eventsView{Events: h.Events, From: h.From, Through: h.Through}
+	if view.Events == nil {
+		view.Events = []*model.Event{}
 	}
-	writeJSON(w, r, http.StatusOK, &eventsView{Events: evs})
+	if h.Windowed {
+		view.Earlier = &earlierView{Turns: h.EarlierTurns, Events: h.EarlierEvents()}
+	}
+	writeJSON(w, r, http.StatusOK, view)
 }
 
 func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {

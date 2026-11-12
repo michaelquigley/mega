@@ -1691,3 +1691,37 @@ hr.turn {
   border-radius: 50%;
   box-shadow: 0 0 0 1.5px var(--error);
 }
+
+/* what the page is waiting for, while it connects or loads: the request, how
+   long, which attempt, the last error. */
+.waiting-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.loading {
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* the history above what is shown: how much, and the two ways to reach it. */
+.earlier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.earlier .loading {
+  margin: 0;
+  flex-basis: 100%;
+}

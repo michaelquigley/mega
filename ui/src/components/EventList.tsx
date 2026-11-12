@@ -50,7 +50,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
     switch (event.kind) {
       case 'user':
         return (
-          <div key={event.seq} className="message user">
+          <div key={event.seq} data-seq={event.seq} className="message user">
             <BlockCopy source={event.text ?? ''} />
             <span className="who">{event.origin === 'native' ? 'You, outside mega' : 'You'}</span>
             <Markdown text={event.text ?? ''} />
@@ -58,7 +58,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
         )
       case 'assistant':
         return (
-          <div key={event.seq} className="message assistant">
+          <div key={event.seq} data-seq={event.seq} className="message assistant">
             <BlockCopy source={event.text ?? ''} />
             {event.origin === 'native' && <span className="who">From outside mega</span>}
             <Markdown text={event.text ?? ''} />
@@ -67,7 +67,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
       case 'tool_use': {
         const result = event.tool_use_id ? results.get(event.tool_use_id) : undefined
         return (
-          <details key={event.seq} className="tool">
+          <details key={event.seq} data-seq={event.seq} className="tool">
             <summary>
               {event.text}
               {result?.status === 'error' && <span className="tool-error"> failed</span>}
@@ -92,7 +92,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
           return null
         }
         return (
-          <details key={event.seq} className="tool">
+          <details key={event.seq} data-seq={event.seq} className="tool">
             <summary>Tool result</summary>
             {event.text && <ToolOutput text={event.text} />}
           </details>
@@ -109,7 +109,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
           status = outcomeLabels[outcome] ?? outcome
         }
         return (
-          <p key={event.seq} className="system">
+          <p key={event.seq} data-seq={event.seq} className="system">
             {what}: {status}
           </p>
         )
@@ -123,7 +123,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
             return null
           }
           return (
-            <p key={event.seq} className="system">
+            <p key={event.seq} data-seq={event.seq} className="system">
               Permission mode {event.facts?.permission_mode ?? 'changed'}
               {event.text && `: ${event.text}`}
             </p>
@@ -133,7 +133,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
           // the harness's own report of what it now runs.
           const reported = [event.facts?.model, event.facts?.effort && `effort ${event.facts.effort}`].filter(Boolean)
           return (
-            <p key={event.seq} className="system">
+            <p key={event.seq} data-seq={event.seq} className="system">
               Now running {reported.join(', ') || 'a different model'}
               {event.text && `: ${event.text}`}
             </p>
@@ -141,7 +141,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
         }
         return (
           <p
-            key={event.seq}
+            key={event.seq} data-seq={event.seq}
             className={event.status === 'error' || event.status === 'unsupervised' || event.status === 'not_started' ? 'system alert' : 'system'}
           >
             Runtime {event.status === 'not_started' ? 'did not start' : event.status}
@@ -153,10 +153,10 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
         )
       case 'turn_end':
         if (event.status === 'success') {
-          return <hr key={event.seq} className="turn" />
+          return <hr key={event.seq} data-seq={event.seq} className="turn" />
         }
         return (
-          <p key={event.seq} className="system alert">
+          <p key={event.seq} data-seq={event.seq} className="system alert">
             Turn ended: {event.status}
           </p>
         )
@@ -165,7 +165,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
           return null
         }
         return (
-          <details key={event.seq} className="native">
+          <details key={event.seq} data-seq={event.seq} className="native">
             <summary>{event.text ?? 'native'}</summary>
             <pre>{JSON.stringify(event.raw, null, 2)}</pre>
           </details>
@@ -178,12 +178,15 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
   // actions (tool rows, request rows, and native rows when shown) between two
   // pieces of speech form one indented group; speech, runtime lines and turn
   // separators stand on their own.
+  // a group is keyed by its first event, so loading earlier history above it
+  // keeps every group, and the rows open in it, as they were.
   const blocks: ReactNode[] = []
   let group: ReactNode[] = []
+  let groupFrom = 0
   const flush = () => {
     if (group.length > 0) {
       blocks.push(
-        <div key={`group-${blocks.length}`} className="action-group">
+        <div key={`group-${groupFrom}`} className="action-group">
           {group}
         </div>,
       )
@@ -196,6 +199,9 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
       return
     }
     if (actionKinds.has(event.kind)) {
+      if (group.length === 0) {
+        groupFrom = event.seq
+      }
       group.push(node)
       return
     }

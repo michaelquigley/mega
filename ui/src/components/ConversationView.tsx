@@ -1,14 +1,24 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
+import { useWallNow } from '../clock'
 import { useLatest } from '../latest'
-import { loadedThrough, type ConversationLog } from '../log'
+import type { ConversationLog } from '../log'
 import type { Conversation, Project } from '../types'
+import { waitingLabel, type Waiting } from '../waiting'
 import { EventList } from './EventList'
+import { IconButton } from './Icon'
 import { InputPanel } from './InputPanel'
 
 interface ConversationViewProps {
   conversation: Conversation
   project: Project
   log: ConversationLog | null
+  // the opening read and a read of earlier history, while the page waits on them.
+  loading: Waiting | null
+  loadingEarlier: Waiting | null
+  // load the ten turns before what is shown, or everything before it.
+  onEarlier: (all: boolean) => void
+  // show or hide native events; showing them refetches what is shown.
+  onShowNative: (show: boolean) => void
   stale: boolean
   onRemoved: () => void
   // why new work waits, or null: prompts and starts wait, and say so.
@@ -27,18 +37,47 @@ const stateLabels: Record<Conversation['state'], string> = {
 // ConversationView is one conversation: a read-only header of identity and
 // what the harness reports, the history, and the input panel pinned below
 // it, where every control and every pending request lives.
-export function ConversationView({ conversation, project, log, stale, onRemoved, heldBy }: ConversationViewProps) {
+export function ConversationView(props: ConversationViewProps) {
+  const { conversation, project, log, loading, loadingEarlier, onEarlier, onShowNative, stale, onRemoved, heldBy } = props
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [showNative, setShowNative] = useState(false)
+  const showNative = log?.native ?? false
   const articleRef = useRef<HTMLElement>(null)
 
   // history counts as loaded on the same gate the reading position uses: the
-  // unbroken run from the first event reaches the newest one held.
+  // opening read has landed, and what it covers reaches the newest event held.
   const delta = log?.delta ?? ''
-  const loaded = log !== null && loadedThrough(log.events) === (log.events.at(-1)?.seq ?? 0)
+  const loaded = log !== null && log.loaded && log.through >= (log.events.at(-1)?.seq ?? 0)
   const activity = `${log?.events.at(-1)?.seq ?? 0}:${delta.length}:${conversation.pending.map((request) => request.id).join(',')}`
   const { newer, toLatest } = useLatest(articleRef, loaded, activity)
+
+  // loading earlier history keeps the view where it was: the first row in view
+  // is noted before the read, and once the rows above it are in, the view
+  // moves by however far that row moved.
+  const anchor = useRef<{ seq: string; top: number } | null>(null)
+  const earlierPage = (all: boolean) => {
+    const scroller = articleRef.current?.closest<HTMLElement>('.main')
+    if (scroller && articleRef.current) {
+      const top = scroller.getBoundingClientRect().top
+      const rows = articleRef.current.querySelectorAll<HTMLElement>('.events [data-seq]')
+      const first = [...rows].find((row) => row.getBoundingClientRect().bottom > top)
+      anchor.current = first ? { seq: first.dataset.seq ?? '', top: first.getBoundingClientRect().top } : null
+    }
+    onEarlier(all)
+  }
+  const from = log?.from ?? 0
+  useLayoutEffect(() => {
+    const held = anchor.current
+    const scroller = articleRef.current?.closest<HTMLElement>('.main')
+    if (!held || !scroller || !articleRef.current) {
+      return
+    }
+    const row = articleRef.current.querySelector<HTMLElement>(`.events [data-seq="${held.seq}"]`)
+    if (row) {
+      scroller.scrollTop += row.getBoundingClientRect().top - held.top
+    }
+    anchor.current = null
+  }, [from])
 
   const attempt = async (action: () => Promise<unknown>) => {
     setError(null)
@@ -109,8 +148,11 @@ export function ConversationView({ conversation, project, log, stale, onRemoved,
         </p>
       )}
 
+      {log?.loaded && log.earlier && log.earlier.turns > 0 && (
+        <Earlier turns={log.earlier.turns} events={log.earlier.events} loading={loadingEarlier} onEarlier={earlierPage} />
+      )}
       <EventList events={log?.events ?? []} pending={pending} turnActive={active} stale={stale} showNative={showNative} delta={delta} />
-      {log === null && <p className="muted">Loading history…</p>}
+      {(log === null || !log.loaded) && <Loading waiting={loading} />}
 
       <InputPanel
         conversation={conversation}
@@ -121,7 +163,7 @@ export function ConversationView({ conversation, project, log, stale, onRemoved,
         error={error}
         attempt={attempt}
         showNative={showNative}
-        onShowNative={setShowNative}
+        onShowNative={onShowNative}
         onRemoved={onRemoved}
         newer={newer}
         onLatest={toLatest}
@@ -167,4 +209,38 @@ function nextPrompt(conversation: Conversation): string | undefined {
     : conversation.effort_choice
   const parts = [model, effort && `effort ${effort}`].filter(Boolean)
   return parts.length > 0 ? `next prompt: ${parts.join(', ')}` : undefined
+}
+
+// Earlier says how much history lies above what is shown, with the two ways
+// to reach it: the ten turns before, or all of it. nothing loads on scroll.
+function Earlier({ turns, events, loading, onEarlier }: { turns: number; events: number; loading: Waiting | null; onEarlier: (all: boolean) => void }) {
+  const busy = loading !== null && loading.error === null
+  return (
+    <div className="earlier">
+      <span className="muted">
+        {turns === 1 ? '1 earlier turn' : `${turns} earlier turns`} ({events === 1 ? '1 event' : `${events} events`})
+      </span>
+      <IconButton icon="arrow_upward" label="Show the ten turns before these" word="Show earlier" disabled={busy} onClick={() => onEarlier(false)} />
+      <IconButton icon="vertical_align_top" label="Show the whole history" word="Show all" disabled={busy} onClick={() => onEarlier(true)} />
+      {loading && <Loading waiting={loading} />}
+    </div>
+  )
+}
+
+// Loading says what the history is waiting for: which request, for how long,
+// which attempt, and the last error.
+function Loading({ waiting }: { waiting: Waiting | null }) {
+  if (!waiting) {
+    return <p className="muted">Loading history…</p>
+  }
+  return <TimedLoading waiting={waiting} />
+}
+
+function TimedLoading({ waiting }: { waiting: Waiting }) {
+  const now = useWallNow()
+  return (
+    <p className="muted loading" role="status">
+      Loading history: {waitingLabel(waiting, now)}
+    </p>
+  )
 }

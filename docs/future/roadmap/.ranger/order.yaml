@@ -1,18 +1,21 @@
 building:
-  - name-and-tagline.md
+  - opening-a-conversation-costs-its-whole-history.md
 horizon:
+  - hand-off-between-conversations.md
+  - start-up-reads-every-log.md
   - mega-as-the-development-hub.md
   - ui-test-runner.md
 researching:
   - each-project-runs-in-its-own-environment.md
-  - opening-a-conversation-costs-its-whole-history.md
   - version-metadata-in-web-ui.md
   - claude-shim-distribution.md
+  - mcp-tool-visibility.md
   - codex-approval-policy.md
   - codex-discovery-e2e-reads-its-own-thread.md
   - relocate-a-projects-checkout.md
-  - hand-off-between-conversations.md
+  - expanded-states.md
 evaluating:
+  - name-and-tagline.md
   - the-launcher-starts-mega-without-the-operators-environment.md
   - dfw-daemon-mode.md
   - start-or-reattach-a-runtime-without-a-turn.md

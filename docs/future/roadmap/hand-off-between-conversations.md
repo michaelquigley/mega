@@ -1,6 +1,6 @@
 ---
 title: hand-off between conversations
-state: researching
+state: horizon
 created: 2026-11-12
 tags: [feature]
 ---

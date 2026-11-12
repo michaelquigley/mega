@@ -3,6 +3,8 @@ import { starProject } from '../api'
 import { folds } from '../prefs'
 import { select, type Selection } from '../selection'
 import { connectionLabel, failing, serviceAddress, type Knowledge, type StreamState } from '../stream'
+import { useWallNow } from '../clock'
+import { waitingLabel, type Waiting } from '../waiting'
 import { treeGroups } from '../tree'
 import type { Conversation, Project, ShutdownGate } from '../types'
 import { AttentionMark, BackgroundLabel, Elapsed, ProjectMark } from './AttentionMark'
@@ -22,6 +24,8 @@ interface SidebarProps {
   loaded: boolean
   // what the page knows; before the first read, nothing, and it says so.
   knowledge: Knowledge
+  // what the page is waiting for, named in the connection label's title.
+  waiting: Waiting | null
   onRegister: () => void
   onCollapse: () => void
   gate: ShutdownGate | undefined
@@ -38,6 +42,7 @@ interface SidebarProps {
 export function Sidebar(props: SidebarProps) {
   const { projects, conversations, needsYou, selection, streamState, stale, loaded, knowledge, onRegister, onCollapse } = props
   const { gate, shutDownAt, gateBusy, onArm, onCancelShutdown } = props
+  const { waiting: waitingFor } = props
   // before the first read the page knows nothing, and says so, never "none".
   const unknownText =
     knowledge === 'unreachable'
@@ -198,9 +203,11 @@ export function Sidebar(props: SidebarProps) {
       </section>
       {!shutDownAt && <FooterGate gate={gate} stale={stale} busy={gateBusy} onCancel={onCancelShutdown} />}
       <footer className="side-foot">
-        <span className={`stream stream-${failing(knowledge) || (shutDownAt && streamState !== 'connected') ? 'disconnected' : streamState}`}>
-          {shutDownAt && streamState !== 'connected' ? 'Shut down from here, retrying' : connectionLabel(knowledge, streamState)}
-        </span>
+        <ConnectionStatus
+          className={`stream stream-${failing(knowledge) || (shutDownAt && streamState !== 'connected') ? 'disconnected' : streamState}`}
+          label={shutDownAt && streamState !== 'connected' ? 'Shut down from here, retrying' : connectionLabel(knowledge, streamState)}
+          waiting={waitingFor}
+        />
         <span className="side-foot-actions">
           {!gate?.armed && !shutDownAt && (
             <IconButton icon="power_settings_new" label="Shut down when every agent is idle" disabled={gateBusy || !loaded || stale} onClick={onArm} />
@@ -209,5 +216,23 @@ export function Sidebar(props: SidebarProps) {
         </span>
       </footer>
     </nav>
+  )
+}
+
+// ConnectionStatus is the footer's connection label. while the page waits on
+// something, its title names it, timed; only then does it read the clock.
+function ConnectionStatus({ className, label, waiting }: { className: string; label: string; waiting: Waiting | null }) {
+  if (!waiting) {
+    return <span className={className}>{label}</span>
+  }
+  return <TimedStatus className={className} label={label} waiting={waiting} />
+}
+
+function TimedStatus({ className, label, waiting }: { className: string; label: string; waiting: Waiting }) {
+  const now = useWallNow()
+  return (
+    <span className={className} title={waitingLabel(waiting, now)}>
+      {label}
+    </span>
   )
 }

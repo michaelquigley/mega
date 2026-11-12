@@ -1,6 +1,6 @@
 ---
 title: name and tagline
-state: building
+state: evaluating
 created: 2026-11-11
 tags: [enhancement]
 ---

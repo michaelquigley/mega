@@ -3,6 +3,7 @@ import { clampWidth, readCollapsed, readWidth, saveCollapsed, saveWidth } from '
 import type { Selection } from '../selection'
 import type { Knowledge, StreamState } from '../stream'
 import type { Conversation, Project, ShutdownGate } from '../types'
+import type { Waiting } from '../waiting'
 import { Rail } from './Rail'
 import { Sidebar } from './Sidebar'
 
@@ -15,6 +16,8 @@ interface SidePanelProps {
   stale: boolean
   loaded: boolean
   knowledge: Knowledge
+  // what the page is waiting for while it has no connection or no workspace.
+  waiting: Waiting | null
   onRegister: () => void
   // the shutdown gate, the page's own shutdown, and the gate's controls.
   gate: ShutdownGate | undefined

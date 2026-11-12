@@ -4,6 +4,7 @@
 // the package at build time, never message content.
 import addComment from '@material-design-icons/svg/filled/add_comment.svg?raw'
 import arrowDownward from '@material-design-icons/svg/filled/arrow_downward.svg?raw'
+import arrowUpward from '@material-design-icons/svg/filled/arrow_upward.svg?raw'
 import block from '@material-design-icons/svg/filled/block.svg?raw'
 import check from '@material-design-icons/svg/filled/check.svg?raw'
 import chevronRight from '@material-design-icons/svg/filled/chevron_right.svg?raw'
@@ -33,12 +34,14 @@ import stop from '@material-design-icons/svg/filled/stop.svg?raw'
 import undo from '@material-design-icons/svg/filled/undo.svg?raw'
 import unfoldLess from '@material-design-icons/svg/filled/unfold_less.svg?raw'
 import unfoldMore from '@material-design-icons/svg/filled/unfold_more.svg?raw'
+import verticalAlignTop from '@material-design-icons/svg/filled/vertical_align_top.svg?raw'
 import visibility from '@material-design-icons/svg/filled/visibility.svg?raw'
 import type { ButtonHTMLAttributes } from 'react'
 
 const icons = {
   add_comment: addComment,
   arrow_downward: arrowDownward,
+  arrow_upward: arrowUpward,
   block,
   check,
   chevron_right: chevronRight,
@@ -68,6 +71,7 @@ const icons = {
   undo,
   unfold_less: unfoldLess,
   unfold_more: unfoldMore,
+  vertical_align_top: verticalAlignTop,
   visibility,
 }
 

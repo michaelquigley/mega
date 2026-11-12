@@ -25,13 +25,16 @@ var ErrUncertain = errors.New("event log durability uncertain after a failed rol
 
 // Log is one conversation's JSONL event history. it has a single writer, the
 // service, and assigns each appended event the next seq. size is the confirmed
-// length; reads never go past it.
+// length; reads never go past it. the index, built as Open scans the file and
+// kept on every append, lets a read seek to where it starts instead of
+// parsing from the top.
 type Log struct {
 	mu        sync.Mutex
 	path      string
 	file      *os.File
 	size      int64
 	last      int64
+	index     index
 	uncertain error
 }
 
@@ -65,7 +68,9 @@ func Open(path string) (*Log, error) {
 		return nil, err
 	}
 	var last, size int64
-	err = scan(file, info.Size(), func(ev *model.Event, end int64) bool {
+	var idx index
+	err = scan(file, 0, info.Size(), func(ev *model.Event, end int64) bool {
+		idx.note(ev, size)
 		last, size = ev.Seq, end
 		return true
 	})
@@ -80,7 +85,7 @@ func Open(path string) (*Log, error) {
 			return nil, err
 		}
 	}
-	return &Log{path: path, file: file, size: size, last: last}, nil
+	return &Log{path: path, file: file, size: size, last: last, index: idx}, nil
 }
 
 // Remove deletes the log at path together with the directory holding it, which
@@ -98,12 +103,13 @@ func Remove(path string) error {
 	return nil
 }
 
-// scan reads complete lines from the first limit bytes of file, calling fn with
-// each event and the offset just past its newline, until fn returns false or the
-// data ends. it reads by offset, so it never moves the file's position.
-func scan(file *os.File, limit int64, fn func(ev *model.Event, end int64) bool) error {
-	reader := bufio.NewReader(io.NewSectionReader(file, 0, limit))
-	var offset int64
+// scan reads complete lines of file from offset from up to limit, calling fn
+// with each event and the offset just past its newline, until fn returns false
+// or the data ends. from must be where a line begins. it reads by offset, so
+// it never moves the file's position.
+func scan(file *os.File, from, limit int64, fn func(ev *model.Event, end int64) bool) error {
+	reader := bufio.NewReader(io.NewSectionReader(file, from, limit-from))
+	offset := from
 	for number := 1; ; number++ {
 		line, err := reader.ReadBytes('\n')
 		if errors.Is(err, io.EOF) {
@@ -115,6 +121,9 @@ func scan(file *os.File, limit int64, fn func(ev *model.Event, end int64) bool) 
 		offset += int64(len(line))
 		ev := &model.Event{}
 		if err := dd.BindJSON(ev, bytes.TrimSpace(line)); err != nil {
+			if from > 0 {
+				return fmt.Errorf("line %d after offset %d: %w", number, from, err)
+			}
 			return fmt.Errorf("line %d: %w", number, err)
 		}
 		if !fn(ev, offset) {
@@ -155,6 +164,7 @@ func (l *Log) Append(ev *model.Event) error {
 		}
 		return err
 	}
+	l.index.note(&stamped, l.size)
 	l.size += int64(len(line))
 	l.last = stamped.Seq
 	*ev = stamped
@@ -179,11 +189,29 @@ func (l *Log) LastSeq() int64 {
 
 // Since returns every confirmed event with a seq greater than seq, oldest first.
 func (l *Log) Since(seq int64) ([]*model.Event, error) {
+	return l.Range(seq+1, 0, nil)
+}
+
+// Range returns the confirmed events with seqs from from through to, oldest
+// first, keeping only those keep accepts when it is not nil. to of zero or
+// less reads to the newest event. it seeks to the index's nearest point at or
+// before from, so it parses only what it returns and at most one stretch
+// between points before it.
+func (l *Log) Range(from, to int64, keep func(*model.Event) bool) ([]*model.Event, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if to <= 0 || to > l.last {
+		to = l.last
+	}
+	if from > to {
+		return nil, nil
+	}
 	var found []*model.Event
-	err := scan(l.file, l.size, func(ev *model.Event, _ int64) bool {
-		if ev.Seq > seq {
+	err := scan(l.file, l.index.seek(from), l.size, func(ev *model.Event, _ int64) bool {
+		if ev.Seq > to {
+			return false
+		}
+		if ev.Seq >= from && (keep == nil || keep(ev)) {
 			found = append(found, ev)
 		}
 		return true
@@ -192,6 +220,19 @@ func (l *Log) Since(seq int64) ([]*model.Event, error) {
 		return nil, fmt.Errorf("reading event log '%s': %w", l.path, err)
 	}
 	return found, nil
+}
+
+// TurnsBefore returns the seq where the n-th turn before seq starts, how many
+// turns start before that one, and the newest seq at that moment, so a caller
+// can read the stretch as it stood. seq of zero counts back from the end of
+// the log, where a newest turn that has not ended is always included and not
+// counted among the n; n of zero or less reaches the first event. an empty
+// log answers 1 and 0. the turn rule is the index's.
+func (l *Log) TurnsBefore(seq int64, n int) (from int64, turnsBefore int, last int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	from, turnsBefore = l.index.turnsBefore(seq, n)
+	return from, turnsBefore, l.last
 }
 
 // Tail returns the newest n events, oldest first.

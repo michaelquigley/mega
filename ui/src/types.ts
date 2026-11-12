@@ -198,6 +198,16 @@ export type EventKind =
   | 'turn_end'
   | 'native'
 
+// History is a stretch of a conversation's history, from through through.
+// native events come only when asked for, but the stretch covers them.
+// earlier is present for a read by turns: what lies before from.
+export interface History {
+  events: ConversationEvent[]
+  from: number
+  through: number
+  earlier?: { turns: number; events: number }
+}
+
 export interface ConversationEvent {
   seq: number
   at: string

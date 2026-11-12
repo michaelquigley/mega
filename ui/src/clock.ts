@@ -42,6 +42,14 @@ export function useNow(): number {
   return useSyncExternalStore(subscribe, read)
 }
 
+const readWall = () => now
+
+// useWallNow is the same clock, but it never stands still: it times what the
+// page is waiting for, which matters most while the page is stale.
+export function useWallNow(): number {
+  return useSyncExternalStore(subscribe, readWall)
+}
+
 // freezeClock stops the clock while stale and restarts it when live again.
 export function freezeClock(stale: boolean) {
   const next = stale ? (frozenAt ?? Date.now()) : null

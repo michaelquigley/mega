@@ -42,7 +42,7 @@ func (f *fixture) startConversation(t *testing.T) (string, *harnesstest.Runtime)
 
 func (f *fixture) events(t *testing.T, id string, since int) []map[string]any {
 	t.Helper()
-	status, body := f.do(t, http.MethodGet, fmt.Sprintf("/api/conversations/%s/events?since=%d", id, since), "")
+	status, body := f.do(t, http.MethodGet, fmt.Sprintf("/api/conversations/%s/events?since=%d&native=1", id, since), "")
 	if status != http.StatusOK {
 		t.Fatalf("events: %d %v", status, body)
 	}
@@ -147,6 +147,10 @@ func TestConversationCommandStatuses(t *testing.T) {
 		{"empty prompt", http.MethodPost, base + "/prompt", `{"text":"  "}`, http.StatusBadRequest, "invalid"},
 		{"unknown request", http.MethodPost, base + "/answer", `{"request_id":"nope","decision":"allow"}`, http.StatusConflict, "not_pending"},
 		{"bad since", http.MethodGet, base + "/events?since=-1", "", http.StatusBadRequest, "invalid"},
+		{"no turns", http.MethodGet, base + "/events?turns=0", "", http.StatusBadRequest, "invalid"},
+		{"bad before", http.MethodGet, base + "/events?before=x", "", http.StatusBadRequest, "invalid"},
+		{"since with turns", http.MethodGet, base + "/events?since=3&turns=2", "", http.StatusBadRequest, "invalid"},
+		{"bad native", http.MethodGet, base + "/events?native=yes", "", http.StatusBadRequest, "invalid"},
 		{"unknown conversation", http.MethodPost, "/api/conversations/nope/interrupt", "", http.StatusNotFound, "not_found"},
 		{"resume while running", http.MethodPost, base + "/resume", "", http.StatusConflict, "conflict"},
 		{"rename without name", http.MethodPatch, base, `{"name":""}`, http.StatusBadRequest, "invalid"},

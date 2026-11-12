@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, armShutdown, cancelShutdown, getEvents, getWorkspace, readConversation, shutDown } from './api'
-import { freezeClock } from './clock'
+import { ApiError, armShutdown, cancelShutdown, getHistory, getWorkspace, historyPath, readConversation, shutDown, type HistoryRead } from './api'
+import { freezeClock, useWallNow } from './clock'
 import { parseHash, select, type Selection } from './selection'
 import { serviceAddress, useStream, type Knowledge } from './stream'
-import { loadedThrough, merge, type ConversationLog } from './log'
+import { caughtUp, earlier, emptyLog, opened, received, withNative, withoutNative, type ConversationLog } from './log'
 import type { StreamFrame, Workspace } from './types'
 import { AdoptDialog } from './components/AdoptDialog'
 import { ConversationView } from './components/ConversationView'
@@ -16,6 +16,10 @@ import { pendingReason, shutDownReason } from './gate'
 import { missingReason } from './checkout'
 import { showTab, tabState } from './favicon'
 import { productName } from './brand'
+import { waitingLabel, type Waiting } from './waiting'
+
+// how many turns a conversation opens with, and how many more Show earlier adds.
+const TURNS = 10
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
@@ -68,6 +72,12 @@ export function App() {
     sent: 0,
   })
 
+  // what the workspace read is waiting on, while the page has no workspace or
+  // a read has failed: when the run of attempts began, how many, the last error.
+  const workspaceWait = useRef<{ since: number; attempts: number; error: string | null } | null>(null)
+  const haveWorkspace = useRef(false)
+  const [workspaceWaiting, setWorkspaceWaiting] = useState<Waiting | null>(null)
+
   const refresh = useCallback((): Promise<boolean> => {
     const state = refreshing.current
     if (state.current) {
@@ -80,9 +90,17 @@ export function App() {
         state.again = false
         const number = ++state.sent
         const sentOn = connection.current
+        const wait = (workspaceWait.current ??= { since: Date.now(), attempts: 0, error: null })
+        wait.attempts++
+        if (wait.attempts > 1 || !haveWorkspace.current) {
+          setWorkspaceWaiting({ what: 'GET /api/workspace', since: wait.since, attempts: wait.attempts, error: wait.error })
+        }
         try {
           const fetched = await getWorkspace()
           if (number === state.sent) {
+            workspaceWait.current = null
+            haveWorkspace.current = true
+            setWorkspaceWaiting(null)
             setWorkspace(fetched)
             setLoadError(null)
             if (fetched.shutdown && !fetched.shutdown.armed) {
@@ -97,7 +115,10 @@ export function App() {
           if (number === state.sent) {
             // what the page shows is now only last known, until a refresh on
             // the current connection succeeds.
-            setLoadError(error instanceof Error ? error.message : String(error))
+            const message = error instanceof Error ? error.message : String(error)
+            wait.error = message
+            setWorkspaceWaiting({ what: 'GET /api/workspace', since: wait.since, attempts: wait.attempts, error: message })
+            setLoadError(message)
             setAnswered(error instanceof ApiError)
             setSynced(false)
             ok = false
@@ -111,36 +132,98 @@ export function App() {
     return state.current
   }, [])
 
-  const loadEvents = useCallback(async (id: string, since: number) => {
+  // a reconnect fetches only what the page missed: everything after the
+  // newest event it has been given.
+  const catchUp = useCallback(async (id: string, log: ConversationLog) => {
     try {
-      const { events } = await getEvents(id, since)
-      setLog((current) => merge(current, id, events))
+      const read = await getHistory(id, { since: log.through, native: log.native })
+      setLog((current) => (current && current.id === id ? caughtUp(current, read) : current))
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error))
     }
   }, [])
 
+  // opening or switching to a conversation reads its newest turns and the turn
+  // in flight, never the whole history. a read that fails is tried again, after
+  // 1 s and then doubling to at most 8 s, and historyWaiting says what the
+  // page is waiting for meanwhile.
+  const [historyWaiting, setHistoryWaiting] = useState<(Waiting & { id: string }) | null>(null)
   useEffect(() => {
     const id = selectedConversationId
     if (!id) {
       return
     }
     let cancelled = false
-    getEvents(id, 0)
-      .then(({ events }) => {
-        if (!cancelled) {
-          setLog((current) => merge(current, id, events))
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setLoadError(error instanceof Error ? error.message : String(error))
-        }
-      })
+    let timer: number | undefined
+    const read: HistoryRead = { turns: TURNS, native: false }
+    const since = Date.now()
+    let attempts = 0
+    let error: string | null = null
+    const attempt = () => {
+      attempts++
+      setHistoryWaiting({ id, what: `GET ${historyPath(id, read)}`, since, attempts, error })
+      getHistory(id, read)
+        .then((history) => {
+          if (!cancelled) {
+            setLog((current) => opened(current && current.id === id ? current : emptyLog(id, false), history))
+            setHistoryWaiting(null)
+          }
+        })
+        .catch((failure: unknown) => {
+          if (!cancelled) {
+            error = failure instanceof Error ? failure.message : String(failure)
+            setHistoryWaiting({ id, what: `GET ${historyPath(id, read)}`, since, attempts, error })
+            timer = window.setTimeout(attempt, Math.min(1000 * 2 ** (attempts - 1), 8000))
+          }
+        })
+    }
+    setLog((current) => (current && current.id === id ? current : emptyLog(id, false)))
+    attempt()
     return () => {
       cancelled = true
+      window.clearTimeout(timer)
     }
   }, [selectedConversationId])
+
+  // Show earlier and Show all: the turns before what is shown, or everything.
+  const [earlierWaiting, setEarlierWaiting] = useState<(Waiting & { id: string }) | null>(null)
+  const onEarlier = useCallback(async (all: boolean) => {
+    const current = logRef.current
+    if (!current || !current.loaded || current.from <= 1) {
+      return
+    }
+    const id = current.id
+    const read: HistoryRead = { before: current.from, turns: all ? undefined : TURNS, native: current.native }
+    const what = `GET ${historyPath(id, read)}`
+    setEarlierWaiting({ id, what, since: Date.now(), attempts: 1, error: null })
+    try {
+      const history = await getHistory(id, read)
+      setLog((log) => (log && log.id === id && log.from === current.from ? earlier(log, history) : log))
+      setEarlierWaiting(null)
+    } catch (failure) {
+      setEarlierWaiting((waiting) => waiting && { ...waiting, error: failure instanceof Error ? failure.message : String(failure) })
+    }
+  }, [])
+
+  // the native events toggle: showing them refetches what is shown with them;
+  // hiding them drops them, fetching nothing.
+  const onShowNative = useCallback(async (show: boolean) => {
+    const current = logRef.current
+    if (!current || !current.loaded) {
+      return
+    }
+    const id = current.id
+    if (!show) {
+      setLog((log) => (log && log.id === id ? withoutNative(log) : log))
+      return
+    }
+    try {
+      const read = await getHistory(id, { since: current.from - 1, native: true })
+      setLog((log) => (log && log.id === id ? withNative(log, read) : log))
+    } catch (failure) {
+      setLoadError(failure instanceof Error ? failure.message : String(failure))
+    }
+  }, [])
 
   // every connection re-reads confirmed state; the service never replays on
   // its own, so whatever was missed comes from the workspace and the log.
@@ -149,12 +232,12 @@ export function App() {
     setSynced(false)
     void refresh()
     const id = selectedRef.current
-    if (id) {
-      const current = logRef.current
-      const last = current && current.id === id ? (current.events.at(-1)?.seq ?? 0) : 0
-      void loadEvents(id, last)
+    const current = logRef.current
+    // a log still waiting for its opening read gets it from the retry above.
+    if (id && current && current.id === id && current.loaded) {
+      void catchUp(id, current)
     }
-  }, [refresh, loadEvents])
+  }, [refresh, catchUp])
 
   const onFrame = useCallback(
     (frame: StreamFrame) => {
@@ -167,7 +250,7 @@ export function App() {
       const id = frame.conversation_id
       if (frame.event) {
         const event = frame.event
-        setLog((current) => merge(current, id, [event]))
+        setLog((current) => (current && current.id === id ? received(current, event) : current))
       } else if (frame.delta) {
         const delta = frame.delta
         setLog((current) => (current && current.id === id ? { ...current, delta: current.delta + delta } : current))
@@ -180,7 +263,7 @@ export function App() {
     connection.current++
     setSynced(false)
   }, [])
-  const streamState = useStream(onOpen, onFrame, onClose)
+  const { state: streamState, waiting: streamWaiting } = useStream(onOpen, onFrame, onClose)
   const stale = streamState !== 'connected' || !synced
 
   // a workspace read that fails while the stream is up is tried again, with
@@ -307,10 +390,12 @@ export function App() {
   const posted = useRef<{ id: string; seq: number } | null>(null)
   const openConversation = conversations.find((c) => c.id === selectedConversationId)
   const openReadSeq = openConversation?.read_seq ?? 0
-  // only the unbroken run of events from the first one counts as on screen: a
-  // live event that arrived while history was still loading proves nothing
-  // about the events before it.
-  const loggedSeq = log && log.id === selectedConversationId ? loadedThrough(log.events) : 0
+  // what counts as on screen is the newest event the page has been given in one
+  // unbroken run since its opening read: native events it was not sent, or
+  // dropped, count as given, and history before the loaded tail does not
+  // matter. a live event that arrived while the tail was still loading proves
+  // nothing about the events before it.
+  const loggedSeq = log && log.id === selectedConversationId && log.loaded ? log.through : 0
   useEffect(() => {
     const id = selectedConversationId
     if (!id || !visible || stale || loggedSeq <= openReadSeq) {
@@ -362,6 +447,10 @@ export function App() {
         conversation={selectedConversation}
         project={conversationProject}
         log={log && log.id === selectedConversation.id ? log : null}
+        loading={historyWaiting && historyWaiting.id === selectedConversation.id ? historyWaiting : null}
+        loadingEarlier={earlierWaiting && earlierWaiting.id === selectedConversation.id ? earlierWaiting : null}
+        onEarlier={(all) => void onEarlier(all)}
+        onShowNative={(show) => void onShowNative(show)}
         stale={stale}
         onRemoved={() => select({ kind: 'project', id: selectedConversation.project_id })}
         heldBy={heldBy ?? missingReason(conversationProject)}
@@ -380,7 +469,7 @@ export function App() {
       />
     )
   } else if (workspace === null) {
-    main = <Unknown knowledge={knowledge} error={loadError} />
+    main = <Unknown knowledge={knowledge} error={loadError} waiting={[streamWaiting, workspaceWaiting]} />
   } else {
     main = (
       <p className="placeholder">
@@ -400,6 +489,7 @@ export function App() {
         stale={stale}
         loaded={workspace !== null}
         knowledge={knowledge}
+        waiting={streamWaiting ?? workspaceWaiting}
         onRegister={() => setRegistering(true)}
         gate={gate}
         shutDownAt={shutDownAt}
@@ -490,8 +580,11 @@ function takesText(target: EventTarget | null): boolean {
 // Unknown is the main column before the page has read the workspace once: it
 // says the page is connecting, that the service is unreachable, or that the
 // service answered but could not read the workspace, and that it is still
-// trying, and where. it never says there is nothing.
-function Unknown({ knowledge, error }: { knowledge: Knowledge; error: string | null }) {
+// trying, and where. it never says there is nothing. below that it lists what
+// it is waiting for: the stream and the workspace read, each with how long,
+// how many attempts and the last error.
+function Unknown({ knowledge, error, waiting }: { knowledge: Knowledge; error: string | null; waiting: (Waiting | null)[] }) {
+  const waits = <WaitingList waiting={waiting} />
   if (knowledge === 'unreadable') {
     return (
       <section className="unknown unknown-unreadable" role="status">
@@ -500,6 +593,7 @@ function Unknown({ knowledge, error }: { knowledge: Knowledge; error: string | n
           {`The service at ${serviceAddress()} answered, but could not read the workspace. mega keeps trying, and your projects and conversations appear as soon as a read succeeds.`}
         </p>
         {error && <p className="muted">Error: {error}</p>}
+        {waits}
       </section>
     )
   }
@@ -513,7 +607,25 @@ function Unknown({ knowledge, error }: { knowledge: Knowledge; error: string | n
           : `Reaching the service at ${serviceAddress()} to read your projects and conversations.`}
       </p>
       {unreachable && error && <p className="muted">Last error: {error}</p>}
+      {waits}
     </section>
+  )
+}
+
+// WaitingList names what the page is waiting for, one line each, on a clock
+// that keeps time while the page is stale.
+function WaitingList({ waiting }: { waiting: (Waiting | null)[] }) {
+  const now = useWallNow()
+  const waits = waiting.filter((wait): wait is Waiting => wait !== null)
+  if (waits.length === 0) {
+    return null
+  }
+  return (
+    <ul className="waiting-list" aria-label="Waiting for">
+      {waits.map((wait) => (
+        <li key={wait.what}>{waitingLabel(wait, now)}</li>
+      ))}
+    </ul>
   )
 }
 
