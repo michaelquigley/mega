@@ -41,6 +41,20 @@ type workspaceView struct {
 	Conversations []*conversationView
 	NeedsYou      []string
 	Shutdown      *shutdownView
+	Preflight     *preflightView
+}
+
+// preflightView is whether each harness can run from mega's environment:
+// mega's PATH, and what is missing, by harness.
+type preflightView struct {
+	Path    string
+	Missing []*missingView
+}
+
+type missingView struct {
+	Harness    string
+	Executable string
+	Reason     string
 }
 
 // shutdownView is the "shut down when idle" gate: whether it is armed, since
@@ -86,6 +100,10 @@ func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
 			Idle:     workspace.Gate.Idle(),
 			Blockers: make([]*blockerView, 0, len(workspace.Gate.Blockers)),
 		},
+	}
+	view.Preflight = &preflightView{Path: workspace.Preflight.Path, Missing: make([]*missingView, 0, len(workspace.Preflight.Missing))}
+	for _, m := range workspace.Preflight.Missing {
+		view.Preflight.Missing = append(view.Preflight.Missing, &missingView{Harness: m.Harness, Executable: m.Executable, Reason: m.Error()})
 	}
 	for _, b := range workspace.Gate.Blockers {
 		view.Shutdown.Blockers = append(view.Shutdown.Blockers, &blockerView{ConversationID: b.ConversationID, ProjectID: b.ProjectID, Name: b.Name, Turn: b.Turn, Requests: b.Requests, Background: b.Background, Settling: b.Settling})

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -51,6 +52,9 @@ type instance struct {
 // directory, so one on another port cannot become a second writer. either
 // refusal names the mega already running where it can.
 func start(cfg *config.Config) (*instance, error) {
+	// every harness and every command an agent runs inherits this PATH, so it
+	// is worth seeing when a tool cannot be found.
+	dl.Infof("PATH at start-up: '%s'", os.Getenv("PATH"))
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return nil, bindError(cfg.Listen, err)

@@ -35,6 +35,9 @@ type Harness struct {
 	// adapter that reports to its sink while launching does.
 	duringLaunch func(*Runtime)
 	launched     int
+	missingMu    sync.Mutex
+	missing      error    // what Check reports, under missingMu
+	historyErr   error    // what History fails with, if set
 	reads        []string // native ids History was asked for, in order
 }
 
@@ -102,6 +105,30 @@ func (h *Harness) ModelLists() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.modelLists
+}
+
+// SetMissing makes Check report err, as a harness whose executable cannot be
+// found does; nil makes it whole again.
+func (h *Harness) SetMissing(err error) {
+	h.missingMu.Lock()
+	defer h.missingMu.Unlock()
+	h.missing = err
+}
+
+// FailHistory makes History fail with err; nil makes it read again.
+func (h *Harness) FailHistory(err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.historyErr = err
+}
+
+// Check reports what SetMissing set. it takes its own lock, not h.mu: a
+// workspace read runs it, and a test may read the workspace from inside
+// Launch, which holds h.mu.
+func (h *Harness) Check() error {
+	h.missingMu.Lock()
+	defer h.missingMu.Unlock()
+	return h.missing
 }
 
 func (h *Harness) Inherited(context.Context, string) (string, string, error) {
@@ -217,6 +244,9 @@ func (h *Harness) History(_ context.Context, _ string, nativeID string) (harness
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.reads = append(h.reads, nativeID)
+	if h.historyErr != nil {
+		return harness.History{}, h.historyErr
+	}
 	out := harness.History{Open: h.open[nativeID]}
 	for _, ev := range h.history[nativeID] {
 		copied := *ev

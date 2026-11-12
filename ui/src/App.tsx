@@ -449,6 +449,8 @@ export function App() {
         <LaunchDialog
           projectId={launching}
           inheritedMode={projects.find((p) => p.id === launching)?.inherited_permission_mode ?? ''}
+          unavailable={Object.fromEntries((workspace?.preflight?.missing ?? []).map((m) => [m.harness, m.reason]))}
+          path={workspace?.preflight?.path ?? ''}
           onClose={() => setLaunching(null)}
           onLaunched={(conversation) => {
             setLaunching(null)

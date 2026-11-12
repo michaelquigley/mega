@@ -40,6 +40,9 @@ type Workspace struct {
 
 	// Gate is the "shut down when idle" state and what is in its way.
 	Gate Gate
+
+	// Preflight is whether each harness can run from mega's environment.
+	Preflight Preflight
 }
 
 // Service owns the registry, the event logs, the runtimes and their pending
@@ -107,7 +110,7 @@ func (s *Service) Workspace() Workspace {
 	for i := range doc.Projects {
 		s.applyTrust(&doc.Projects[i])
 	}
-	return Workspace{Projects: doc.Projects, Conversations: conversations, NeedsYou: needsYou(conversations), Gate: gate}
+	return Workspace{Projects: doc.Projects, Conversations: conversations, NeedsYou: needsYou(conversations), Gate: gate, Preflight: s.preflight()}
 }
 
 // RegisterProject adds an existing checkout to the workspace. an empty name

@@ -553,3 +553,30 @@ func TestMissingCheckoutOnTheWire(t *testing.T) {
 		t.Errorf("moved back: %v", p)
 	}
 }
+
+// the preflight on the wire: mega's PATH always, and a harness that cannot
+// run named with its executable; its refusal's code.
+func TestPreflightOnTheWire(t *testing.T) {
+	f := start(t)
+	id, rt := f.startConversation(t)
+	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID()}})
+	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	_, workspace := f.do(t, http.MethodGet, "/api/workspace", "")
+	pre := workspace["preflight"].(map[string]any)
+	if pre["path"] != os.Getenv("PATH") || len(pre["missing"].([]any)) != 0 {
+		t.Fatalf("all found: %v", pre)
+	}
+	f.fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "node", Reason: "'node' was not found on mega's PATH"})
+	_, workspace = f.do(t, http.MethodGet, "/api/workspace", "")
+	missing := workspace["preflight"].(map[string]any)["missing"].([]any)
+	if len(missing) != 1 {
+		t.Fatalf("missing = %v", missing)
+	}
+	if m := missing[0].(map[string]any); m["harness"] != "claude" || m["executable"] != "node" || m["reason"] != "'claude' cannot run: 'node' was not found on mega's PATH" {
+		t.Errorf("missing node: %v", m)
+	}
+	status, body := f.do(t, http.MethodPost, "/api/conversations/"+id+"/prompt", jsonBody(map[string]string{"text": "more"}))
+	if status != http.StatusConflict || body["code"] != "executable_missing" || !strings.Contains(body["message"].(string), "node") {
+		t.Errorf("prompt: %d %v", status, body)
+	}
+}

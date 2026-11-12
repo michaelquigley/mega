@@ -48,7 +48,9 @@ mega desktop integrate   # installs com.michaelquigley.mega.desktop and its icon
 mega desktop remove      # removes exactly those files
 ```
 
-The launcher runs `mega daemon` from wherever the binary was when you ran `integrate`; run it again if you move the binary. Nothing starts at login.
+The launcher runs `mega daemon` through your interactive shell (the one `SHELL` names: bash, zsh or fish), so mega, and every agent it runs, gets the `PATH` and environment a new terminal has. A launcher started directly gets only the desktop session's environment, where tools your shell start-up files put on `PATH` (`node`, `codex`, your toolchains) cannot be found. `integrate` prints the exact `Exec` line it wrote. `mega desktop integrate --plain` writes the direct form if you want it. The launcher runs the binary from wherever it was when you ran `integrate`; run it again if you move the binary. Nothing starts at login.
+
+If a harness's executable cannot be found from mega's environment, the new-conversation dialog marks that harness as unable to run and shows mega's `PATH`, and its conversations refuse new work with the name of what is missing.
 
 With no terminal, as when the launcher starts it, mega logs to `~/.local/state/mega/mega.log` (or under `XDG_STATE_HOME`); `mega version` prints the path. At start-up a log past 10 MB becomes `mega.log.1`, replacing an earlier one, and a fresh log begins.
 

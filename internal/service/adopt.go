@@ -42,7 +42,7 @@ func (s *Service) Discover(projectID, harnessName string) ([]harness.Session, er
 	defer cancel()
 	sessions, err := h.Discover(ctx, project.Checkout)
 	if err != nil {
-		return nil, fmt.Errorf("discovering sessions for '%s': %w", projectID, err)
+		return nil, s.explain(harnessName, fmt.Errorf("discovering sessions for '%s': %w", projectID, err))
 	}
 	return slices.DeleteFunc(sessions, func(session harness.Session) bool { return held[session.NativeID] }), nil
 }

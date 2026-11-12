@@ -59,6 +59,10 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 		s.mu.Unlock()
 		return ConversationView{}, err
 	}
+	if err := s.harnessReady(harnessName); err != nil {
+		s.mu.Unlock()
+		return ConversationView{}, err
+	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = defaultName(prompt)
@@ -95,7 +99,7 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 	s.mu.Unlock()
 	err = s.startRuntime(conv.ID, l, false)
 	if err != nil {
-		return s.view(conv.ID), err
+		return s.view(conv.ID), s.explain(harnessName, err)
 	}
 	if err := s.send(conv.ID, prompt); err != nil {
 		return s.view(conv.ID), err
@@ -121,6 +125,10 @@ func (s *Service) Prompt(conversationID, text string) error {
 		return err
 	}
 	if err := s.conversationCheckoutLocked(conv); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.harnessReady(conv.Harness); err != nil {
 		s.mu.Unlock()
 		return err
 	}
@@ -158,7 +166,7 @@ func (s *Service) Prompt(conversationID, text string) error {
 		return err
 	}
 	if err := s.startRuntime(conversationID, l, false); err != nil {
-		return err
+		return s.explain(conv.Harness, err)
 	}
 	return s.send(conversationID, text)
 }
@@ -182,6 +190,10 @@ func (s *Service) Start(conversationID string) error {
 		return err
 	}
 	if err := s.conversationCheckoutLocked(conv); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.harnessReady(conv.Harness); err != nil {
 		s.mu.Unlock()
 		return err
 	}
@@ -212,7 +224,7 @@ func (s *Service) Start(conversationID string) error {
 	if err := s.importBeforeLaunch(conv, l); err != nil {
 		return err
 	}
-	return s.startRuntime(conversationID, l, true)
+	return s.explain(conv.Harness, s.startRuntime(conversationID, l, true))
 }
 
 // importBeforeLaunch brings the cache up to date with the native session
@@ -632,7 +644,7 @@ func (s *Service) importHistory(conv model.Conversation, l *live) (imported, err
 	defer cancel()
 	history, err := h.History(ctx, project.Checkout, conv.NativeID)
 	if err != nil {
-		return imported{}, fmt.Errorf("importing history of '%s': %w", conv.ID, err)
+		return imported{}, s.explain(conv.Harness, fmt.Errorf("importing history of '%s': %w", conv.ID, err))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

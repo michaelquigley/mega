@@ -155,6 +155,15 @@ export interface Workspace {
   needs_you: string[]
   // the "shut down when idle" gate and what is in its way.
   shutdown?: ShutdownGate
+  // whether each harness can run from mega's environment.
+  preflight?: Preflight
+}
+
+// Preflight is computed on every read: mega's PATH, and each harness that
+// cannot run because something it executes cannot be found.
+export interface Preflight {
+  path: string
+  missing: { harness: string; executable: string; reason: string }[]
 }
 
 // Blocker is one conversation holding the shutdown gate, by kind.

@@ -67,11 +67,13 @@ func newDesktopCmd() *cobra.Command {
 }
 
 func newDesktopIntegrateCmd() *cobra.Command {
+	var plain bool
 	cmd := &cobra.Command{
 		Use:   "integrate",
-		Short: "Install mega's desktop launcher and icons (it runs `mega daemon`)",
+		Short: "Install mega's desktop launcher and icons (it runs `mega daemon` through your shell)",
 		Args:  cobra.NoArgs,
 	}
+	cmd.Flags().BoolVar(&plain, "plain", false, "start mega directly, with the desktop session's environment, not through your shell")
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		if runtime.GOOS != "linux" {
 			return fmt.Errorf("desktop integration is only supported on linux (got '%s')", runtime.GOOS)
@@ -91,7 +93,8 @@ func newDesktopIntegrateCmd() *cobra.Command {
 			return err
 		}
 		paths := newDesktopInstallPaths(dataHome)
-		if err := installDesktopFiles(paths, executable); err != nil {
+		launch := desktopLaunch(executable, os.Getenv("SHELL"), plain)
+		if err := installDesktopFiles(paths, launch.exec); err != nil {
 			return err
 		}
 
@@ -100,6 +103,10 @@ func newDesktopIntegrateCmd() *cobra.Command {
 		for _, icon := range paths.icons {
 			fmt.Fprintf(out, "installed icon: %s\n", icon.path)
 		}
+		if launch.warning != "" {
+			fmt.Fprintf(out, "warning: %s\n", launch.warning)
+		}
+		fmt.Fprintf(out, "Exec=%s\n%s\n", launch.exec, launch.why)
 		return nil
 	}
 	return cmd
@@ -180,7 +187,7 @@ func newDesktopInstallPaths(dataHome string) desktopInstallPaths {
 	return paths
 }
 
-func installDesktopFiles(paths desktopInstallPaths, executable string) error {
+func installDesktopFiles(paths desktopInstallPaths, execLine string) error {
 	dirs := []string{filepath.Dir(paths.desktopFile)}
 	for _, icon := range paths.icons {
 		dirs = append(dirs, filepath.Dir(icon.path))
@@ -191,7 +198,7 @@ func installDesktopFiles(paths desktopInstallPaths, executable string) error {
 		}
 	}
 
-	if err := os.WriteFile(paths.desktopFile, []byte(desktopEntry(executable)), 0o644); err != nil {
+	if err := os.WriteFile(paths.desktopFile, []byte(desktopEntry(execLine)), 0o644); err != nil {
 		return fmt.Errorf("write desktop entry: %w", err)
 	}
 	for _, icon := range paths.icons {
@@ -206,22 +213,73 @@ func installDesktopFiles(paths desktopInstallPaths, executable string) error {
 	return nil
 }
 
-// desktopEntry builds the FreeDesktop entry: it runs the daemon. there is no
-// StartupWMClass: the page opens in the default browser, so there is no
-// mega-owned window to match. no autostart entry is written; mega starts when
-// the operator starts it.
-func desktopEntry(executable string) string {
+// desktopEntry builds the FreeDesktop entry around its Exec line, which runs
+// the daemon. there is no StartupWMClass: the page opens in the default
+// browser, so there is no mega-owned window to match. no autostart entry is
+// written; mega starts when the operator starts it.
+func desktopEntry(execLine string) string {
 	return strings.Join([]string{
 		"[Desktop Entry]",
 		"Type=Application",
 		"Name=" + desktopAppName,
 		"Comment=a workspace for a gang of coding agents",
-		"Exec=" + desktopExecPath(executable) + " daemon",
+		"Exec=" + execLine,
 		"Icon=" + desktopAppId,
 		"Terminal=false",
 		"Categories=Utility;Development;",
 		"",
 	}, "\n")
+}
+
+// launchForm is how the launcher starts mega: its Exec line, why, and a
+// warning when it had to fall back to the plain form.
+type launchForm struct {
+	exec    string
+	why     string
+	warning string
+}
+
+// the shells the launcher knows how to run interactively.
+var launchShells = map[string]bool{"bash": true, "zsh": true, "fish": true}
+
+// desktopLaunch builds the launcher's Exec line. a desktop launcher starts
+// programs with the desktop session's environment, which lacks whatever the
+// operator's shell start-up files add (a PATH with node and the toolchains
+// his agents run). so the launcher runs the operator's shell, named by
+// SHELL, as an interactive shell that execs mega: mega then has the
+// environment a new terminal has, and hands it to every agent. plain, or a
+// shell it does not know, keeps the direct form.
+func desktopLaunch(executable, shell string, plain bool) launchForm {
+	direct := desktopExecPath(executable) + " daemon"
+	if plain {
+		return launchForm{exec: direct, why: "the launcher starts mega directly, with the desktop session's environment (--plain)."}
+	}
+	name := filepath.Base(shell)
+	if !filepath.IsAbs(shell) || !launchShells[name] {
+		what := fmt.Sprintf("SHELL is '%s', which mega does not know how to start interactively", shell)
+		if shell == "" {
+			what = "SHELL is not set"
+		}
+		return launchForm{
+			exec:    direct,
+			why:     "the launcher starts mega directly, with the desktop session's environment.",
+			warning: what + "; the launcher starts mega directly, so mega and its agents get the desktop session's PATH, not your shell's. set SHELL to the absolute path of bash, zsh or fish and run integrate again, or pass --plain to keep this form.",
+		}
+	}
+	script := "exec " + shellQuote(name, executable) + " daemon"
+	return launchForm{
+		exec: desktopExecPath(shell) + " -i -c " + desktopExecPath(script),
+		why:  fmt.Sprintf("the launcher starts mega through your interactive shell, '%s', so mega and every agent it runs get the PATH and environment a new terminal has, not the desktop session's.", name),
+	}
+}
+
+// shellQuote quotes path for the shell's -c script: single quotes, with an
+// embedded quote written as POSIX shells and fish each read it.
+func shellQuote(shell, path string) string {
+	if shell == "fish" {
+		return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(path) + "'"
+	}
+	return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
 }
 
 func desktopExecPath(path string) string {

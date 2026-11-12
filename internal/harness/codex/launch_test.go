@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/michaelquigley/mega/internal/harness"
@@ -123,5 +124,16 @@ func TestHistoryReportsItemsOfATurnInProgressAsOpen(t *testing.T) {
 	}
 	if history.Open["a-1"] || !history.Open["u-2"] || !history.Open["a-2"] {
 		t.Errorf("open = %v", history.Open)
+	}
+}
+
+func TestCheckNamesAMissingBinary(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	var missing *harness.MissingError
+	if err := New(Config{Binary: "codex"}).Check(); !errors.As(err, &missing) || missing.Executable != "codex" || !strings.Contains(err.Error(), "not found on mega's PATH") {
+		t.Errorf("no codex: %v", err)
+	}
+	if err := New(Config{Binary: os.Args[0]}).Check(); err != nil {
+		t.Errorf("a binary that exists: %v", err)
 	}
 }

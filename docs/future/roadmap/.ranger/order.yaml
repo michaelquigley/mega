@@ -1,13 +1,15 @@
 building:
+  - the-launcher-starts-mega-without-the-operators-environment.md
 horizon:
   - mega-as-the-development-hub.md
   - ui-test-runner.md
 researching:
-  - dfw-daemon-mode.md
+  - each-project-runs-in-its-own-environment.md
   - claude-shim-distribution.md
   - codex-discovery-e2e-reads-its-own-thread.md
   - relocate-a-projects-checkout.md
 evaluating:
+  - dfw-daemon-mode.md
   - favicon.md
   - a-missing-checkout-is-reported.md
   - roundhouse-mega.md
@@ -21,11 +23,4 @@ evaluating:
   - background-jobs.md
   - side-panel-structure.md
   - codex-can-return-to-inherit-while-running.md
-  - side-panel-improvements.md
-  - operator-input-panel.md
-  - conversation-view-improvements.md
-  - copy-per-block.md
-  - working-indicators.md
-  - input-panel.md
   - model-and-effort-selection.md
-  - meta-user-messages-are-not-prompts.md

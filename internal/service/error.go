@@ -15,6 +15,9 @@ const (
 	// CodeCheckoutMissing refuses work in a project whose checkout is gone,
 	// not a directory, or not readable.
 	CodeCheckoutMissing = "checkout_missing"
+	// CodeExecutableMissing refuses work for a harness that cannot run because
+	// something it executes cannot be found from mega's environment.
+	CodeExecutableMissing = "executable_missing"
 )
 
 // Error is a failure the caller can act on, as opposed to an internal fault.

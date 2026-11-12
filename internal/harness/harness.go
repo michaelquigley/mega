@@ -6,6 +6,10 @@ package harness
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/michaelquigley/mega/internal/model"
@@ -65,6 +69,52 @@ type Harness interface {
 	// Inherited says what model and effort a launch with no choice gets in
 	// cwd, from the operator's own settings, or empty where unknown.
 	Inherited(ctx context.Context, cwd string) (model, effort string, err error)
+
+	// Check reports whether what the harness runs can be found now, from
+	// mega's own PATH and configuration: nil, or a *MissingError naming the
+	// first thing missing. it starts nothing and reads only names and modes.
+	Check() error
+}
+
+// ErrExecutableMissing marks a harness that cannot run because something it
+// executes cannot be found.
+var ErrExecutableMissing = errors.New("an executable the harness runs is missing")
+
+// MissingError names what a harness cannot find, and why.
+type MissingError struct {
+	Harness    string
+	Executable string
+	Reason     string
+}
+
+func (e *MissingError) Error() string {
+	return fmt.Sprintf("'%s' cannot run: %s", e.Harness, e.Reason)
+}
+
+func (e *MissingError) Is(target error) bool {
+	return target == ErrExecutableMissing
+}
+
+// FindExecutable checks that name can be run: a path is checked as given, a
+// bare name is looked up on mega's PATH, as exec does.
+func FindExecutable(harnessName, name string) error {
+	if name == "" {
+		return &MissingError{Harness: harnessName, Executable: name, Reason: "no executable is configured"}
+	}
+	if strings.Contains(name, "/") {
+		info, err := os.Stat(name)
+		switch {
+		case err != nil:
+			return &MissingError{Harness: harnessName, Executable: name, Reason: fmt.Sprintf("'%s' does not exist", name)}
+		case info.IsDir() || info.Mode()&0o111 == 0:
+			return &MissingError{Harness: harnessName, Executable: name, Reason: fmt.Sprintf("'%s' is not an executable file", name)}
+		}
+		return nil
+	}
+	if _, err := exec.LookPath(name); err != nil {
+		return &MissingError{Harness: harnessName, Executable: name, Reason: fmt.Sprintf("'%s' was not found on mega's PATH", name)}
+	}
+	return nil
 }
 
 // Catalog is the models a harness offers.

@@ -1,6 +1,6 @@
 ---
 title: dfw daemon mode
-state: researching
+state: evaluating
 created: 2026-11-09
 tags: [feature, spike]
 ---

@@ -48,6 +48,18 @@ func (h *Harness) Name() string {
 	return model.HarnessClaude
 }
 
+// Check reports whether node and the shim can be found: node on mega's
+// PATH (or at its configured path), the shim script and its installed sdk.
+func (h *Harness) Check() error {
+	if err := harness.FindExecutable(model.HarnessClaude, h.cfg.Node); err != nil {
+		return err
+	}
+	if _, err := h.script(); err != nil {
+		return &harness.MissingError{Harness: model.HarnessClaude, Executable: "the claude shim", Reason: err.Error()}
+	}
+	return nil
+}
+
 func (h *Harness) script() (string, error) {
 	if h.cfg.Shim == "" {
 		return "", errors.New("the claude shim directory is not configured (claude.shim)")

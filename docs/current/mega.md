@@ -75,16 +75,22 @@ The executable defaults to 2.1.318 because the shim pins Agent SDK 0.3.318, whic
 `mega desktop integrate` installs a launcher that runs the daemon; `mega desktop remove` takes it away. Both follow ranger's.
 - **The entry.** The desktop id is the app id the tray uses, so GNOME ties the launcher, its icon and the tray together. `integrate` writes `com.michaelquigley.mega.desktop` in `$XDG_DATA_HOME/applications` (for an absolute `XDG_DATA_HOME`, else `~/.local/share/applications`), with:
   - `Type=Application`, `Name=mega`, `Comment=a workspace for a gang of coding agents`;
-  - `Exec` set to the quoted absolute path of the running binary followed by `daemon`;
+  - `Exec` starting the daemon through the operator's interactive shell (below);
   - `Icon=com.michaelquigley.mega`, `Terminal=false`, `Categories=Utility;Development;`;
   - no `StartupWMClass`, since the browser is the window.
 - **The icons.** The mark goes into the hicolor theme at 32, 48, 192 and 512 pixels, under the same basename, from the PNGs in `cmd/mega/` embedded in the binary.
 - **Idempotence.** Each command prints every file it wrote or removed. `remove` deletes exactly the files `integrate` writes and nothing else, skipping any already gone, and both are safe to run twice. Running `integrate` again after the binary moves repoints the launcher.
 - **No autostart.** mega starts when the operator starts it.
 
+- **Through the operator's shell.** A desktop launcher starts programs with the desktop session's environment. That lacks whatever the operator's shell start-up files add, such as a `PATH` with `node`, `codex` and the toolchains the agents run, and every agent inherits mega's environment. So `integrate` writes an `Exec` line that runs the shell named by `SHELL` at the time, as an interactive shell, executing the binary with `daemon`: `"/bin/bash" -i -c "exec '/path/to/mega' daemon"`. mega then has the environment a new terminal has. The binary's path is quoted twice: for the shell (POSIX single quotes for bash and zsh, fish's own escapes for fish), then by the desktop entry's quoting rules.
+  - bash, zsh and fish are known. An unset `SHELL`, a relative one, or another shell falls back to the direct form, `Exec="/path/to/mega" daemon`, with a printed warning.
+  - `--plain` writes the direct form on purpose.
+  - `integrate` prints the `Exec` line it wrote and one sentence on why.
+  - An interactive bash started without a terminal prints "no job control" to the launcher's stderr. That is harmless.
+
 ### The log file
 
-When `serve`, `daemon` or the bare form runs with no terminal on stdout, as when the launcher starts the daemon, `dl` output is appended as JSON lines to `$XDG_STATE_HOME/mega/mega.log` (for an absolute `XDG_STATE_HOME`), else `~/.local/state/mega/mega.log`. The directory is private (`0700`) and the file `0600`. "No terminal" means no real TTY: `/dev/null` counts as none. On a terminal, output goes there as before. `mega version` prints the path. The file is capped at start-up: one larger than 10 MB is renamed to `mega.log.1`, replacing any earlier one, and a fresh `mega.log` begins. A running mega's log grows until its next start.
+At start-up mega logs the `PATH` it started with, once, since every harness and every command an agent runs inherits it. When `serve`, `daemon` or the bare form runs with no terminal on stdout, as when the launcher starts the daemon, `dl` output is appended as JSON lines to `$XDG_STATE_HOME/mega/mega.log` (for an absolute `XDG_STATE_HOME`), else `~/.local/state/mega/mega.log`. The directory is private (`0700`) and the file `0600`. "No terminal" means no real TTY: `/dev/null` counts as none. On a terminal, output goes there as before. `mega version` prints the path. The file is capped at start-up: one larger than 10 MB is renamed to `mega.log.1`, replacing any earlier one, and a fresh `mega.log` begins. A running mega's log grows until its next start.
 
 ## Data
 
@@ -239,11 +245,11 @@ Each `system/background_tasks_changed` (Claude sends one on every change, a whol
 
 ## HTTP surface
 
-Everything is JSON with `snake_case` keys. Errors carry `{code, message}` with `code` one of `invalid` (400), `not_found` (404), `conflict` (409), `not_pending` (409, an answer to a request that is no longer pending), `shutdown_pending` (409, new work while a shutdown is armed), `checkout_missing` (409, work in a project whose checkout cannot be worked in), `unavailable` (503, the service cannot make changes durable until it restarts), or `internal` (500, detail logged rather than returned).
+Everything is JSON with `snake_case` keys. Errors carry `{code, message}` with `code` one of `invalid` (400), `not_found` (404), `conflict` (409), `not_pending` (409, an answer to a request that is no longer pending), `shutdown_pending` (409, new work while a shutdown is armed), `checkout_missing` (409, work in a project whose checkout cannot be worked in), `executable_missing` (409, work for a harness whose executable cannot be found), `unavailable` (503, the service cannot make changes durable until it restarts), or `internal` (500, detail logged rather than returned).
 
 | Route | Body | Result |
 | --- | --- | --- |
-| `GET /api/workspace` | | `{projects, conversations, needs_you, shutdown}` |
+| `GET /api/workspace` | | `{projects, conversations, needs_you, shutdown, preflight}` |
 | `POST /api/projects` | `{name, checkout}` | 201 with the project |
 | `PATCH /api/projects/{id}` | `{name, starred}`, either or both | 200 with the project |
 | `DELETE /api/projects/{id}` | | 204 |
@@ -289,6 +295,14 @@ The stream carries `{conversation_id, event}` for each recorded event, `{convers
 `shutdown` is the gate as `{armed, armed_at, idle, blockers}`, where `armed_at` is absent while unarmed and each blocker is `{conversation_id, project_id, name, turn, requests, background, settling}`: whether a turn is in flight, how many requests are pending, how many background jobs run, and `starting` or `resuming` if the conversation is settling. It is computed at every read, armed or not. `shutdown_pending` (409) is the gate's refusal of new work.
 
 Requests are refused with 403 unless their `Host` is loopback and any `Origin` matches that `Host`. The loopback bind keeps the network out; this keeps out web pages in the operator's own browser, which could otherwise reach `127.0.0.1` through DNS rebinding or a cross-site request.
+
+## The preflight
+
+Every workspace read checks whether each harness can run from mega's own environment: `node` and the shim (its script and installed SDK) for Claude, and the configured `codex` binary for Codex. A bare name is looked up on mega's `PATH`, as exec does; a path is checked as given. Like the trust notice, the result is computed on every read and never stored, since installing a tool, or restarting mega from another environment, changes it. The read carries `preflight` as `{path, missing}`: mega's `PATH`, and for each harness that cannot run, `{harness, executable, reason}`, for example "'claude' cannot run: 'node' was not found on mega's PATH".
+- **Nothing starts for that harness.** A launch, a prompt (to a running or a stopped conversation) and a Start are refused with `executable_missing` (409), naming the missing executable, before the harness is asked.
+- **Failures are named.** A harness operation that fails because an executable cannot be found reports that same condition, never "internal error". This covers reading native history (a Resume, a prompt to a stopped conversation, an adoption), discovery, the model list, and a launch. A raw exec failure is checked against the harness, and reported as the missing executable it was.
+- **The launch dialog** offers such a harness disabled, marked "(cannot run)". A notice gives the reason and mega's `PATH`, and Launch carries the reason while it is selected.
+- The usual cause is a mega started without the operator's shell environment. The launcher starts mega through the operator's shell for this reason (see the desktop launcher).
 
 ## A missing checkout
 

@@ -191,6 +191,11 @@ func (h *Harness) once(ctx context.Context, cwd, method string, params, out any)
 // Models lists the models codex offers, from a short-lived app-server with no
 // thread, as discovery does. hidden models are left out. the version comes
 // from the app-server's user agent.
+// Check reports whether the configured codex binary can be found.
+func (h *Harness) Check() error {
+	return harness.FindExecutable(model.HarnessCodex, h.cfg.Binary)
+}
+
 func (h *Harness) Models(ctx context.Context, cwd string) (harness.Catalog, error) {
 	c, err := dial(h.cfg.Binary, cwd, quiet{})
 	if err != nil {
