@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
 import { interruptConversation, releaseConversation, removeConversation, resumeConversation, sendPrompt, setModel, setPermissionMode, startRuntime, updateConversation } from '../api'
 import { harnesses } from '../harnesses'
 import type { ConversationLog } from '../log'
@@ -42,9 +42,6 @@ function saveHeight(height: number) {
 
 const maxHeight = () => Math.round(window.innerHeight * 0.6)
 
-// how close to the bottom counts as following it, as the conversation's own
-// follow-at-bottom reckons it (latest.ts).
-const followSlack = 32
 const clampHeight = (height: number) => Math.min(Math.max(height, minHeight), maxHeight())
 
 const terminalCommands: Record<string, string> = { claude: 'claude --resume', codex: 'codex resume' }
@@ -63,6 +60,10 @@ interface InputPanelProps {
   onRemoved: () => void
   newer: boolean
   onLatest: () => void
+  // dock is the panel's own element, which the conversation watches for size;
+  // isFollowing says whether the view follows the bottom (latest.ts).
+  dock: RefObject<HTMLDivElement | null>
+  isFollowing: () => boolean
   // why new work waits (a shutdown armed, or done from this page), or null:
   // Send and Start wait, and say so.
   heldBy: string | null
@@ -77,13 +78,13 @@ type Open = 'release' | 'rename' | 'remove' | null
 // current pending set; the history keeps only a row for each. the reply box
 // is one line at rest and opens while focus is anywhere in the cluster.
 export function InputPanel(props: InputPanelProps) {
-  const { conversation, project, log, stale, busy, error, attempt, showNative, onShowNative, onRemoved, newer, onLatest, heldBy } = props
+  const { conversation, project, log, stale, busy, error, attempt, showNative, onShowNative, onRemoved, newer, onLatest, heldBy, dock, isFollowing } = props
   const [draft, setDraft] = useState(() => drafts.get(conversation.id) ?? '')
   const [expanded, setExpanded] = useState(false)
   const [height, setHeight] = useState(readHeight)
   const [menu, setMenu] = useState(false)
   const [open, setOpen] = useState<Open>(null)
-  const clusterRef = useRef<HTMLDivElement>(null)
+  const clusterRef = dock
   const boxRef = useRef<HTMLTextAreaElement>(null)
   const moreRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
@@ -135,11 +136,20 @@ export function InputPanel(props: InputPanelProps) {
   // content to 60% of the viewport, then scrolls. collapsed, it is one line
   // showing the start of any draft.
   //
-  // the conversation moves with the panel's top edge: when the box opens,
-  // closes, grows or is dragged, the history scrolls by exactly how far that
-  // edge moved, so the line just above the panel stays just above it. a view
-  // following the bottom stays at the bottom. after a send, once the box has
-  // closed, the view goes to the newest activity and follows it.
+  // when the box opens, closes, grows or is dragged, a view following the
+  // bottom stays there, as for any change in the panel's height (latest.ts).
+  // a reader who is not at the bottom keeps their place: the history scrolls
+  // by exactly how far the panel's top edge moved, so the line just above the
+  // panel stays just above it. after a send, once the box has closed, the
+  // view goes to the newest activity and follows it.
+  //
+  // fit pins a following view itself, rather than leaving it to the
+  // conversation's resize observer: measuring the box's content collapses it
+  // for a moment, which can clamp the column's scroll; the scroll event that
+  // clamp queues would arrive after the box has grown back and read the view
+  // as scrolled away. pinned here, the view is at the bottom when that event
+  // is read. whether the view follows is the conversation's one reckoning
+  // (isFollowing), taken before the box changes.
   const fit = useCallback(() => {
     const box = boxRef.current
     if (!box) {
@@ -148,7 +158,7 @@ export function InputPanel(props: InputPanelProps) {
     const cluster = clusterRef.current
     const scroller = cluster?.closest<HTMLElement>('.main') ?? null
     const topBefore = cluster?.getBoundingClientRect().top ?? 0
-    const following = scroller !== null && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= followSlack
+    const following = isFollowing()
     if (!expanded) {
       box.style.height = ''
       box.scrollTop = 0
@@ -169,7 +179,7 @@ export function InputPanel(props: InputPanelProps) {
       toLatestAfterSend.current = false
       latest.current()
     }
-  }, [expanded, height])
+  }, [expanded, height, isFollowing, clusterRef])
   useLayoutEffect(fit, [fit, draft])
   useEffect(() => {
     window.addEventListener('resize', fit)
@@ -190,7 +200,7 @@ export function InputPanel(props: InputPanelProps) {
     }
     document.addEventListener('pointerdown', outside)
     return () => document.removeEventListener('pointerdown', outside)
-  }, [expanded])
+  }, [expanded, clusterRef])
 
   // the box opens when focus enters the reply box or the control bar, and
   // closes only when focus leaves the whole cluster: the menu and the dialogs

@@ -33,6 +33,8 @@
 //   echo             one assistant message: the lines after the first
 //   stream MS N      the lines after the first, streamed N characters every
 //                    MS, then landed as one assistant message
+//   hold             the turn starts and says nothing at all, until it is
+//                    interrupted, which ends it as any interrupt does
 //   mcp-sign-in      one assistant message, "signed in": the notes MCP
 //                    server is connected from this turn's system/init on
 //   anything else    one assistant message, "ok"
@@ -287,6 +289,8 @@ async function turn(text) {
     }
     say(`Started ${count} background ${count === 1 ? 'job' : 'jobs'}.`)
     end()
+  } else if (verb === 'hold') {
+    // nothing: the turn stays open with no output until an interrupt ends it.
   } else if (verb === 'mcp-sign-in') {
     say('signed in')
     end()

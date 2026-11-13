@@ -53,7 +53,7 @@ Where things go:
   - the override;
   - values only on request;
   - a project with no file.
-- **`panel.mjs`** (31 steps): the input panel. It checks the following:
+- **`panel.mjs`** (40 steps): the input panel. It checks the following:
   - the reply box resting at one line and opening to its height;
   - the line above the panel staying put as the box opens and closes, and a view at the bottom staying there;
   - a control in the bar keeping the box open, and a press outside closing it;
@@ -63,7 +63,14 @@ Where things go:
   - Send and Start disabled with the reason while a shutdown is armed or the checkout is missing, the shutdown's first;
   - Start on a released conversation;
   - the permission mode switched live, and stored for the next launch;
-  - a model and effort applied for Claude and for Codex, shown as the next prompt's until a turn reports them.
+  - a model and effort applied for Claude and for Codex, shown as the next prompt's until a turn reports them;
+  - while the view follows the bottom, the newest content kept above the dock as it grows:
+    - a prompt sent with the reply held keeps its block above the dock once the activity line shows, with the workspace read held so the line arrives after the view went to the end;
+    - a docked request;
+    - the reply box growing with its draft;
+  - scrolled up, neither the activity line nor a docked request moving the view.
+
+  These steps turn off chromium's scroll anchoring, which re-pins a view at the bottom by itself and so hides the defect; firefox does not.
 - **`requests.mjs`** (27 steps): requests. It checks the following:
   - a permission card docked above the reply box, not in the history, with its one-line row there;
   - focus on the card neither opening the box nor moving the card;

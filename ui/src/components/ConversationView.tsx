@@ -50,7 +50,8 @@ export function ConversationView(props: ConversationViewProps) {
   const delta = log?.delta ?? ''
   const loaded = log !== null && log.loaded && log.through >= (log.events.at(-1)?.seq ?? 0)
   const activity = `${log?.events.at(-1)?.seq ?? 0}:${delta.length}:${conversation.pending.map((request) => request.id).join(',')}`
-  const { newer, toLatest } = useLatest(articleRef, loaded, activity)
+  const dockRef = useRef<HTMLDivElement>(null)
+  const { newer, toLatest, isFollowing } = useLatest(articleRef, dockRef, loaded, activity)
 
   // loading earlier history keeps the view where it was: the first row in view
   // is noted before the read, and once the rows above it are in, the view
@@ -179,6 +180,8 @@ export function ConversationView(props: ConversationViewProps) {
         onRemoved={onRemoved}
         newer={newer}
         onLatest={toLatest}
+        dock={dockRef}
+        isFollowing={isFollowing}
         heldBy={heldBy}
       />
     </article>

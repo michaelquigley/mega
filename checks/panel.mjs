@@ -16,7 +16,9 @@
 // the mode asked for and no turn; the permission mode switched live, and
 // stored for the next launch when nothing runs; and a model and effort
 // applied, for claude and for codex, shown as the next prompt's until a turn
-// reports them.
+// reports them; and the dock keeping the newest content in view as its
+// height changes while the view follows the bottom (a turn's activity line,
+// a docked request, the reply box growing), never moving a view scrolled up.
 import { renameSync } from 'node:fs'
 import { suite } from './lib/mega.mjs'
 
@@ -238,5 +240,118 @@ await box.press('Control+Enter')
 await until('the turn reports them', async () => (await facts()).startsWith('codex · fake-small · effort: low') && !(await facts()).includes('next prompt'), 30000)
 check(true, `the next turn runs them: "${await facts()}"`)
 await t.shot(page, 'panel')
+
+// the dock keeps the newest content in view. while the view follows the
+// bottom, any change in the dock's height (the activity line appearing as a
+// turn starts, a docked request, the reply box growing) keeps the newest row
+// above the dock; a view scrolled up is never moved by it. the fake's hold
+// verb starts a turn and says nothing until it is interrupted, so the dock
+// grows with no output to re-pin the view.
+const H = (await t.launch(P.id, 'claude', 'burst 40', { name: 'dock' })).id
+await t.idle(H)
+await go(H)
+await until('H shown', async () => (await page.locator('.conversation-head h1').textContent()) === 'dock')
+const activityLine = page.locator('.panel-cluster .activity')
+const docked = page.locator('.panel-cluster .docked section.request-card')
+// the dock's top edge and the bottom edge of the last history row, and of the
+// last prompt block, as the browser paints them: read after two frames, since
+// between react's commit and the next frame's resize observers a layout read
+// sees a state that is never painted.
+const edges = () =>
+  page.evaluate(async () => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    const dock = document.querySelector('.panel-cluster').getBoundingClientRect().top
+    const rows = [...document.querySelectorAll('.events [data-seq]')]
+    const prompts = [...document.querySelectorAll('.events .message.user')]
+    return { dock, row: rows.at(-1).getBoundingClientRect().bottom, prompt: prompts.at(-1).getBoundingClientRect().bottom, prompts: prompts.length }
+  })
+const interrupt = async (id) => {
+  await api('POST', `/api/conversations/${id}/interrupt`)
+  await until('the turn ended', async () => !(await convOf(id)).turn_active)
+}
+await scroller.evaluate((m) => {
+  m.scrollTop = m.scrollHeight
+})
+await until('H at the bottom', async () => (await fromBottom()) <= 1)
+
+// 1. from the bottom, a prompt sent with the reply held: the prompt block
+// stays above the dock once the activity line is in it. the order that hides
+// the line is the prompt shown and the view sent to the end first, then the
+// workspace read that says the turn started, which brings the activity line.
+// the check makes that order certain: workspace reads wait until the prompt
+// row is shown and the box has closed.
+// chromium's scroll anchoring moves a view at the bottom down with a growing
+// sticky dock on its own, which hides the defect; firefox, the operator's
+// browser, does not. the dock's steps turn anchoring off, so they hold for a
+// browser that does not anchor, and the page must keep the view pinned
+// itself.
+await page.addStyleTag({ content: '.main { overflow-anchor: none }' })
+const promptsBefore = (await edges()).prompts
+const heldReads = []
+await page.route('**/api/workspace', (route) => heldReads.push(route))
+await box.click()
+await box.fill('hold')
+await box.press('Control+Enter')
+await until('the prompt shown and the box closed', async () => (await edges()).prompts === promptsBefore + 1 && !(await expanded()) && (await convOf(H)).turn_active)
+check((await activityLine.count()) === 0, 'the prompt is shown before the page has read that its turn started')
+for (const route of heldReads) await route.continue()
+await page.unroute('**/api/workspace')
+await until('the held turn under way, its activity line shown', async () => await activityLine.isVisible())
+const held = await edges()
+check(held.prompt <= held.dock + 0.5, `sent from the bottom, the prompt block stays above the dock once the activity line shows: its bottom at ${held.prompt.toFixed(1)}, the dock's top at ${held.dock.toFixed(1)}`)
+await interrupt(H)
+
+// 2. while following, a docked request appears: the last row stays above it.
+await until('following again', async () => (await fromBottom()) <= 1)
+check((await api('POST', `/api/conversations/${H}/prompt`, { text: 'ask' })).status === 202, 'a request is asked for while following')
+await docked.waitFor()
+const asked = await edges()
+check(asked.row <= asked.dock + 0.5, `while following, a docked request leaves the last row above the dock: its bottom at ${asked.row.toFixed(1)}, the dock's top at ${asked.dock.toFixed(1)}`)
+await docked.first().getByRole('button', { name: 'Deny', exact: true }).click()
+await until('the request cleared and the turn over', async () => (await docked.count()) === 0 && !(await convOf(H)).turn_active)
+
+// 3. scrolled up by a few hundred pixels, neither moves the view. the prompt
+// comes from the API here, since a send from the box goes to the end.
+await until('at the bottom before scrolling up', async () => (await fromBottom()) <= 1)
+await scroller.evaluate(async (m) => {
+  m.scrollTop -= 400
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+})
+const firstInView = () =>
+  page.evaluate(() => {
+    const row = [...document.querySelectorAll('.events [data-seq]')].find((e) => e.getBoundingClientRect().bottom > 0)
+    return { seq: row.dataset.seq, top: row.getBoundingClientRect().top }
+  })
+const topOf = (seq) => page.evaluate((s) => document.querySelector(`.events [data-seq="${s}"]`).getBoundingClientRect().top, seq)
+const inView = await firstInView()
+check((await api('POST', `/api/conversations/${H}/prompt`, { text: 'hold' })).status === 202, 'scrolled up, a held turn is started')
+await until('the held turn under way while scrolled up', async () => (await convOf(H)).turn_active && (await activityLine.isVisible()))
+const afterHold = await topOf(inView.seq)
+check(Math.abs(afterHold - inView.top) <= 0.5, `scrolled up, the activity line appearing does not move the view: row ${inView.seq} at ${inView.top.toFixed(1)}, then ${afterHold.toFixed(1)}`)
+await interrupt(H)
+const inView2 = await firstInView()
+check((await api('POST', `/api/conversations/${H}/prompt`, { text: 'ask' })).status === 202, 'scrolled up, a request is asked for')
+await docked.waitFor()
+const afterAsk = await topOf(inView2.seq)
+check(Math.abs(afterAsk - inView2.top) <= 0.5, `scrolled up, a docked request does not move the view: row ${inView2.seq} at ${inView2.top.toFixed(1)}, then ${afterAsk.toFixed(1)}`)
+await docked.first().getByRole('button', { name: 'Deny', exact: true }).click()
+await until('the request cleared again', async () => (await docked.count()) === 0 && !(await convOf(H)).turn_active)
+
+// 4. following, the reply box growing with its lines keeps the last row
+// above the dock.
+await scroller.evaluate((m) => {
+  m.scrollTop = m.scrollHeight
+})
+await until('back at the bottom', async () => (await fromBottom()) <= 1)
+await box.click()
+await until('the box open', expanded)
+const opened = await height()
+await box.fill(Array.from({ length: 14 }, (_, i) => `line ${i + 1} of a long draft`).join('\n'))
+await until('the box grown', async () => (await height()) > opened)
+const grown = await edges()
+check(grown.row <= grown.dock + 0.5, `following, the reply box growing to ${await height()}px keeps the last row above the dock: its bottom at ${grown.row.toFixed(1)}, the dock's top at ${grown.dock.toFixed(1)}`)
+await box.fill('')
+await outside()
+await t.shot(page, 'dock')
 
 await t.done()

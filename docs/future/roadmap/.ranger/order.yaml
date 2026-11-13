@@ -1,10 +1,12 @@
 building:
+  - the-newest-line-hides-under-the-dock.md
 horizon:
   - agents-roles-and-lifecycles-in-a-project.md
   - hand-off-between-conversations.md
   - start-up-reads-every-log.md
   - mega-as-the-development-hub.md
 researching:
+  - the-header-holds-what-belongs-on-the-input-panel.md
   - action-view-improvements.md
   - claude-shim-distribution.md
   - mega-on-twentytwo.md
