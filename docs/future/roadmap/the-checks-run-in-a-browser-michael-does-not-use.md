@@ -1,6 +1,6 @@
 ---
 title: the checks run in a browser michael does not use
-state: inbox
+state: researching
 created: 2026-11-12
 tags: [enhancement]
 ---

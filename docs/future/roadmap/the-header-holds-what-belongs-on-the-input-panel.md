@@ -1,6 +1,6 @@
 ---
 title: the header holds what belongs on the input panel
-state: researching
+state: evaluating
 created: 2026-11-12
 tags: [enhancement]
 ---

@@ -1,25 +1,32 @@
 building:
-  - the-newest-line-hides-under-the-dock.md
 horizon:
+  - request-and-what-ran-follow-ups.md
   - agents-roles-and-lifecycles-in-a-project.md
   - hand-off-between-conversations.md
   - start-up-reads-every-log.md
   - mega-as-the-development-hub.md
 researching:
-  - the-header-holds-what-belongs-on-the-input-panel.md
+  - a-coworker-can-install-mega.md
+  - clean-machine-rehearsal.md
+  - harness-version-tolerance.md
+  - pi-adapter.md
+  - the-checks-run-in-a-browser-michael-does-not-use.md
+  - hotkey-for-allow.md
   - action-view-improvements.md
-  - claude-shim-distribution.md
+  - mega-on-macos-and-windows.md
   - mega-on-twentytwo.md
+  - readme-for-newcomers.md
+  - the-demo.md
   - project-mcp-servers-and-hooks-run-without-approval.md
+  - claude-shim-distribution.md
   - reads-after-the-service-closes.md
   - codex-approval-policy.md
   - codex-discovery-e2e-reads-its-own-thread.md
   - relocate-a-projects-checkout.md
 evaluating:
+  - the-header-holds-what-belongs-on-the-input-panel.md
+  - the-newest-line-hides-under-the-dock.md
+  - the-panel-shows-the-request-the-turn-shows-what-ran.md
   - expanded-states.md
-  - ctrl-or-n.md
-  - mcp-tool-visibility.md
-  - center-conversation.md
   - version-metadata-in-web-ui.md
   - path-search-in-the-input-panel.md
-  - model-and-effort-selection.md

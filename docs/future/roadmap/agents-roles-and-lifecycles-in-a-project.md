@@ -22,6 +22,12 @@ Evidence from building mega through mega, for whoever holds the design conversat
 - Short-lived helpers appeared and vanished inside a turn: subagents, one-off triage instances, a reviewer.
 - The roadmap card was the unit the whole loop turned on, and it lived in ranger, outside mega.
 
+## what the first week of daily use showed
+
+Michael, 2026-11-13, after a week on two hosts: mega "has removed a couple of different classes of bottlenecks in my own work", and what remains is "agent organization and lifecycle work that needs to happen in mega, and the structures around the agents... things like the grimoire/lore, and ranger need to continue to evolve to keep removing friction."
+
+One concrete case from the same day. With a demo a week out and two independent pieces of work ready, an adapter and a round of polish, he chose to run them one after the other: "parallelism is one of the things mega needs to grow to help with." Two implementers on one repository meant coordination that fell on him: who has which files, whose review is running, what order things land in. Mega could show both conversations and did nothing to make running them together safe or legible.
+
 ## questions for the conversation
 
 - Is a role a property of a conversation, of a position in a project, or only a label the operator reads?

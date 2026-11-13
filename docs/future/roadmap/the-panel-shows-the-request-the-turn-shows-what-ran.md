@@ -1,6 +1,6 @@
 ---
 title: the panel shows the request, the turn shows what ran
-state: inbox
+state: evaluating
 created: 2026-11-13
 tags: [enhancement]
 ---

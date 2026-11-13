@@ -50,6 +50,15 @@ Where things go:
     - cleared on release.
 
   It saves the centred conversation as `shots/centred-{light,dark}-{panel,rail}.png`, the MCP list as `shots/mcp-claude.png`, and a turn at rest, hovered and mismatched as `shots/turn-{rest,hover,mismatch}.png`.
+- **`firstrun.mjs`** (25 steps): the first run on a machine that has never had mega, with no harness installed. It is a bare suite: no fakes, no Claude settings, a config naming no harness path, and no harness on any `PATH` it gives. It checks the following:
+  - the empty workspace's first page and the side panel's empty project list;
+  - the register dialog refusing a relative path and a missing one with what is wrong, then registering a checkout and opening its page;
+  - the project page's trust notice and its environment, unresolved and then resolved, listing what is missing;
+  - the new-conversation dialog offering Codex disabled with what is missing, and refusing Claude with no conversation made;
+  - Codex refused by the API as `executable_missing`;
+  - the project, and the dialog's mark, across a restart.
+
+  It prints the words each step showed, so its output is a record of what a newcomer reads, and records without checking two defects the 2026-11-13 rehearsal found: Claude's refusal reading "internal error", and the dialogs opening with the focus on their close button. It saves `shots/{empty,empty-dark,register,register-refused,project,launch-claude,project-resolved,restarted}.png`.
 - **`environment.mjs`** (32 steps): a project's environment on its page. It checks the following:
   - the unapproved state, and its refusal on New conversation and Adopt;
   - approval, and the names it records;
@@ -145,7 +154,7 @@ t.check(true, 'the reply is shown')
 await t.done()
 ```
 
-`suite(name)` empties the suite's scratch directory and makes its directories, its config and its `HOME`, then starts the service and launches the browser. Its `HOME` has a `.profile` that puts the check's own `node` on `PATH`, since project environments resolve through a login shell from it. The operator's shell start-up files and Claude settings are never read. It returns the following:
+`suite(name)` empties the suite's scratch directory and makes its directories, its config and its `HOME`, then starts the service and launches the browser. Its `HOME` has a `.profile` that puts the check's own `node` on `PATH`, since project environments resolve through a login shell from it. The operator's shell start-up files and Claude settings are never read. `suite(name, { bare: true })` sets up a newcomer's machine instead: no fakes and no Claude settings, a config naming no harness path so mega looks where its defaults say, and `node` alone, in a directory of its own, ahead of the system directories on mega's `PATH` and the project's. A bare suite can start no harness, real or fake. It returns the following:
 
 - `check(ok, what)` records a step. `must(ok, what)` records one the suite cannot go past: a suite checks with it, before any Allow, that the request is exactly the one the fake raised, so nothing unexpected is approved. `until(what, pred, ms)` waits on a condition, checking every 50 ms, and fails saying what it waited for.
 - `api(method, path, body)`, `workspace()`, `projectOf(id)` and `convOf(id)` read and call the service.

@@ -6,6 +6,8 @@ mega is a project-oriented workspace for working directly with a gang of heterog
 
 The first slice is built: the environment service alone on `fortyfive`, reached on localhost, with Claude and Codex adapters and attention. Michael is now using it daily, and work proceeds in polish rounds driven by what he finds: batches of related items on one surface, each reviewed by terminus to `clean` against the canon rubric before handoff, with the same stop-and-ask rule for anything that needs a decision. Look-and-feel items go straight into a batch; a discovery that changes what mega should do goes to the spec first. Everything the spec defers stays deferred; new ideas go to the roadmap, not into a batch.
 
+The work in front is the epic `a-coworker-can-install-mega` in the roadmap: Michael demonstrates mega to coworkers in the week after 2026-11-13, and its stories are what stands between the repository and someone else running it. One deferral is lifted by his decision of that date: pi is in scope, as the card `pi-adapter` describes.
+
 Read the most recent entries in `docs/journal/` on arrival. The investigation that produced the capability report is complete; do not reopen it unless a change contradicts a recorded observation, in which case record the new observation with its version.
 
 ## Working rules

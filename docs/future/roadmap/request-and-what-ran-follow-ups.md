@@ -1,6 +1,6 @@
 ---
 title: request and what ran follow-ups
-state: inbox
+state: horizon
 created: 2026-11-13
 tags: [enhancement]
 ---

@@ -62,7 +62,15 @@ export async function until(what, pred, ms = 20000) {
 
 // suite sets up a check: its scratch directory, the binary, the fakes, the
 // service and the browser.
-export async function suite(name) {
+//
+// { bare: true } sets up a newcomer's machine instead: no fakes, no Claude
+// settings, a config that names no harness path, so mega looks where its
+// defaults say, and a PATH, mega's own and the scratch HOME's profile, that
+// holds this node and the system directories and no harness. the shim is the
+// checkout's own, as `make` stamps it. nothing a bare suite starts can reach a
+// real harness, since none can be found.
+const systemPath = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export async function suite(name, { bare = false } = {}) {
   const port = Number(process.env.MEGA_CHECK_PORT || 18470)
   if (port === 8470) {
     cannotRun('port 8470 is the operator’s mega; checks use another (MEGA_CHECK_PORT)')
@@ -88,41 +96,57 @@ export async function suite(name) {
     cannotRun(`no mega binary at ${bin}`)
   }
 
-  // the fake claude shim, beside the real shim's dependencies, since mega's
-  // preflight checks for the sdk; the fake codex is run where it is.
-  symlinkSync(join(repo, 'shim/claude/fake/shim.mjs'), join(dir, 'fakeshim/shim.mjs'))
-  symlinkSync(join(repo, 'shim/claude/node_modules'), join(dir, 'fakeshim/node_modules'))
-
-  // a scratch HOME: project environments resolve through a login shell from
-  // it, so the operator's shell start-up files and Claude settings are never
-  // read. its profile puts this node, which the fakes run on, on PATH.
-  writeFileSync(join(dir, 'home/.profile'), `export PATH="${dirname(process.execPath)}:$PATH"\n`)
-  // the scratch Claude settings, both where the override points Claude and in
-  // the scratch HOME, name an effort level, as Michael's do: claude's model
-  // list names no default effort, so a new conversation copies this one.
-  // they name no model and no mode, so a new conversation copies the list's
-  // default model and the manual mode.
-  const claudeSettings = JSON.stringify({ effortLevel: 'medium' }) + '\n'
-  writeFileSync(join(dir, 'claudecfg/settings.json'), claudeSettings)
-  mkdirSync(join(dir, 'home/.claude'), { recursive: true })
-  writeFileSync(join(dir, 'home/.claude/settings.json'), claudeSettings)
   const config = join(dir, 'mega.yaml')
-  writeFileSync(
-    config,
-    [
-      `listen: 127.0.0.1:${port}`,
-      `data: ${join(dir, 'data')}`,
-      'claude:',
-      '  node: node',
-      `  shim: ${join(dir, 'fakeshim')}`,
-      '  executable: /bin/false',
-      'codex:',
-      `  binary: ${join(repo, 'internal/harness/codex/fake/codex')}`,
-      'environment:',
-      '  shell: /bin/bash',
-      '',
-    ].join('\n'),
-  )
+  let servicePath = process.env.PATH
+  if (bare) {
+    // node alone, in a directory of its own: the one node is installed in
+    // may hold harnesses installed with npm -g. the scratch HOME's profile
+    // puts it on PATH, as a newcomer's own profile would, and holds nothing
+    // else; there are no Claude settings.
+    mkdirSync(join(dir, 'bin'))
+    symlinkSync(process.execPath, join(dir, 'bin/node'))
+    servicePath = `${join(dir, 'bin')}:${systemPath}`
+    writeFileSync(join(dir, 'home/.profile'), `export PATH="${join(dir, 'bin')}:$PATH"\n`)
+    writeFileSync(
+      config,
+      [`listen: 127.0.0.1:${port}`, `data: ${join(dir, 'data')}`, 'claude:', `  shim: ${join(repo, 'shim/claude')}`, 'environment:', '  shell: /bin/bash', ''].join('\n'),
+    )
+  } else {
+    // the fake claude shim, beside the real shim's dependencies, since mega's
+    // preflight checks for the sdk; the fake codex is run where it is.
+    symlinkSync(join(repo, 'shim/claude/fake/shim.mjs'), join(dir, 'fakeshim/shim.mjs'))
+    symlinkSync(join(repo, 'shim/claude/node_modules'), join(dir, 'fakeshim/node_modules'))
+
+    // a scratch HOME: project environments resolve through a login shell from
+    // it, so the operator's shell start-up files and Claude settings are never
+    // read. its profile puts this node, which the fakes run on, on PATH.
+    writeFileSync(join(dir, 'home/.profile'), `export PATH="${dirname(process.execPath)}:$PATH"\n`)
+    // the scratch Claude settings, both where the override points Claude and in
+    // the scratch HOME, name an effort level, as Michael's do: claude's model
+    // list names no default effort, so a new conversation copies this one.
+    // they name no model and no mode, so a new conversation copies the list's
+    // default model and the manual mode.
+    const claudeSettings = JSON.stringify({ effortLevel: 'medium' }) + '\n'
+    writeFileSync(join(dir, 'claudecfg/settings.json'), claudeSettings)
+    mkdirSync(join(dir, 'home/.claude'), { recursive: true })
+    writeFileSync(join(dir, 'home/.claude/settings.json'), claudeSettings)
+    writeFileSync(
+      config,
+      [
+        `listen: 127.0.0.1:${port}`,
+        `data: ${join(dir, 'data')}`,
+        'claude:',
+        '  node: node',
+        `  shim: ${join(dir, 'fakeshim')}`,
+        '  executable: /bin/false',
+        'codex:',
+        `  binary: ${join(repo, 'internal/harness/codex/fake/codex')}`,
+        'environment:',
+        '  shell: /bin/bash',
+        '',
+      ].join('\n'),
+    )
+  }
 
   const steps = { passed: 0, failed: [] }
   const say = (s) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${s}`)
@@ -158,6 +182,7 @@ export async function suite(name) {
       stdio: ['ignore', log, log],
       env: {
         ...process.env,
+        PATH: servicePath,
         HOME: join(dir, 'home'),
         XDG_STATE_HOME: join(dir, 'xdg/state'),
         XDG_CONFIG_HOME: join(dir, 'xdg/config'),
