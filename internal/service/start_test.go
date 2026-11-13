@@ -50,7 +50,7 @@ func TestStartImportsThenResumesTheExactSessionIdle(t *testing.T) {
 	if view := r.view(conv.ID); view.State != StateStarting || view.Runtime != model.RuntimeRunning {
 		t.Errorf("before the runtime reports: state %q, runtime %q", view.State, view.Runtime)
 	}
-	next.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: conv.NativeID, Model: "m", Version: "v", PermissionMode: "default", ModeInherited: true, ModeRequested: true}})
+	next.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: conv.NativeID, Model: "m", Version: "v", PermissionMode: "default"}})
 	tail := r.events(conv.ID)[before:]
 	if got := kinds(tail); !slices.Equal(got, []string{"runtime:starting", "user", "runtime:started"}) {
 		t.Errorf("events = %v", got)
@@ -59,14 +59,13 @@ func TestStartImportsThenResumesTheExactSessionIdle(t *testing.T) {
 		t.Errorf("imported = %+v", tail[1])
 	}
 	view := r.view(conv.ID)
-	if view.State != StateRunning || view.TurnActive || view.Attention != model.AttentionIdle || view.Facts == nil || !view.Facts.ModeRequested {
+	if view.State != StateRunning || view.TurnActive || view.Attention != model.AttentionIdle || view.Facts == nil || view.Facts.PermissionMode != "default" {
 		t.Errorf("after start: state %q, turn %v, attention %q, facts %+v", view.State, view.TurnActive, view.Attention, view.Facts)
 	}
 
-	// claude's own report of the same mode replaces the requested one, still
-	// inherited.
-	next.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusModeChanged, Facts: &model.RuntimeFacts{PermissionMode: "default", ModeInherited: true}})
-	if f := r.view(conv.ID).Facts; f.ModeRequested || !f.ModeInherited || f.PermissionMode != "default" {
+	// claude's own report of another mode moves the live mode.
+	next.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusModeChanged, Facts: &model.RuntimeFacts{PermissionMode: "plan"}})
+	if f := r.view(conv.ID).Facts; f.PermissionMode != "plan" {
 		t.Errorf("after the report: %+v", f)
 	}
 

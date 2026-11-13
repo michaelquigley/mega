@@ -20,9 +20,9 @@
 // codex does, so a start with no prompt needs nothing more.
 //
 // models: model/list offers fake-large (low to high, the default) and
-// fake-small (low and medium); config/read says the checkout inherits
+// fake-small (low and medium); config/read says the config names
 // fake-large at medium. a thread runs what thread/start or thread/resume
-// passed, or the inherited model; a turn/start model or effort override is
+// passed, or the configured model; a turn/start model or effort override is
 // kept for later turns and reported with thread/settings/updated before the
 // turn, as codex-cli 0.166.0 does.
 //

@@ -44,6 +44,13 @@ const (
 	// StatusModelChanged records a model or effort the harness reported as
 	// changed, carried in Facts.Model and Facts.Effort.
 	StatusModelChanged = "model_changed"
+	// StatusChoiceFilled records the one fill of a conversation created
+	// before every conversation held a concrete model, effort and mode:
+	// Facts carries what was filled in, and Text where it came from.
+	StatusChoiceFilled = "choice_filled"
+	// StatusModeRequested records a permission mode the operator requested
+	// with no runtime to switch: the request, never a report of what runs.
+	StatusModeRequested = "mode_requested"
 )
 
 // turn end statuses, carried in Event.Status.
@@ -75,6 +82,10 @@ type Event struct {
 	Req   *Request      `dd:",+omitempty"`
 	Facts *RuntimeFacts `dd:",+omitempty"`
 
+	// Turn is what the turn this turn_end closes asked for and ran with,
+	// recorded by the service. turns recorded before it was kept have none.
+	Turn *TurnRecord `dd:",+omitempty"`
+
 	// Raw is the harness-native payload, kept for fidelity and shown collapsed.
 	Raw any `dd:",+opaque,+nullable,+omitempty"`
 
@@ -91,17 +102,9 @@ type RuntimeFacts struct {
 	Model          string `dd:",+omitempty"`
 	Version        string `dd:",+omitempty"`
 	PermissionMode string `dd:",+omitempty"`
-	// ModeInherited is whether mega passed no permission mode, so the
-	// operator's native settings chose it.
-	ModeInherited bool `dd:",+omitempty"`
-	// ModeRequested is whether PermissionMode is only the mode mega
-	// launched with, not yet reported by the harness: claude reports its mode
-	// at a turn's start, and a runtime started with no prompt has had none.
-	ModeRequested bool `dd:",+omitempty"`
-	// ModeConfirmed marks a mode report that only confirms the mode the
-	// launch requested: recorded, as the harness's first word on the mode,
-	// but it changes nothing except that the mode is no longer only
-	// requested, so the history draws no row for it.
+	// ModeConfirmed marks a mode report that only confirmed the mode a
+	// launch passed, so the history draws no row for it. nothing records it
+	// now; logs written before every launch passed a mode carry it.
 	ModeConfirmed bool `dd:",+omitempty"`
 	// Effort is the effort level the harness reports, where it reports one
 	// (codex does; claude does not).
@@ -154,4 +157,25 @@ func (e *Event) Clone() *Event {
 	}
 	c.Raw = clonePayload(e.Raw)
 	return &c
+}
+
+// TurnSettings is a model, effort and permission mode: what a turn asked
+// for, or what it ran with. Mode is empty for a harness with no permission
+// mode (codex), and Effort for a model that takes no effort level.
+type TurnSettings struct {
+	Model  string `dd:",+omitempty"`
+	Effort string `dd:",+omitempty"`
+	Mode   string `dd:",+omitempty"`
+}
+
+// TurnRecord is what one turn asked for and ran with. Asked is the
+// conversation's choice when the turn began, which mega passed. Ran is what
+// the harness reported for the turn, as it stood when the turn's first output
+// arrived: the model and, where the harness reports them, the effort and the
+// mode. claude never reports effort, so its Ran.Effort is the effort sent.
+// Differs names the fields in which they disagree: model, effort, mode.
+type TurnRecord struct {
+	Asked   TurnSettings
+	Ran     TurnSettings
+	Differs []string `dd:",+omitempty"`
 }

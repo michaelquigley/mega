@@ -12,8 +12,10 @@
 // what it checks: the unapproved state and its refusal on New conversation
 // and Adopt; approval; a launch whose header shows the environment's
 // fingerprint and changed names; a changed file shown beside the approved
-// version (from git), its refusal on Send and Start, and the header saying the
-// runtime started in an older environment; approving again; the changed
+// version (from git), its refusal on Send and Start, and the runtime started
+// in an older environment, marked on the control bar in view at the foot of a
+// long conversation (the header keeping the fingerprint), then the refusal on
+// the mark once released; approving again; the changed
 // variables' values shown only on request; an approval recording the names
 // its activation changes, a sourced file that adds one refused with the added
 // name shown (never its value), and approving again taking the new names; the
@@ -63,8 +65,9 @@ await until('approved', async () => (await projectOf(A.id)).environment.status =
 await until('the page says approved', async () => (await env.textContent()).includes('approved'))
 check((await page.locator('.section-actions button[aria-label="New conversation"]').isEnabled()), 'New conversation is enabled once approved')
 
-// a launch: the header shows the environment by fingerprint and names.
-const conv = (await api('POST', `/api/projects/${A.id}/conversations`, { harness: 'claude', prompt: 'echo\nhello' })).body
+// a launch: the header shows the environment by fingerprint and names. the
+// conversation is long, so its foot is far from its header.
+const conv = (await api('POST', `/api/projects/${A.id}/conversations`, { harness: 'claude', prompt: 'burst 40' })).body
 await until('running', async () => {
   const c = await convOf(conv.id)
   return c.state === 'running' && !c.turn_active && c.environment
@@ -75,21 +78,32 @@ await page.goto(`${url}/#/c/${conv.id}`)
 const facts = page.locator('.conversation-head .facts', { hasText: /^environment sha256:/ })
 await facts.waitFor()
 check((await facts.textContent()).includes(started.fingerprint) && (await facts.textContent()).includes('MEGA_MARKER'), 'the header shows the fingerprint and the changed names')
+const envMark = page.locator('form.reply .control-bar .env-mark')
+check((await envMark.count()) === 0, 'while nothing needs attention, the control bar shows nothing for the environment')
 const resolved = (await projectOf(A.id)).environment.resolved
 check(resolved.changed.includes('MEGA_MARKER') && !JSON.stringify(resolved).includes('alpha-check-marker'), 'the resolution on the workspace read carries names, not values')
 
 // a changed file: both versions side by side, refused on Send and Start, and
-// the running conversation shown as started in an older environment.
+// the running conversation marked on the control bar as started in an older
+// environment, in view at the foot of the long conversation without
+// scrolling, while the header keeps the fingerprint and names.
 envFile('activate: |\n  export MEGA_MARKER=alpha-check-marker\n  export EXTRA=changed\n')
 await until('changed', async () => (await projectOf(A.id)).environment.status === 'changed')
 const changedRefusal = (await projectOf(A.id)).environment.refusal.message
-await until('the header says older', async () => (await facts.textContent()).includes('older environment'))
-check(true, 'the header says the runtime started in an older environment')
+const staleWords = 'started in an older environment: the project’s has changed since, and the next start picks it up'
+await until('the bar marks the environment', async () => (await envMark.count()) === 1 && (await envMark.getAttribute('aria-label')) === staleWords)
+const markBox = await envMark.boundingBox()
+const headBox = await page.locator('.conversation-head').boundingBox()
+const viewport = page.viewportSize()
+check(markBox.y >= 0 && markBox.y + markBox.height <= viewport.height && headBox.y + headBox.height < 0, `at the foot of a long conversation, with the header scrolled away, the control bar marks the environment: "${await envMark.getAttribute('aria-label')}"`)
+check(!(await facts.textContent()).includes('older environment') && (await facts.textContent()).includes(started.fingerprint), 'the header keeps the fingerprint and names, and no longer the warning')
 const send = page.locator(`.panel-cluster button[aria-label="${changedRefusal}"]`)
 check((await send.count()) >= 1, `Send carries the refusal: ${changedRefusal}`)
-await shot('stale-header')
+await shot('stale-bar')
 await api('POST', `/api/conversations/${conv.id}/release`)
 await until('released', async () => (await convOf(conv.id)).state === 'none')
+await until('the mark carries the refusal', async () => (await envMark.getAttribute('aria-label')) === changedRefusal)
+check(true, `released, the bar marks the environment with the refusal: "${changedRefusal}"`)
 const start = page.locator(`.panel-cluster button[aria-label="${changedRefusal}"]`)
 await until('Start shows the refusal', async () => (await start.count()) >= 2)
 check(await start.last().isDisabled(), 'Start carries the refusal and is disabled')

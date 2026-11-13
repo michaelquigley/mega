@@ -366,31 +366,60 @@ pre {
   padding: 0 4px;
 }
 
-/* the conversation's MCP servers in one line of its header: quiet like the
-   facts around it, on the notice tone while any server is not connected. a
-   press opens the list. */
-.mcp-summary {
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
+/* the control bar's quiet facts: which harness, an environment that needs
+   attention, and what the next send will do. each holds the bar to one row. */
+.harness-icon {
+  display: block;
+  flex: none;
+  height: 18px;
+  width: 18px;
+}
+
+/* a single-colour mark, its shape in the text colour. */
+.harness-icon.mono {
+  background: var(--text);
+  mask-position: center;
+  mask-repeat: no-repeat;
+}
+
+.harness-name {
   color: var(--muted);
-  cursor: pointer;
-  font: inherit;
-  margin: 0 -5px;
-  padding: 0 4px;
+  font-size: calc(12px * var(--fs));
+  white-space: nowrap;
 }
 
-.mcp-summary:hover,
-.mcp-summary:focus-visible {
-  background: var(--selected);
-  color: var(--text);
-}
-
-.mcp-summary.notice {
+/* the environment, only when it needs attention: the notice tone, its words
+   in its name and title. */
+.env-mark {
+  align-items: center;
   background: var(--notice-bg);
-  border-color: var(--notice-line);
+  border: 1px solid var(--notice-line);
+  border-radius: 4px;
   color: var(--text);
-  margin: 0;
+  display: inline-flex;
+  font-size: calc(12px * var(--fs));
+  gap: 4px;
+  padding: 0 6px 0 4px;
+  white-space: nowrap;
+}
+
+.env-mark .icon svg {
+  height: 15px;
+  width: 15px;
+}
+
+/* a server that failed or needs signing in marks the More button, so it is
+   noticed without opening the menu. */
+.more-mark {
+  background: var(--notice-line);
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  height: 10px;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 10px;
 }
 
 .mcp-servers,
@@ -1155,6 +1184,58 @@ hr.turn {
   width: 100%;
 }
 
+/* a turn's blocks stand as the conversation's do; the block is only what
+   the pointer and focus are over. */
+.turn-block {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* a turn's end: its separator, or what ended it, with the turn's line laid
+   over its right end in space the turn already has, so nothing moves when
+   it shows. the turn in flight keeps that space, its separator unseen. */
+.turn-end {
+  position: relative;
+}
+
+.turn-end.pending hr.turn {
+  border-top-color: transparent;
+}
+
+.turn-line {
+  background: var(--bg);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: calc(11px * var(--fs));
+  line-height: 1.4;
+  max-width: 70%;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0 6px;
+  position: absolute;
+  right: 0;
+  text-overflow: ellipsis;
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.turn-block:hover .turn-line,
+.turn-block:focus-within .turn-line {
+  opacity: 1;
+}
+
+/* a turn that ran with other than it asked for keeps its line, in the
+   notice colour. */
+.turn-line.differs {
+  background: var(--notice-bg);
+  border-color: var(--notice-line);
+  color: var(--text);
+  opacity: 1;
+}
+
 .request-card {
   background: var(--notice-bg);
   border: 1px solid var(--notice-line);
@@ -1481,10 +1562,57 @@ hr.turn {
   gap: 6px;
 }
 
-.bar-control select {
+/* a closed control shows a short value; the native select lies over it,
+   transparent, so its list, its keyboard and its name are the browser's own,
+   with the full descriptions. the short value is capped so mode, model and
+   effort share one row with the rest of the bar. */
+.short-select {
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  display: inline-flex;
   font-size: calc(12px * var(--fs));
-  max-width: 220px;
-  padding: 2px 6px;
+  gap: 2px;
+  padding: 1px 2px 1px 6px;
+  position: relative;
+  white-space: nowrap;
+}
+
+.short-select .short-value {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.short-select .icon svg {
+  color: var(--muted);
+  height: 16px;
+  width: 16px;
+}
+
+.short-select select {
+  cursor: pointer;
+  font-size: calc(12px * var(--fs));
+  height: 100%;
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.short-select:has(select:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.short-select.disabled {
+  opacity: 0.5;
+}
+
+.short-select.disabled select {
+  cursor: default;
 }
 
 .bar-control .icon-button {
@@ -1960,7 +2088,3 @@ hr.turn {
   list-style: none;
 }
 
-.facts.env-stale {
-  border-left: 2px solid var(--notice-line);
-  padding-left: 6px;
-}

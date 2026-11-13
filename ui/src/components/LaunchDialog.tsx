@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { startConversation } from '../api'
 import { harnesses } from '../harnesses'
-import { useModels } from '../models'
+import { effortsFor, useModels } from '../models'
 import { permissionModes } from '../permissions'
 import type { Conversation } from '../types'
 import { ModelPicker } from './ModelPicker'
@@ -9,8 +9,6 @@ import { IconButton } from './Icon'
 
 interface LaunchDialogProps {
   projectId: string
-  // the claude mode the operator's settings name for the checkout, or empty.
-  inheritedMode: string
   // why each harness that cannot run from mega's environment cannot, by
   // harness; such a harness is offered disabled, with its reason.
   unavailable: Record<string, string>
@@ -18,18 +16,24 @@ interface LaunchDialogProps {
   onLaunched: (conversation: Conversation) => void
 }
 
-// a claude conversation starts in the mode the operator picks. mega's
-// own default is the manual mode, unless the operator's settings name one, in
-// which case that is inherited by passing none (the empty value). the model
-// and effort start at inherit, which passes none, and the lists come from the
-// harness; what inherit means is read afresh each time the dialog opens.
-export function LaunchDialog({ projectId, inheritedMode, unavailable, onClose, onLaunched }: LaunchDialogProps) {
+// a new conversation's model, effort and (claude) permission mode are
+// concrete from the start. the dialog preselects what the harness's settings
+// name, as the service copies them, read afresh each time it opens, and
+// offers only concrete values. claude settings that name no effort level
+// preselect none, and Launch waits until one is chosen.
+export function LaunchDialog({ projectId, unavailable, onClose, onLaunched }: LaunchDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [harness, setHarness] = useState(() => harnesses.find((h) => !unavailable[h.value])?.value ?? 'claude')
   const cannotRun = unavailable[harness]
-  const [permissionMode, setPermissionMode] = useState(inheritedMode ? '' : 'default')
-  const [choice, setChoice] = useState({ model: '', effort: '' })
   const { models, error: modelsError } = useModels(projectId, harness, true)
+  // what the operator has picked; an unpicked field shows the copy.
+  const [picked, setPicked] = useState<{ harness: string; mode?: string; model?: string; effort?: string }>({ harness })
+  const own = picked.harness === harness ? picked : { harness }
+  const copy = models?.copy
+  const permissionMode = own.mode ?? copy?.mode ?? 'default'
+  const model = own.model ?? copy?.model ?? ''
+  const effort = own.effort ?? copy?.effort ?? ''
+  const needsEffort = model !== '' && effort === '' && effortsFor(models, model).length > 0
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -47,13 +51,23 @@ export function LaunchDialog({ projectId, inheritedMode, unavailable, onClose, o
       onLaunched(
         await startConversation(projectId, harness, name, prompt, {
           permissionMode: harness === 'claude' ? permissionMode : '',
-          ...choice,
+          model,
+          effort,
         }),
       )
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
       setSubmitting(false)
     }
+  }
+
+  let launchLabel = 'Launch'
+  if (cannotRun) {
+    launchLabel = cannotRun
+  } else if (models === null && !modelsError) {
+    launchLabel = 'Waiting for the harness to list its models'
+  } else if (needsEffort) {
+    launchLabel = 'Choose an effort level first'
   }
 
   return (
@@ -67,10 +81,7 @@ export function LaunchDialog({ projectId, inheritedMode, unavailable, onClose, o
           Harness
           <select
             value={harness}
-            onChange={(event) => {
-              setHarness(event.target.value)
-              setChoice({ model: '', effort: '' })
-            }}
+            onChange={(event) => setHarness(event.target.value)}
           >
             {harnesses.map((h) => (
               <option key={h.value} value={h.value} disabled={!!unavailable[h.value]} title={unavailable[h.value]}>
@@ -88,8 +99,7 @@ export function LaunchDialog({ projectId, inheritedMode, unavailable, onClose, o
         {harness === 'claude' && (
           <label>
             Permission mode
-            <select value={permissionMode} onChange={(event) => setPermissionMode(event.target.value)}>
-              {inheritedMode && <option value="">Inherited from your settings: {inheritedMode}</option>}
+            <select value={permissionMode} onChange={(event) => setPicked({ ...own, mode: event.target.value })}>
               {permissionModes.map((mode) => (
                 <option key={mode.value} value={mode.value}>
                   {mode.label}
@@ -99,17 +109,19 @@ export function LaunchDialog({ projectId, inheritedMode, unavailable, onClose, o
           </label>
         )}
         <ModelPicker
-          harness={harness}
           models={models}
-          model={choice.model}
-          effort={choice.effort}
-          inheritModel
-          inheritEffort
-          disabled={false}
-          onChange={(model, effort) => setChoice({ model, effort })}
+          model={model}
+          effort={effort}
+          disabled={models === null}
+          onChange={(nextModel, nextEffort) => setPicked({ ...own, model: nextModel, effort: nextEffort })}
         />
         {models === null && !modelsError && <p className="muted">Asking the harness for its models…</p>}
-        {modelsError && <p className="muted">The harness did not list its models ({modelsError}); inherit still launches.</p>}
+        {modelsError && <p className="muted">The harness did not list its models ({modelsError}); a launch takes what your settings name.</p>}
+        {needsEffort && (
+          <p className="muted" role="note">
+            Your settings name no effort level for this model, so choose one.
+          </p>
+        )}
         <label>
           Opening prompt
           <textarea
@@ -134,12 +146,18 @@ export function LaunchDialog({ projectId, inheritedMode, unavailable, onClose, o
           />
         </label>
         <p className="muted">
-          Native settings are inherited: approvals the mode asks for reach you here, and the
+          The model, effort and mode start as your settings name them, and stay this
+          conversation&apos;s until you change them. Approvals the mode asks for reach you here, and the
           checkout&apos;s own instructions, hooks and permission rules apply as in a terminal.
         </p>
         {error && <p className="error">{error}</p>}
         <div className="actions">
-          <IconButton type="submit" icon="rocket_launch" label={cannotRun ?? 'Launch'} disabled={submitting || prompt.trim() === '' || !!cannotRun} />
+          <IconButton
+            type="submit"
+            icon="rocket_launch"
+            label={launchLabel}
+            disabled={submitting || prompt.trim() === '' || !!cannotRun || (models === null && !modelsError) || needsEffort}
+          />
         </div>
       </form>
     </dialog>

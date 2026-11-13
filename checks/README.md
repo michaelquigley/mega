@@ -23,7 +23,7 @@ Where things go:
 
 ## What each suite covers
 
-- **`conversation.mjs`** (52 steps): the conversation view, on long conversations and in its layout. Two conversations are made about twenty thousand events long with `lib/gen.mjs` while the service is stopped. It checks the following:
+- **`conversation.mjs`** (62 steps): the conversation view, on long conversations and in its layout. Two conversations are made about twenty thousand events long with `lib/gen.mjs` while the service is stopped. It checks the following:
   - opening reads only the tail: ten turns, at the newest reply, saying how much is earlier;
   - Show earlier and Show all, each holding the view;
   - the native events toggle refetching what is shown;
@@ -34,26 +34,34 @@ Where things go:
   - the connecting view naming a failing workspace read;
   - the 960px column centred in its pane, with the panel open and collapsed to the rail, light and dark; the header, history, input panel, show-earlier bar, newer-activity control and shutdown banner sharing it; the project page and the connecting view centred the same way;
   - no label on the operator's own prompts, "outside mega" on a prompt from outside, and "From outside mega" on its reply;
+  - each turn's line saying what it ran with:
+    - none on turns recorded before mega kept it;
+    - hidden at rest, shown while the pointer is over the turn and while focus is inside it, with nothing moving either way;
+    - kept visible at rest, in the notice colour, naming both, on a turn the fake reports another model for (the fake shim's `fallback` verb);
+    - on the turn in flight, shown on hover once it has run, with nothing moving;
   - MCP servers, for the fake Claude and the fake Codex:
-    - the header's summary, on the notice tone while a server is not connected, and "not running" with no runtime;
-    - the list it opens: each status, a failed server's error, a server needing sign-in saying where that is done in the harness, and tools on expansion, with descriptions from Codex;
+    - nothing of them in the header;
+    - the More menu's item with the count, and "not running" with no runtime;
+    - a dot on the More button, named, while a server failed or needs signing in, in view at the foot of the conversation;
+    - the list the item opens: each status, a failed server's error, a server needing sign-in saying where that is done in the harness, and tools on expansion, with descriptions from Codex;
     - nothing to change in it;
-    - a sign-in followed in the summary and the open list;
+    - a sign-in followed in the open list and the item;
     - never attention;
     - cleared on release.
 
-  It saves the centred conversation as `shots/centred-{light,dark}-{panel,rail}.png`, and the MCP list as `shots/mcp-claude.png`.
-- **`environment.mjs`** (29 steps): a project's environment on its page. It checks the following:
+  It saves the centred conversation as `shots/centred-{light,dark}-{panel,rail}.png`, the MCP list as `shots/mcp-claude.png`, and a turn at rest, hovered and mismatched as `shots/turn-{rest,hover,mismatch}.png`.
+- **`environment.mjs`** (32 steps): a project's environment on its page. It checks the following:
   - the unapproved state, and its refusal on New conversation and Adopt;
   - approval, and the names it records;
   - the header's environment line;
   - a changed file shown beside the approved version;
   - the refusal on Send and Start, and approving again;
+  - nothing for the environment on the control bar while nothing needs attention; a runtime in an older environment marked on the bar, in view at the foot of a long conversation with the header scrolled away, the header keeping the fingerprint; then the refusal on the mark once released;
   - a sourced file changing the names;
   - the override;
   - values only on request;
   - a project with no file.
-- **`panel.mjs`** (40 steps): the input panel. It checks the following:
+- **`panel.mjs`** (69 steps): the input panel. It checks the following:
   - the reply box resting at one line and opening to its height;
   - the line above the panel staying put as the box opens and closes, and a view at the bottom staying there;
   - a control in the bar keeping the box open, and a press outside closing it;
@@ -62,15 +70,21 @@ Where things go:
   - a refused send keeping the box open, focused and with its draft;
   - Send and Start disabled with the reason while a shutdown is armed or the checkout is missing, the shutdown's first;
   - Start on a released conversation;
-  - the permission mode switched live, and stored for the next launch;
-  - a model and effort applied for Claude and for Codex, shown as the next prompt's until a turn reports them;
+  - the header keeping identity only: the harness and version in words, and no model, effort or permission mode;
+  - a new conversation's request concrete from creation, for Claude and for Codex, and none of the removed inherit and next-send fields on the wire;
+  - the bar's closed controls showing the request in short values, Claude's `default` mode as "ask", with the full names and descriptions in their lists, and no control or note on the bar saying inherit, requested or next;
+  - the harness's mark on the bar, by name, for Claude and for Codex, with the box collapsed and open, in the light and dark themes;
+  - the permission mode switched live, and stored when nothing runs, recorded as one `mode_requested` event drawn in the history with no attention, a live switch recorded as a request before Claude's confirmation with only the confirmation drawn, the bar showing the request at once;
+  - a model and effort applied for Claude and for Codex, the bar showing the request at once while the harness still runs the old ones;
+  - the launch dialog preselecting the copy from the settings for each harness, with no inherit choice, and a launch from it holding a concrete request;
+  - the bar on one row with the mark, mode, model and effort;
   - while the view follows the bottom, the newest content kept above the dock as it grows:
     - a prompt sent with the reply held keeps its block above the dock once the activity line shows, with the workspace read held so the line arrives after the view went to the end;
     - a docked request;
     - the reply box growing with its draft;
   - scrolled up, neither the activity line nor a docked request moving the view.
 
-  These steps turn off chromium's scroll anchoring, which re-pins a view at the bottom by itself and so hides the defect; firefox does not.
+  The dock's steps turn off chromium's scroll anchoring, which re-pins a view at the bottom by itself and so hides the defect; firefox does not. It saves the control bar for each harness, collapsed and open, light and dark, as `shots/bar-{claude,codex}-{collapsed,open}[-dark].png`.
 - **`requests.mjs`** (27 steps): requests. It checks the following:
   - a permission card docked above the reply box, not in the history, with its one-line row there;
   - focus on the card neither opening the box nor moving the card;

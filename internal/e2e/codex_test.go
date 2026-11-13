@@ -267,10 +267,11 @@ func TestCodexMCPApproval(t *testing.T) {
 	t.Logf("thread %s", s.view().NativeID)
 }
 
-// TestCodexModelAndEffort lists codex's models and what inherit means, then
-// launches one marker turn with an explicit model and effort: codex reports
-// the model on thread/start and both with thread/settings/updated as the turn
-// starts, and the header's facts are that report.
+// TestCodexModelAndEffort lists codex's models and what a new conversation
+// copies, then launches one marker turn with an explicit model and effort:
+// codex reports the model on thread/start and both with
+// thread/settings/updated as the turn starts, and the runtime's facts are
+// that report.
 func TestCodexModelAndEffort(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
 	chosen := env("MEGA_E2E_CODEX_MODEL", "gpt-6-luna")
@@ -288,11 +289,11 @@ func TestCodexModelAndEffort(t *testing.T) {
 	for _, m := range list.Models {
 		listed = listed || m.ID == chosen
 	}
-	t.Logf("codex %s lists %d models; inherit means %q at %q", list.Version, len(list.Models), list.InheritedModel, list.InheritedEffort)
+	t.Logf("codex %s lists %d models; a new conversation copies %q at %q", list.Version, len(list.Models), list.Copy.Model, list.Copy.Effort)
 	if !listed {
 		t.Fatalf("%s is not listed", chosen)
 	}
-	if list.InheritedEffort == "low" {
+	if list.Copy.Effort == "low" {
 		t.Fatal("the operator's config already runs low; the effort override would not show")
 	}
 	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e model", codexMarkerPrompt, service.LaunchChoice{Model: chosen, Effort: "low"})
@@ -341,7 +342,7 @@ func TestCodexStartWithoutPrompt(t *testing.T) {
 	s := &session{t: t, svc: svc, id: conv.ID}
 	s.idle()
 	view := startedSession(t, svc, s)
-	if view.Facts.Version == "" || view.Facts.Model == "" || view.Facts.ModeRequested {
+	if view.Facts.Version == "" || view.Facts.Model == "" || view.Facts.Model != view.Model {
 		t.Errorf("idle facts = %+v", view.Facts)
 	}
 	s.prompt("Reply with the word BETA-START-9e1f. Do not run any commands. Nothing else.")

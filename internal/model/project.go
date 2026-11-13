@@ -28,10 +28,6 @@ type Project struct {
 	// Untrusted is the claude trust notice. it is computed when read and never
 	// persisted, because the operator can change it from a terminal at any time.
 	Untrusted bool `dd:"-"`
-	// InheritedPermissionMode is the claude permission mode the operator's
-	// native settings name for the checkout, or empty. like Untrusted it is
-	// read each time and never persisted.
-	InheritedPermissionMode string `dd:"-"`
 	// CheckoutMissing says why the checkout cannot be worked in now, or is
 	// empty when it can: it does not exist, is not a directory, or is not
 	// readable. like Untrusted it is computed when read and never persisted,

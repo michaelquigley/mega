@@ -90,9 +90,8 @@ func testRuntime() (*runtime, *recordingSink, *wire) {
 	r := newRuntime(sink)
 	r.conn = &conn{stdin: w, calls: make(map[int64]chan callResult), done: make(chan struct{})}
 	r.threadID = "thread-1"
-	// a chosen model and effort, so a turn/start needs no config/read first;
-	// the inherit tests clear them.
-	r.cwd, r.model, r.effort = "/f", "gpt-test", "medium"
+	// the conversation's request, which every turn/start passes.
+	r.model, r.effort = "gpt-test", "medium"
 	// the MCP lists are tested on their own (mcp_test.go); one marked in
 	// flight keeps a turn's start from adding a list to the frames these
 	// tests expect.

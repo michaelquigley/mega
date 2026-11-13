@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
-import type { ConversationEvent, PendingRequest } from '../types'
+import { shortModel, useModels } from '../models'
+import { shortMode } from '../permissions'
+import type { ConversationEvent, Models, PendingRequest, TurnRecord } from '../types'
 import { Spinner } from './AttentionMark'
 import { BlockCopy, CopyButton } from './Copy'
 import { Markdown } from './Markdown'
@@ -13,6 +15,10 @@ interface EventListProps {
   // the streaming text of the turn in flight, shown as the reply it will land
   // as, in the same block and place.
   delta: string
+  projectId: string
+  harness: string
+  // what the turn in flight asked for and ran with, once it has run.
+  inFlight?: TurnRecord
 }
 
 const outcomeLabels: Record<string, string> = {
@@ -24,7 +30,8 @@ const outcomeLabels: Record<string, string> = {
 // EventList renders recorded history. requests appear here only as history;
 // whether one is answerable comes from the service's pending set, never from
 // the log.
-export function EventList({ events, pending, turnActive, stale, showNative, delta }: EventListProps) {
+export function EventList({ events, pending, turnActive, stale, showNative, delta, projectId, harness, inFlight }: EventListProps) {
+  const { models } = useModels(projectId, harness)
   const results = new Map<string, ConversationEvent>()
   const outcomes = new Map<string, string>()
   for (const event of events) {
@@ -34,6 +41,22 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
     if (event.kind === 'request_resolved' && event.req?.outcome) {
       outcomes.set(event.req.id, event.req.outcome)
     }
+  }
+  // a mode request Claude went on to confirm draws no row of its own: its
+  // confirmation, the next mode event, says the same. a request nothing
+  // confirmed (stored with no runtime, refused, put back, or unconfirmed)
+  // keeps its row.
+  const confirmed = new Set<number>()
+  let nextMode: ConversationEvent | undefined
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (event.kind !== 'runtime' || (event.status !== 'mode_requested' && event.status !== 'mode_changed')) {
+      continue
+    }
+    if (event.status === 'mode_requested' && nextMode?.status === 'mode_changed' && nextMode.facts?.permission_mode === event.facts?.permission_mode) {
+      confirmed.add(event.seq)
+    }
+    nextMode = event
   }
   const toolUses = new Set(events.filter((e) => e.kind === 'tool_use' && e.tool_use_id).map((e) => e.tool_use_id))
   const pendingIds = new Set(pending.map((request) => request.id))
@@ -118,9 +141,9 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
       }
       case 'runtime':
         if (event.status === 'mode_changed') {
-          // claude's first report after a start with no prompt, naming the
-          // mode that was requested: the header dropping "(requested)" is
-          // the change, so the history draws no row.
+          // in logs from before every launch passed a mode: a report that
+          // only confirmed the mode the launch asked for, which changed
+          // nothing, so the history draws no row.
           if (event.facts?.mode_confirmed) {
             return null
           }
@@ -128,6 +151,28 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
             <p key={event.seq} data-seq={event.seq} className="system">
               Permission mode {event.facts?.permission_mode ?? 'changed'}
               {event.text && `: ${event.text}`}
+            </p>
+          )
+        }
+        if (event.status === 'mode_requested') {
+          // the operator's mode request: never a report of what runs.
+          if (confirmed.has(event.seq)) {
+            return null
+          }
+          return (
+            <p key={event.seq} data-seq={event.seq} className="system">
+              Permission mode {event.facts?.permission_mode ?? 'changed'} requested
+              {event.text && `: ${event.text}`}
+            </p>
+          )
+        }
+        if (event.status === 'choice_filled') {
+          // the one-time fill of a conversation recorded before every one
+          // held a concrete request: what was filled, and from where.
+          const filled = [shortModel(models, event.facts?.model), event.facts?.effort, shortMode(event.facts?.permission_mode)].filter(Boolean)
+          return (
+            <p key={event.seq} data-seq={event.seq} className="system">
+              Request {event.text ?? 'filled in'}: {filled.join(' · ')}
             </p>
           )
         }
@@ -154,13 +199,17 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
           </p>
         )
       case 'turn_end':
-        if (event.status === 'success') {
-          return <hr key={event.seq} data-seq={event.seq} className="turn" />
-        }
         return (
-          <p key={event.seq} data-seq={event.seq} className="system alert">
-            Turn ended: {event.status}
-          </p>
+          <div key={event.seq} className="turn-end">
+            {event.status === 'success' ? (
+              <hr data-seq={event.seq} className="turn" />
+            ) : (
+              <p data-seq={event.seq} className="system alert">
+                Turn ended: {event.status}
+              </p>
+            )}
+            {event.turn && <TurnLine record={event.turn} models={models} />}
+          </div>
         )
       case 'native':
         if (!showNative) {
@@ -182,7 +231,12 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
   // separators stand on their own.
   // a group is keyed by its first event, so loading earlier history above it
   // keeps every group, and the rows open in it, as they were.
-  const blocks: ReactNode[] = []
+  // each turn's blocks, to its end, form one turn block, so its line shows
+  // while the pointer is over any of it or focus is inside it. a turn block
+  // is keyed by its first event, as a group is.
+  const turns: ReactNode[] = []
+  let blocks: ReactNode[] = []
+  let turnFrom: number | null = null
   let group: ReactNode[] = []
   let groupFrom = 0
   const flush = () => {
@@ -195,10 +249,25 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
       group = []
     }
   }
+  const closeTurn = (key: string) => {
+    flush()
+    if (blocks.length > 0) {
+      turns.push(
+        <div key={key} className="turn-block">
+          {blocks}
+        </div>,
+      )
+    }
+    blocks = []
+    turnFrom = null
+  }
   events.forEach((event, index) => {
     const node = render(event, index)
     if (node === null) {
       return
+    }
+    if (turnFrom === null) {
+      turnFrom = event.seq
     }
     if (actionKinds.has(event.kind)) {
       if (group.length === 0) {
@@ -209,6 +278,9 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
     }
     flush()
     blocks.push(node)
+    if (event.kind === 'turn_end') {
+      closeTurn(`turn-${turnFrom}`)
+    }
   })
   flush()
   if (delta) {
@@ -218,7 +290,47 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
       </div>,
     )
   }
-  return <div className="events">{blocks}</div>
+  // the turn in flight ends in the space its separator will take, where its
+  // line shows what it runs with once the harness has said.
+  if (turnActive) {
+    blocks.push(
+      <div key="turn-end-pending" className="turn-end pending">
+        <hr className="turn" />
+        {inFlight && <TurnLine record={inFlight} models={models} />}
+      </div>,
+    )
+  }
+  closeTurn(`turn-${turnFrom ?? 'open'}`)
+  return <div className="events">{turns}</div>
+}
+
+// TurnLine is one compact line saying what a turn ran with: the model, the
+// effort and (claude) the mode, as the harness reported them; claude never
+// reports effort, so its effort is the one sent. it shows only while the turn
+// is under the pointer or holds focus, unless the turn ran with other than it
+// asked for: then it stays, in the notice colour, and names both.
+function TurnLine({ record, models }: { record: TurnRecord; models: Models | null }) {
+  const differs = record.differs ?? []
+  const field = (name: string, ran: string | undefined, asked: string | undefined, show: (value: string | undefined) => string) => {
+    if (!ran) {
+      return ''
+    }
+    return differs.includes(name) ? `${show(ran)}, asked ${show(asked)}` : show(ran)
+  }
+  const parts = [
+    field('model', record.ran.model, record.asked.model, (value) => shortModel(models, value)),
+    field('effort', record.ran.effort, record.asked.effort, (value) => value ?? ''),
+    field('mode', record.ran.mode, record.asked.mode, shortMode),
+  ].filter(Boolean)
+  if (parts.length === 0) {
+    return null
+  }
+  const exact = (settings: TurnRecord['asked']) => [settings.model, settings.effort, settings.mode].filter(Boolean).join(' · ')
+  return (
+    <span className={`turn-line${differs.length > 0 ? ' differs' : ''}`} title={`Asked for ${exact(record.asked)}; ran ${exact(record.ran)}`}>
+      Ran {parts.join(' · ')}
+    </span>
+  )
 }
 
 const actionKinds = new Set<ConversationEvent['kind']>(['tool_use', 'tool_result', 'native', 'request', 'request_resolved'])

@@ -16,7 +16,8 @@ import (
 )
 
 // LaunchChoice is what the operator chose at launch: the permission mode
-// (claude only), the model and the effort. empty fields inherit.
+// (claude only), the model and the effort. a field left empty is copied once
+// from the harness's settings (copyFor).
 type LaunchChoice struct {
 	PermissionMode string
 	Model          string
@@ -34,13 +35,15 @@ const (
 // modelsTimeout bounds asking a harness for its models or its settings.
 const modelsTimeout = 30 * time.Second
 
-// Models is what a harness offers for a checkout, and what a launch with no
-// choice gets there.
+// Models is what a harness offers for a checkout, and what a new
+// conversation there copies from the harness's settings. Copy.Effort is
+// empty, with NeedEffort set, when the settings give the copied model no
+// effort level and the list names no default: the operator chooses one.
 type Models struct {
-	Version         string
-	Models          []harness.ModelOption
-	InheritedModel  string
-	InheritedEffort string
+	Version    string
+	Models     []harness.ModelOption
+	Copy       model.TurnSettings
+	NeedEffort bool
 }
 
 // catalogs caches each harness's model list, with the version it came from,
@@ -67,8 +70,8 @@ func (c *catalogs) put(name string, catalog harness.Catalog) {
 }
 
 // Models lists a harness's models for a project's checkout, from the cache
-// after the first ask, and reads afresh what inherit means there. listing
-// models starts no conversation.
+// after the first ask, and reads afresh what a new conversation there would
+// copy from the harness's settings. listing models starts no conversation.
 func (s *Service) Models(projectID, harnessName string) (Models, error) {
 	s.mu.Lock()
 	project, err := s.projectLocked(projectID)
@@ -88,20 +91,17 @@ func (s *Service) Models(projectID, harnessName string) (Models, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), modelsTimeout)
 	defer cancel()
-	catalog, cached := s.catalogs.get(harnessName)
-	if !cached {
-		catalog, err = h.Models(ctx, place)
-		if err != nil {
-			return Models{}, s.explain(harnessName, place.Find, fmt.Errorf("listing '%s' models: %w", harnessName, err))
-		}
-		s.catalogs.put(harnessName, catalog)
-	}
-	inheritedModel, inheritedEffort, err := h.Inherited(ctx, place)
+	catalog, err := s.catalogFor(ctx, harnessName, h, place)
 	if err != nil {
-		// what inherit means is a courtesy; the list stands without it.
-		dl.Warnf("reading what '%s' inherits in '%s': %v", harnessName, project.Checkout, err)
+		return Models{}, err
 	}
-	return Models{Version: catalog.Version, Models: catalog.Models, InheritedModel: inheritedModel, InheritedEffort: inheritedEffort}, nil
+	copied, needEffort, err := s.copyFor(ctx, harnessName, place, model.TurnSettings{})
+	if err != nil {
+		// what a new conversation copies is a courtesy; the list stands
+		// without it.
+		dl.Warnf("reading what a new '%s' conversation copies in '%s': %v", harnessName, project.Checkout, err)
+	}
+	return Models{Version: catalog.Version, Models: catalog.Models, Copy: copied, NeedEffort: needEffort}, nil
 }
 
 // safeChoice is what a model or effort may look like when no catalog is at
@@ -109,7 +109,11 @@ func (s *Service) Models(projectID, harnessName string) (Models, error) {
 var safeChoice = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]*$`)
 
 // checkModelChoice validates a model and effort against the harness's
-// catalog, when one is cached, and their form otherwise. empty inherits.
+// catalog, when one is cached, and their form otherwise. a full id the list
+// holds only as an alias's resolved model, as a model filled in from what
+// claude reported, is checked against that alias's row (catalogRow). an
+// empty field is one still to be copied (copyFor), or an effort for a model
+// that takes none.
 func (s *Service) checkModelChoice(harnessName, chosenModel, effort string) error {
 	for _, value := range []string{chosenModel, effort} {
 		if value != "" && !safeChoice.MatchString(value) {
@@ -121,11 +125,11 @@ func (s *Service) checkModelChoice(harnessName, chosenModel, effort string) erro
 		return nil
 	}
 	if chosenModel != "" {
-		i := slices.IndexFunc(catalog.Models, func(m harness.ModelOption) bool { return m.ID == chosenModel })
-		if i < 0 {
+		row, ok := catalogRow(catalog, chosenModel)
+		if !ok {
 			return newError(CodeInvalid, fmt.Sprintf("model '%s' is not offered by '%s'", chosenModel, harnessName))
 		}
-		if effort != "" && !slices.Contains(catalog.Models[i].Efforts, effort) {
+		if effort != "" && !slices.Contains(row.Efforts, effort) {
 			return newError(CodeInvalid, fmt.Sprintf("model '%s' does not offer effort '%s'", chosenModel, effort))
 		}
 		return nil
@@ -143,26 +147,33 @@ func (s *Service) offersEffort(harnessName, chosenModel string) bool {
 	if !ok {
 		return true
 	}
-	i := slices.IndexFunc(catalog.Models, func(m harness.ModelOption) bool { return m.ID == chosenModel })
-	return i < 0 || len(catalog.Models[i].Efforts) > 0
+	row, ok := catalogRow(catalog, chosenModel)
+	return !ok || len(row.Efforts) > 0
 }
 
-// SetModel records the model and effort the operator chose for a
-// conversation and, if a runtime is running, asks it to change. the choice is
-// intent: written first, as what every later launch passes (and, for codex,
-// every prompt). with no runtime the outcome is stored. while one runs, inherit
-// cannot be chosen, since neither harness returns to the operator's settings
-// mid-session (a model with no effort levels leaves the effort unchosen); the
-// harness's answer is the outcome: confirmed (claude applies
-// it from the next response), next_prompt (codex takes it with the next
-// turn), refused (the choice goes back), or unconfirmed (the choice stands).
-// the live model and effort are never written here: the harness reports them.
+// SetModel records the model and effort the operator requests for a
+// conversation and, if a runtime is running, asks it to change. the request
+// is written first, as what every later launch passes (and, for codex, every
+// prompt). with no runtime the outcome is stored. both are always concrete:
+// a model, and an effort wherever the model takes one. the harness's answer
+// is the outcome: confirmed (claude applies it from the next response),
+// next_prompt (codex takes it with the next turn), refused (the request goes
+// back), or unconfirmed (the request stands). what a turn ran with is the
+// harness's report, recorded with the turn, never written here.
 func (s *Service) SetModel(conversationID, chosenModel, effort string) (ModeOutcome, error) {
 	s.mu.Lock()
 	conv, err := s.conversationLocked(conversationID)
 	if err != nil {
 		s.mu.Unlock()
 		return ModeOutcome{}, err
+	}
+	if chosenModel == "" {
+		s.mu.Unlock()
+		return ModeOutcome{}, newError(CodeInvalid, "a model is required")
+	}
+	if effort == "" && s.offersEffort(conv.Harness, chosenModel) {
+		s.mu.Unlock()
+		return ModeOutcome{}, newError(CodeInvalid, fmt.Sprintf("model '%s' takes an effort level; choose one", chosenModel))
 	}
 	if err := s.checkModelChoice(conv.Harness, chosenModel, effort); err != nil {
 		s.mu.Unlock()
@@ -194,15 +205,6 @@ func (s *Service) SetModel(conversationID, chosenModel, effort string) (ModeOutc
 		s.mu.Unlock()
 		return ModeOutcome{}, newError(CodeConflict, "the runtime is still starting")
 	}
-	// codex can return to inherit while running: its adapter sends the
-	// config's current values on every turn, so inherit takes effect at the
-	// next prompt like any other change. claude cannot: its reset calls go to
-	// claude code's built-in defaults, not the operator's settings.
-	inheritRunning := conv.Harness == model.HarnessCodex
-	if !inheritRunning && ((chosenModel == "" && conv.Model != "") || (effort == "" && conv.Effort != "" && s.offersEffort(conv.Harness, chosenModel))) {
-		s.mu.Unlock()
-		return ModeOutcome{}, newError(CodeInvalid, "inherit can be chosen only while no runtime runs; pick a model and effort, or release first")
-	}
 	if err := s.updateConversation(conversationID, func(c *model.Conversation) { c.Model, c.Effort = chosenModel, effort }); err != nil {
 		s.mu.Unlock()
 		return ModeOutcome{}, err
@@ -220,30 +222,18 @@ func (s *Service) SetModel(conversationID, chosenModel, effort string) (ModeOutc
 	l.switching = false
 	switch {
 	case switchErr == nil:
-		// until a turn begun from here ends, the header shows what was asked
-		// for as the next prompt's; the harness's report then stands alone.
-		if chosenModel != conv.Model {
-			l.nextModel = pendingSetting{value: chosenModel, set: true}
-		}
-		if effort != conv.Effort {
-			l.nextEffort = pendingSetting{value: effort, set: true}
-		}
-		l.nextSent = false
 		s.changed()
 		if deferred {
 			return ModeOutcome{Outcome: ModelNextPrompt}, nil
 		}
 		return ModeOutcome{Outcome: ModeConfirmed}, nil
 	case errors.Is(switchErr, harness.ErrSettingUnconfirmed):
-		return ModeOutcome{Outcome: ModeUnconfirmed, Message: "the harness did not confirm the change in time; the header shows the model it last reported"}, nil
+		return ModeOutcome{Outcome: ModeUnconfirmed, Message: "the harness did not confirm the change in time; each turn's line shows what it ran with"}, nil
 	case errors.Is(switchErr, harness.ErrEffortRefused):
-		// the model changed and stays chosen; only the effort goes back to the
-		// last one accepted.
+		// the model changed and stays requested; only the effort goes back to
+		// the last one accepted.
 		if err := s.updateConversation(conversationID, func(c *model.Conversation) { c.Effort = conv.Effort }); err != nil {
 			dl.Errorf("putting back the recorded effort of '%s': %v", conversationID, err)
-		}
-		if chosenModel != conv.Model {
-			l.nextModel, l.nextSent = pendingSetting{value: chosenModel, set: true}, false
 		}
 		s.changed()
 		return ModeOutcome{Outcome: ModeRefused, Message: switchErr.Error()}, nil

@@ -1,4 +1,4 @@
-import { harnesses } from './harnesses'
+import { harnessLabel } from './harnesses'
 import type { Conversation, McpStatus } from './types'
 
 // the words for each MCP server status.
@@ -43,11 +43,13 @@ export function mcpSummaryText(conversation: Conversation): string {
   return parts.join(', ')
 }
 
-// mcpNotice is whether any server is not connected, which the summary shows
-// in the notice colour.
-export const mcpNotice = (conversation: Conversation) => mcpRunning(conversation) && !!conversation.mcp && conversation.mcp.connected < conversation.mcp.servers
+// mcpTrouble is whether a server failed or needs signing in: the More button
+// carries a mark for it, so it is noticed without opening the menu.
+export const mcpTrouble = (conversation: Conversation) => mcpRunning(conversation) && !!conversation.mcp && conversation.mcp.failed + conversation.mcp.needs_sign_in > 0
 
-export const harnessName = (value: string) => harnesses.find((h) => h.value === value)?.label ?? value
+export const mcpTroubleText = 'An MCP server failed or needs signing in: the More menu lists the servers'
+
+export const harnessName = harnessLabel
 
 // signInHint says where a server that needs signing in is signed in to: the
 // harness's own terminal. mega starts no sign-in.

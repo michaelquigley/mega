@@ -8,6 +8,19 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        // three chunks, each under the 500 kB warning: react, the markdown
+        // renderer with the rest of the dependencies, and mega's own code.
+        // all three load with the page; the split is for size, not laziness.
+        codeSplitting: {
+          groups: [
+            { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/, priority: 2 },
+            { name: 'vendor', test: /node_modules[\\/]/, priority: 1 },
+          ],
+        },
+      },
+    },
   },
   server: {
     port: 5173,

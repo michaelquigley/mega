@@ -76,7 +76,7 @@ type errorReply struct {
 func (s *session) answer(requestID, decision string) string {
 	s.t.Helper()
 	if s.api == nil {
-		s.api = httptest.NewServer(server.New(s.svc).Handler())
+		s.api = httptest.NewServer(server.New(s.svc, server.About{Version: "e2e", Developer: true}).Handler())
 		s.t.Cleanup(s.api.Close)
 	}
 	body, err := dd.UnbindJSON(&answerBody{RequestID: requestID, Decision: decision})
@@ -362,7 +362,7 @@ func TestClaudeAutoMode(t *testing.T) {
 	}
 	s := &session{t: t, svc: svc, id: conv.ID}
 	approval := s.expectApproval(approvalWant{tool: "Bash", command: "sleep 3"})
-	if facts := s.view().Facts; facts == nil || facts.PermissionMode != "auto" || facts.ModeInherited {
+	if facts := s.view().Facts; facts == nil || facts.PermissionMode != "auto" {
 		t.Errorf("runtime facts = %+v", facts)
 	}
 	if payload, _ := approval.Payload.(map[string]any); payload["permission_mode"] != "auto" {
@@ -507,7 +507,7 @@ func TestClaudeModelAndEffort(t *testing.T) {
 			resolved = m.Resolved
 		}
 	}
-	t.Logf("claude %s lists %d models; %s resolves to %q; inherit means %q at %q", list.Version, len(list.Models), chosen, resolved, list.InheritedModel, list.InheritedEffort)
+	t.Logf("claude %s lists %d models; %s resolves to %q; a new conversation copies %q at %q in %q", list.Version, len(list.Models), chosen, resolved, list.Copy.Model, list.Copy.Effort, list.Copy.Mode)
 	if resolved == "" {
 		t.Fatalf("%s is not listed", chosen)
 	}
@@ -576,8 +576,9 @@ func startedSession(t *testing.T, svc *service.Service, s *session) service.Conv
 
 // TestClaudeStartWithoutPrompt starts a released conversation with no
 // prompt: the runtime resumes the exact session and holds idle, reporting its
-// version and model, with the launch mode requested; a mode switch is
-// confirmed at once; the next prompt is answered in the same session.
+// version and model, in the mode the launch passed, which is the
+// conversation's request; a mode switch is confirmed at once; the next
+// prompt is answered in the same session.
 func TestClaudeStartWithoutPrompt(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	svc := newE2EService(t, newClaudeHarness(t))
@@ -592,14 +593,14 @@ func TestClaudeStartWithoutPrompt(t *testing.T) {
 	s := &session{t: t, svc: svc, id: conv.ID}
 	s.idle()
 	view := startedSession(t, svc, s)
-	if view.Facts.Version == "" || view.Facts.Model == "" || !view.Facts.ModeRequested || view.Facts.PermissionMode == "" {
+	if view.Facts.Version == "" || view.Facts.Model == "" || view.PermissionMode == "" || view.Facts.PermissionMode != view.PermissionMode {
 		t.Errorf("idle facts = %+v", view.Facts)
 	}
 	outcome, err := svc.SetPermissionMode(s.id, "acceptEdits")
 	if err != nil || outcome.Outcome != service.ModeConfirmed {
 		t.Fatalf("idle mode switch: %+v, %v", outcome, err)
 	}
-	if f := s.view().Facts; f.PermissionMode != "acceptEdits" || f.ModeRequested {
+	if f := s.view().Facts; f.PermissionMode != "acceptEdits" {
 		t.Errorf("after the switch: %+v", f)
 	}
 	s.prompt("Reply with the word BETA-START-9e1f. Nothing else.")

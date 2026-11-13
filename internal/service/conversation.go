@@ -77,6 +77,23 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 	if err := missingCoded(s.harnesses[harnessName].Check(place.Find)); err != nil {
 		return ConversationView{}, err
 	}
+	// what the operator left unchosen is copied once from the harness's
+	// settings, and passed from then on; later changes to the settings do not
+	// reach this conversation.
+	copyCtx, cancelCopy := context.WithTimeout(context.Background(), modelsTimeout)
+	asked, needEffort, err := s.copyFor(copyCtx, harnessName, place, model.TurnSettings{Model: choice.Model, Effort: choice.Effort, Mode: permissionMode})
+	cancelCopy()
+	if err != nil {
+		return ConversationView{}, err
+	}
+	if needEffort {
+		return ConversationView{}, errChooseEffort
+	}
+	// the copy has fetched the model list, against which the request is
+	// checked again.
+	if err := s.checkModelChoice(harnessName, asked.Model, asked.Effort); err != nil {
+		return ConversationView{}, err
+	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -98,9 +115,9 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 		Mode:      model.ModeLongLived,
 		Runtime:   model.RuntimeNone,
 
-		PermissionMode: permissionMode,
-		Model:          choice.Model,
-		Effort:         choice.Effort,
+		PermissionMode: asked.Mode,
+		Model:          asked.Model,
+		Effort:         asked.Effort,
 	}
 	err = s.update(func(doc *registry.Document) error {
 		doc.Conversations = append(doc.Conversations, conv)
@@ -359,6 +376,15 @@ func (s *Service) beginStartLocked(l *live) error {
 // other starts, resumes and prompts away meanwhile. idle is a start with no
 // prompt following. callers do not hold s.mu.
 func (s *Service) startRuntime(conversationID string, l *live, idle bool, place harness.Place, facts *model.EnvironmentFacts) error {
+	// a conversation from before every one held a concrete request is filled
+	// once, before anything is passed.
+	if err := s.fillAtLaunch(conversationID, place); err != nil {
+		s.mu.Lock()
+		l.busy = false
+		s.failedLaunch(l, err, true)
+		s.mu.Unlock()
+		return err
+	}
 	s.mu.Lock()
 	h, spec, inc, err := s.prepareLaunchLocked(conversationID, l, facts)
 	spec.Idle = idle
@@ -431,6 +457,10 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		s.beginStopLocked(l, &model.Event{Status: model.StatusStopping})
 		return newError(CodeUnavailable, "the service is shutting down")
 	}
+	// a turn's comparison resolves model aliases through the list.
+	if conv, err := s.conversationLocked(conversationID); err == nil {
+		go s.prefetchCatalog(conv.Harness, place)
+	}
 	return nil
 }
 
@@ -469,7 +499,7 @@ func (s *Service) prepareLaunchLocked(conversationID string, l *live, env *model
 	l.session = ""
 	inc := &incarnation{exited: make(chan struct{})}
 	l.inc = inc
-	// the recorded choice goes with every launch, so a release and a resume
+	// the recorded request goes with every launch, so a release and a resume
 	// keep it; a terminal visit never changes it.
 	return h, harness.Spec{Cwd: project.Checkout, NativeID: session, PermissionMode: conv.PermissionMode, Model: conv.Model, Effort: conv.Effort}, inc, nil
 }
@@ -490,7 +520,7 @@ func (s *Service) send(conversationID, text string) error {
 		s.mu.Unlock()
 		return err
 	}
-	l.beginTurn(ev.At)
+	s.beginTurnLocked(l, ev.At)
 	s.changed()
 	rt := l.runtime
 	s.mu.Unlock()

@@ -38,17 +38,18 @@ type Conversation struct {
 	Mode      string
 	Runtime   string // RuntimeNone, RuntimeRunning or RuntimeUnsupervised
 
-	// PermissionMode is the operator's choice of permission mode, passed on
-	// every launch of the conversation. empty is mega's own default: the
-	// mode the operator's native settings name, else the manual mode.
+	// PermissionMode, Model and Effort are what the operator requests for the
+	// conversation, passed on every launch, and to codex on every prompt. a
+	// new conversation copies them once from the harness's settings; after
+	// that only the operator changes them. PermissionMode is empty for a
+	// harness with no permission mode (codex), and Effort for a model that
+	// takes no effort level. a conversation created before every one held
+	// them may still lack one until its one fill (service.fillChoicesLocked).
 	PermissionMode string `dd:",+omitempty"`
-	// Model and Effort are the operator's choice of model and effort level,
-	// passed on every launch, and to codex on every prompt. empty inherits the
-	// harness's own settings.
-	Model     string `dd:",+omitempty"`
-	Effort    string `dd:",+omitempty"`
-	ReadSeq   int64  // reading position
-	OutputSeq int64  // seq of the latest agent output in a completed turn; drives unread
+	Model          string `dd:",+omitempty"`
+	Effort         string `dd:",+omitempty"`
+	ReadSeq        int64  // reading position
+	OutputSeq      int64  // seq of the latest agent output in a completed turn; drives unread
 
 	// LastSeq is the newest event's seq, for replay. it is read from the event
 	// log rather than stored, so appending an event never rewrites the registry.

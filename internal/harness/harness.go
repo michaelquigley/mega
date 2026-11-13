@@ -67,9 +67,11 @@ type Harness interface {
 	// the list came from. it starts no conversation and leaves no session.
 	Models(ctx context.Context, place Place) (Catalog, error)
 
-	// Inherited says what model and effort a launch with no choice gets in
-	// the place, from the operator's own settings, or empty where unknown.
-	Inherited(ctx context.Context, place Place) (model, effort string, err error)
+	// Settings says what the operator's own settings name in the place: the
+	// model, effort and (claude) permission mode, each empty where none is
+	// named. a new conversation copies them once; the harness's settings never
+	// reach a conversation after that.
+	Settings(ctx context.Context, place Place) (model.TurnSettings, error)
 
 	// Check reports whether what the harness runs can be found in find, the
 	// environment mega locates its own programs in (a project's, before its
@@ -293,13 +295,12 @@ type Spec struct {
 	Env      []string
 	Find     []string
 	NativeID string
-	// Model and Effort are the operator's choice; empty passes nothing, so
-	// the harness's own settings apply.
-	Model  string
-	Effort string
-	// PermissionMode is the operator's choice. empty asks the adapter for
-	// mega's default: the mode the operator's native settings name,
-	// inherited by passing none, else the manual mode.
+	// Model, Effort and PermissionMode are what the operator requests for
+	// the conversation, always concrete, and always passed: the harness's own
+	// settings never choose them. Effort is empty only for a model that takes
+	// no effort level, and PermissionMode for a harness with none.
+	Model          string
+	Effort         string
 	PermissionMode string
 	// Idle is a launch with no prompt following it: the operator started the
 	// runtime on its own. an adapter whose harness reports nothing until a

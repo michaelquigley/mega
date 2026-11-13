@@ -24,37 +24,31 @@ type conversationView struct {
 	State      string
 	TurnActive bool
 	// TurnStartedAt is when the turn in flight began; absent when none is.
-	TurnStartedAt  time.Time `dd:",+omitempty"`
-	Attention      string
-	ReadSeq        int64
-	LastSeq        int64
-	OutputSeq      int64
+	TurnStartedAt time.Time `dd:",+omitempty"`
+	Attention     string
+	ReadSeq       int64
+	LastSeq       int64
+	OutputSeq     int64
+	// Model, Version and PermissionMode are what the running harness last
+	// reported; absent with no runtime.
 	Model          string `dd:",+omitempty"`
 	Version        string `dd:",+omitempty"`
 	PermissionMode string `dd:",+omitempty"`
-	// PermissionModeInherited is whether the running mode came from the
-	// operator's settings because mega passed none.
-	PermissionModeInherited bool
-	// PermissionModeRequested is whether the running mode is only the one the
-	// runtime was launched with, not yet reported by the harness.
-	PermissionModeRequested bool `dd:",+omitempty"`
-	// PermissionModeChoice is the recorded choice every launch passes; empty
-	// is mega's default.
-	PermissionModeChoice string
-	// ModelChoice and EffortChoice are the recorded choice every launch (and,
-	// for codex, every prompt) passes; empty inherits.
-	ModelChoice  string `dd:",+omitempty"`
-	EffortChoice string `dd:",+omitempty"`
+	// PermissionModeChoice, ModelChoice and EffortChoice are the request:
+	// what every launch (and, for codex, every prompt) passes. they are
+	// concrete; EffortChoice is empty only for a model that takes no effort
+	// level, and PermissionModeChoice for a harness with no modes.
+	PermissionModeChoice string `dd:",+omitempty"`
+	ModelChoice          string `dd:",+omitempty"`
+	EffortChoice         string `dd:",+omitempty"`
 	// Effort is the effort the harness reported, where it reports one (codex).
 	Effort string `dd:",+omitempty"`
-	// ModelNext and EffortNext are a change asked for while running that the
-	// next prompt carries.
-	ModelNext  string `dd:",+omitempty"`
-	EffortNext string `dd:",+omitempty"`
-	// ModelNextInherit and EffortNextInherit say the next prompt returns that
-	// field to inherit (codex only).
-	ModelNextInherit  bool `dd:",+omitempty"`
-	EffortNextInherit bool `dd:",+omitempty"`
+	// TurnAsked and TurnRan are what the turn in flight asked for and, from
+	// its first output, ran with. a finished turn carries both on its
+	// turn_end event.
+	TurnAsked   *model.TurnSettings `dd:",+omitempty"`
+	TurnRan     *model.TurnSettings `dd:",+omitempty"`
+	TurnDiffers []string            `dd:",+omitempty"`
 	// Background is the work the runtime keeps running outside a turn;
 	// absent when none.
 	Background []*backgroundView `dd:",+omitempty"`
@@ -107,16 +101,13 @@ func newConversationView(conv service.ConversationView) *conversationView {
 		PermissionModeChoice: conv.PermissionMode,
 		ModelChoice:          conv.Model,
 		EffortChoice:         conv.Effort,
-		ModelNext:            conv.ModelNext,
-		EffortNext:           conv.EffortNext,
-		ModelNextInherit:     conv.ModelNextInherit,
-		EffortNextInherit:    conv.EffortNextInherit,
+		TurnAsked:            conv.TurnAsked,
+		TurnRan:              conv.TurnRan,
+		TurnDiffers:          conv.TurnDiffers,
 		Pending:              make([]*requestView, 0, len(conv.Pending)),
 	}
 	if conv.Facts != nil {
 		view.Model, view.Version, view.PermissionMode = conv.Facts.Model, conv.Facts.Version, conv.Facts.PermissionMode
-		view.PermissionModeInherited = conv.Facts.ModeInherited
-		view.PermissionModeRequested = conv.Facts.ModeRequested
 		view.Effort = conv.Facts.Effort
 	}
 	if e := conv.Environment; e != nil {
@@ -162,17 +153,21 @@ type modelOptionView struct {
 	IsDefault     bool
 }
 
-// inheritedView is what a launch with no choice gets in the checkout, where
-// the harness says.
-type inheritedView struct {
-	Model  string `dd:",+omitempty"`
-	Effort string `dd:",+omitempty"`
+// copyView is what a new conversation in the checkout copies from the
+// harness's settings, as the launch dialog preselects it. NeedEffort says
+// the copied model takes an effort level and there is none to copy: the
+// operator chooses one.
+type copyView struct {
+	Model      string `dd:",+omitempty"`
+	Effort     string `dd:",+omitempty"`
+	Mode       string `dd:",+omitempty"`
+	NeedEffort bool   `dd:",+omitempty"`
 }
 
 type modelsView struct {
-	Version   string `dd:",+omitempty"`
-	Models    []*modelOptionView
-	Inherited *inheritedView
+	Version string `dd:",+omitempty"`
+	Models  []*modelOptionView
+	Copy    *copyView
 }
 
 // modeOutcomeView is the harness's answer to a switch: confirmed, refused or
@@ -398,9 +393,9 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view := &modelsView{
-		Version:   list.Version,
-		Models:    make([]*modelOptionView, 0, len(list.Models)),
-		Inherited: &inheritedView{Model: list.InheritedModel, Effort: list.InheritedEffort},
+		Version: list.Version,
+		Models:  make([]*modelOptionView, 0, len(list.Models)),
+		Copy:    &copyView{Model: list.Copy.Model, Effort: list.Copy.Effort, Mode: list.Copy.Mode, NeedEffort: list.NeedEffort},
 	}
 	for _, m := range list.Models {
 		efforts := m.Efforts

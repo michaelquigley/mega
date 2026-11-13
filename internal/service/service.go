@@ -23,9 +23,6 @@ type UntrustedChecker func(checkout string) bool
 // Options are the service's collaborators.
 type Options struct {
 	IsUntrusted UntrustedChecker
-	// InheritedMode returns the claude permission mode the operator's settings
-	// name for a checkout, or empty.
-	InheritedMode func(checkout string, env []string) string
 	// Resolver resolves each project's environment. everything mega starts
 	// in a project's name runs in what it resolves, never in mega's own.
 	Resolver     Resolver
@@ -56,7 +53,6 @@ type Service struct {
 	mu          sync.Mutex
 	reg         *registry.Registry
 	isUntrusted UntrustedChecker
-	inherited   func(checkout string, env []string) string
 	resolver    Resolver
 	base        []string              // the scrubbed base environment, for reading the repository
 	envs        map[string]*envRecord // each project's latest resolution, in memory only
@@ -85,7 +81,6 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 	s := &Service{
 		reg:         reg,
 		isUntrusted: opts.IsUntrusted,
-		inherited:   opts.InheritedMode,
 		logPath:     opts.EventLogPath,
 		harnesses:   make(map[string]harness.Harness),
 		live:        make(map[string]*live),
@@ -101,9 +96,6 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 	if s.resolver == nil {
 		s.resolver = DefaultResolver(os.Environ())
 	}
-	if s.inherited == nil {
-		s.inherited = func(string, []string) string { return "" }
-	}
 	for _, h := range opts.Harnesses {
 		s.harnesses[h.Name()] = h
 	}
@@ -111,6 +103,11 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 		s.closeLogs()
 		return nil, err
 	}
+	// conversations created before every one held a concrete request take
+	// what their logs last reported, once.
+	s.mu.Lock()
+	s.fillChoicesLocked()
+	s.mu.Unlock()
 	s.stopWatch = make(chan struct{})
 	go s.watchEnvFiles(envWatchEvery, s.stopWatch)
 	return s, nil
@@ -320,17 +317,11 @@ func (s *Service) drop(sub *Subscription) {
 }
 
 // applyTrustLocked fills what is read each time a project is read: whether
-// its checkout can be worked in, and, from the operator's claude
-// configuration, the trust notice and the inherited permission mode, as the
-// project's latest resolved environment points claude at it. callers hold s.mu.
+// its checkout can be worked in, and the trust notice from the operator's
+// claude configuration. callers hold s.mu.
 func (s *Service) applyTrustLocked(project *model.Project) {
 	project.CheckoutMissing = checkoutProblem(project.Checkout)
 	project.Untrusted = s.isUntrusted(project.Checkout)
-	var env []string
-	if rec := s.envs[project.ID]; rec != nil && rec.resolved != nil {
-		env = rec.resolved.env
-	}
-	project.InheritedPermissionMode = s.inherited(project.Checkout, env)
 }
 
 func validateCheckout(checkout string) (string, error) {

@@ -23,8 +23,12 @@
 // newer-activity control and the shutdown banner sharing it; the project page
 // and the connecting view centred the same way; and the labels, none on the
 // operator's own prompts, "outside mega" on one from outside, "From outside
-// mega" on its reply. and the MCP servers: the header's summary, in the
-// notice colour while one is not connected, and the list it opens, with each
+// mega" on its reply. and each turn's line: hidden at rest, shown on hover
+// and on focus with nothing moving, staying in the notice colour when the
+// fake reports another model than the one asked for, and none on turns
+// recorded before mega kept it. and the MCP servers: an item in the More menu with the
+// count, a mark on More while a server failed or needs signing in, in view at
+// the bottom, and the list the item opens, with each
 // status, an error, the harness's own place to sign in, tools on expansion,
 // and nothing to change; a sign-in followed; never attention; nothing with no
 // runtime; for claude and for codex. it saves the centred conversation, light
@@ -91,6 +95,7 @@ check((await earlierText()).startsWith(`${tailA.earlier.turns} earlier turns`), 
 check((await page.locator('.events .message.user').count()) === 10, 'ten turns shown')
 await until('A read through the tail', async () => (await convOf(A)).read_seq === tailA.through)
 check(true, `the reading position follows the newest event given: ${tailA.through}`)
+check((await page.locator('.events .turn-end').count()) >= 10 && (await page.locator('.events .turn-line').count()) === 0, 'turns recorded before mega kept what each ran with show no line')
 await t.shot(page, 'tail')
 
 // the column: 960 pixels, in the middle of its pane, and everything in the
@@ -226,28 +231,142 @@ check((await own.locator('.who').count()) === 0 && (await prompts.locator('.who'
 check((await outside.locator('.who').textContent()) === 'outside mega' && (await reply.locator('.who').textContent()) === 'From outside mega', 'a prompt from outside mega reads "outside mega", and its reply "From outside mega"')
 await t.shot(page, 'outside')
 
-// MCP servers: the header's summary and the list it opens, read only and
-// never attention. C, released, has nothing to ask.
-const summary = page.locator('.conversation-head .mcp-summary')
+// each turn's line: what it ran with, hidden at rest, shown while the
+// pointer is over the turn or focus is inside it, in space the turn already
+// has, so nothing moves. a turn that ran with another model than it asked
+// for keeps its line, in the notice colour, naming both. the fake's
+// fallback verb reports another model for one turn.
+const L = (await t.launch(P.id, 'claude', 'echo\nhello', { name: 'turn lines' })).id
+await t.idle(L)
+await page.evaluate((id) => {
+  location.hash = `#/c/${id}`
+}, L)
+const lineOf = (block) => block.locator('.turn-end:not(.pending) .turn-line')
+const firstTurn = page.locator('.events .turn-block').filter({ has: page.locator('.turn-end:not(.pending)') }).first()
+const firstLine = lineOf(firstTurn)
+await firstLine.waitFor({ state: 'attached' })
+const opacity = (loc) => loc.evaluate((e) => getComputedStyle(e).opacity)
+// layout is where every row of the history and the reply box stand.
+const layout = () =>
+  page.evaluate(() =>
+    JSON.stringify([...document.querySelectorAll('.events [data-seq], .events .message, form.reply')].map((e) => {
+      const r = e.getBoundingClientRect()
+      return [Math.round(r.top * 10), Math.round(r.left * 10), Math.round(r.height * 10), Math.round(r.width * 10)]
+    })),
+  )
+// turnShot saves a turn with a margin, since its line overhangs the turn's
+// separator into the gap below.
+const turnShot = async (block, name) => {
+  const b = await block.boundingBox()
+  await page.screenshot({ path: `${t.dir}/shots/${name}.png`, clip: { x: b.x - 8, y: b.y - 8, width: b.width + 16, height: b.height + 16 } })
+}
+const rest = async () => {
+  await page.mouse.move(2, 2)
+  await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur())
+}
+await rest()
+await until('the line hidden at rest', async () => (await opacity(firstLine)) === '0')
+const lineText = await firstLine.textContent()
+check(lineText === 'Ran Fake Opus · medium · ask', `a turn carries one line, hidden at rest: "${lineText}"`)
+const atRest = await layout()
+await turnShot(firstTurn, 'turn-rest')
+await firstTurn.locator('.message.assistant').hover()
+await until('the line shown on hover', async () => (await opacity(firstLine)) === '1')
+check((await layout()) === atRest, 'shown while the pointer is over the turn, and nothing moves')
+await turnShot(firstTurn, 'turn-hover')
+await rest()
+await until('the line hidden again', async () => (await opacity(firstLine)) === '0')
+await firstTurn.locator('.message.assistant .block-copy button').first().focus()
+await until('the line shown on focus', async () => (await opacity(firstLine)) === '1')
+check((await layout()) === atRest, 'shown while focus is inside the turn, and nothing moves')
+await rest()
+const reply2 = page.getByRole('textbox', { name: 'Reply' })
+await reply2.click()
+await reply2.fill('fallback fake-sonnet-1')
+await reply2.press('Control+Enter')
+await until('the fallback turn ended', async () => {
+  const c = await convOf(L)
+  return !c.turn_active && (await page.locator('.events .turn-line.differs').count()) === 1
+}, 30000)
+await rest()
+const differs = page.locator('.events .turn-line.differs')
+const differsStyle = await differs.evaluate((e) => {
+  const s = getComputedStyle(e)
+  const probe = document.createElement('span')
+  probe.style.background = 'var(--notice-bg)'
+  probe.style.borderColor = 'var(--notice-line)'
+  probe.style.borderStyle = 'solid'
+  document.body.append(probe)
+  const want = getComputedStyle(probe)
+  const out = { opacity: s.opacity, bg: s.backgroundColor, border: s.borderTopColor, wantBg: want.backgroundColor, wantBorder: want.borderTopColor }
+  probe.remove()
+  return out
+})
+const differsText = await differs.textContent()
+check(
+  differsStyle.opacity === '1' && differsStyle.bg === differsStyle.wantBg && differsStyle.border === differsStyle.wantBorder,
+  `a turn that ran with another model keeps its line at rest, in the notice colour: ${JSON.stringify(differsStyle)}`,
+)
+check(differsText === 'Ran Fake Sonnet, asked Default · medium · ask', `and names both: "${differsText}"`)
+check((await opacity(firstLine)) === '0', 'while a turn that ran as asked keeps its line hidden')
+await turnShot(page.locator('.events .turn-block').filter({ has: page.locator('.turn-line.differs') }), 'turn-mismatch')
+// the turn in flight shows its line on hover once it has run, in the space
+// its separator will take.
+await reply2.click()
+await reply2.fill('drip 6 400')
+await reply2.press('Control+Enter')
+await rest()
+const pending = page.locator('.events .turn-end.pending .turn-line')
+await until('the turn in flight has run', async () => (await pending.count()) === 1, 30000)
+const flightBefore = await layout()
+await page.locator('.events .turn-block').last().locator('.message.user').hover()
+await until('the in-flight line on hover', async () => (await opacity(pending)) === '1')
+check((await pending.textContent()) === 'Ran Fake Opus · medium · ask' && (await layout()) === flightBefore, `the turn in flight shows what it runs with on hover, and nothing moves: "${await pending.textContent()}"`)
+await t.idle(L)
+await rest()
+await page.evaluate((id) => {
+  location.hash = `#/c/${id}`
+}, C)
+await until('C shown again', async () => (await page.locator('.events .message.assistant', { hasText: 'a reply given in a terminal' }).count()) === 1)
+
+// MCP servers: an item in the control bar's More menu, carrying the count,
+// opens the list; a server that failed or needs signing in also marks the
+// More button. read only, and never attention. C, released, has nothing to
+// ask.
+const more = page.getByRole('button', { name: 'More', exact: true })
+const mcpItem = page.getByRole('menuitem', { name: /MCP server/ })
+const mcpMark = page.locator('.control-bar .more .more-mark')
+const markText = 'An MCP server failed or needs signing in: the More menu lists the servers'
 const dialog = page.locator('dialog[open]')
-check((await summary.textContent()) === 'MCP servers: not running' && !(await summary.getAttribute('class')).includes('notice'), 'a conversation with no runtime says its MCP servers are not running')
-await summary.click()
+const openMcpItem = async (text) => {
+  await more.click()
+  await until(`the MCP item to read "${text}"`, async () => (await mcpItem.getAttribute('aria-label')) === text, 30000)
+}
+check((await page.locator('.conversation-head .mcp-summary').count()) === 0, 'the header no longer carries the MCP servers')
+await openMcpItem('MCP servers: not running')
+check((await mcpMark.count()) === 0, 'a conversation with no runtime: the More menu says its MCP servers are not running, and More carries no mark')
+await mcpItem.click()
 await dialog.waitFor()
 await until('the list read', async () => (await dialog.textContent()).includes('This conversation is not running, so there are no servers to ask.'))
-check(true, 'and its list says so')
+check(true, 'and the list it opens says so')
 await dialog.getByRole('button', { name: 'Close' }).click()
 await until('the list closed', async () => (await dialog.count()) === 0)
 
 // a claude conversation: the fake's fixture connects, notes needs signing
-// in, broken failed. the summary settles once the fixture has connected.
+// in, broken failed. the mark on More is in view at the bottom of the
+// conversation, without scrolling.
 const M = (await t.launch(P.id, 'claude', 'echo\nhello', { name: 'servers' })).id
 await page.evaluate((id) => {
   location.hash = `#/c/${id}`
 }, M)
+await until('the mark on More', async () => (await mcpMark.count()) === 1, 30000)
+const markBox = await mcpMark.boundingBox()
+const viewport = page.viewportSize()
+check((await mcpMark.getAttribute('aria-label')) === markText && markBox.y >= 0 && markBox.y + markBox.height <= viewport.height, `a failed server marks the More button, in view at the bottom: "${await mcpMark.getAttribute('aria-label')}"`)
 const settled = '3 MCP servers, 1 needs sign-in, 1 failed'
-await until('the claude summary', async () => (await summary.textContent()) === settled, 30000)
-check((await summary.getAttribute('class')).includes('notice'), `the summary reads "${settled}", in the notice colour`)
-await summary.click()
+await openMcpItem(settled)
+check(true, `the More menu's item carries the count and says so: "${settled}"`)
+await mcpItem.click()
 await dialog.waitFor()
 await until('the claude list', async () => (await dialog.locator('.mcp-server').count()) === 3)
 const server = (name) => dialog.locator('.mcp-server', { has: page.locator('.mcp-name', { hasText: new RegExp(`^${name}$`) }) })
@@ -262,13 +381,15 @@ check(JSON.stringify(await fixtureTools.locator('code').allTextContents()) === '
 check((await dialog.locator('button').count()) === 1, 'the list is read only: its one control is Close')
 await t.shot(page, 'mcp-claude')
 
-// a sign-in, done in the harness, shows in the summary and the open list.
+// a sign-in, done in the harness, shows in the open list and the menu item;
+// the failed server keeps the mark.
 check((await api('POST', `/api/conversations/${M}/prompt`, { text: 'mcp-sign-in' })).status === 202, 'the fake signs notes in on its next turn')
-await until('the summary after the sign-in', async () => (await summary.textContent()) === '3 MCP servers, 1 failed')
 await until('the open list after the sign-in', async () => (await statusOf('notes')) === 'Connected')
-check(true, 'the summary and the open list follow the change')
 await dialog.getByRole('button', { name: 'Close' }).click()
 await until('the list closed again', async () => (await dialog.count()) === 0)
+await openMcpItem('3 MCP servers, 1 failed')
+check((await mcpMark.count()) === 1, 'the open list and the menu item follow the change, and the failed server keeps the mark')
+await page.keyboard.press('Escape')
 await until('the turn read', async () => !(await convOf(M)).turn_active && (await convOf(M)).attention === 'idle')
 check(!(await workspace()).needs_you.includes(M), 'a failed server is not attention: the conversation is idle and not in needs-you')
 
@@ -278,8 +399,9 @@ const X = (await t.launch(P.id, 'codex', 'hello', { name: 'codex servers' })).id
 await page.evaluate((id) => {
   location.hash = `#/c/${id}`
 }, X)
-await until('the codex summary', async () => (await summary.textContent()) === settled, 30000)
-await summary.click()
+await until('the codex mark', async () => (await mcpMark.count()) === 1, 30000)
+await openMcpItem(settled)
+await mcpItem.click()
 await dialog.waitFor()
 await until('the codex list', async () => (await dialog.locator('.mcp-server').count()) === 3)
 check((await server('docs').locator('.notice').textContent()).includes('codex mcp login docs'), 'a codex server that needs signing in names codex mcp login')
@@ -289,13 +411,15 @@ check((await fixtureTools.first().textContent()) === 'echo Echo the given text b
 await dialog.getByRole('button', { name: 'Close' }).click()
 await until('the codex list closed', async () => (await dialog.count()) === 0)
 
-// released, the servers go with the runtime.
+// released, the servers go with the runtime, and so does the mark.
 await page.evaluate((id) => {
   location.hash = `#/c/${id}`
 }, M)
 await api('POST', `/api/conversations/${M}/release`)
-await until('released: not running', async () => (await summary.textContent()) === 'MCP servers: not running')
-check((await convOf(M)).mcp === undefined, 'released, the summary says not running, and the workspace read carries no servers')
+await until('released', async () => (await convOf(M)).state === 'none' && (await mcpMark.count()) === 0)
+await openMcpItem('MCP servers: not running')
+await page.keyboard.press('Escape')
+check((await convOf(M)).mcp === undefined, 'released, the menu item says not running, the mark goes, and the workspace read carries no servers')
 await page.evaluate((id) => {
   location.hash = `#/c/${id}`
 }, B)

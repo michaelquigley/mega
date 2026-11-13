@@ -27,7 +27,7 @@ type Harness struct {
 	onLaunch   func()
 	onHistory  func()
 	catalog    harness.Catalog
-	inherited  [2]string
+	settings   model.TurnSettings
 	deferred   bool // runtimes take a model change with the next prompt, as codex does
 	modelLists int
 	exitEarly  bool
@@ -39,7 +39,7 @@ type Harness struct {
 	missing      error    // what Check reports, under missingMu
 	historyErr   error    // what History fails with, if set
 	reads        []string // native ids History was asked for, in order
-	// places are where History, Discover, Models and Inherited were asked to
+	// places are where History, Discover, Models and Settings were asked to
 	// run, in order: each checkout with the environment it was given.
 	places []harness.Place
 	// checked are the environments Check was given, under missingMu.
@@ -61,9 +61,28 @@ func (h *Harness) Checked() [][]string {
 }
 
 // New returns a fake harness registered under name.
+// New is a fake harness offering one model, fake-model, which takes the
+// efforts low, medium and high, and settings that name the effort medium, so
+// a new conversation copies a concrete request: fake-model, medium, and
+// claude's manual mode. SetCatalog and SetSettings script others.
 func New(name string) *Harness {
-	return &Harness{name: name, history: make(map[string][]*model.Event), open: make(map[string]map[string]bool)}
+	return &Harness{
+		name:    name,
+		history: make(map[string][]*model.Event),
+		open:    make(map[string]map[string]bool),
+		catalog: harness.Catalog{Version: "fake", Models: []harness.ModelOption{
+			{ID: DefaultModel, DisplayName: "Fake", Efforts: []string{"low", "medium", "high"}, IsDefault: true},
+		}},
+		settings: model.TurnSettings{Effort: DefaultEffort},
+	}
 }
+
+// DefaultModel and DefaultEffort are what a new conversation copies from a
+// fake harness nobody has scripted.
+const (
+	DefaultModel  = "fake-model"
+	DefaultEffort = "medium"
+)
 
 func (h *Harness) Name() string { return h.name }
 
@@ -97,11 +116,12 @@ func (h *Harness) SetCatalog(c harness.Catalog) {
 	h.catalog = c
 }
 
-// SetInherited scripts what Inherited returns.
-func (h *Harness) SetInherited(model, effort string) {
+// SetSettings scripts what Settings returns: the operator's settings a new
+// conversation copies.
+func (h *Harness) SetSettings(settings model.TurnSettings) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.inherited = [2]string{model, effort}
+	h.settings = settings
 }
 
 // DeferModelChanges makes later runtimes take a model change with the next
@@ -152,11 +172,11 @@ func (h *Harness) Check(env []string) error {
 	return h.missing
 }
 
-func (h *Harness) Inherited(_ context.Context, place harness.Place) (string, string, error) {
+func (h *Harness) Settings(_ context.Context, place harness.Place) (model.TurnSettings, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.places = append(h.places, place)
-	return h.inherited[0], h.inherited[1], nil
+	return h.settings, nil
 }
 
 // OnHistory runs fn at the start of every History call, before the history is

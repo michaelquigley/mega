@@ -49,9 +49,9 @@ func TestChosenModeIsRecordedAndPassedOnEveryLaunch(t *testing.T) {
 		t.Errorf("the next launch passed %q", spec.PermissionMode)
 	}
 
-	// no choice is mega's default, resolved by the adapter at launch.
+	// no choice and no settings mode: the manual mode, recorded and passed.
 	plain := r.start("three")
-	if spec := r.fake.Last().Spec; spec.PermissionMode != "" || r.view(plain.ID).PermissionMode != "" {
+	if spec := r.fake.Last().Spec; spec.PermissionMode != model.PermissionModeDefault || r.view(plain.ID).PermissionMode != model.PermissionModeDefault {
 		t.Errorf("no choice: spec %q, recorded %q", spec.PermissionMode, r.view(plain.ID).PermissionMode)
 	}
 }
@@ -114,8 +114,8 @@ func TestSwitchWritesTheChoiceAndShowsOnlyWhatTheRuntimeReports(t *testing.T) {
 	// the live mode is the runtime's report, recorded once, with no event of
 	// the service's own.
 	view := r.view(conv.ID)
-	if view.Facts.PermissionMode != "auto" || view.PermissionMode != "auto" || view.Facts.ModeInherited {
-		t.Errorf("after: live %q, choice %q, inherited %v", view.Facts.PermissionMode, view.PermissionMode, view.Facts.ModeInherited)
+	if view.Facts.PermissionMode != "auto" || view.PermissionMode != "auto" {
+		t.Errorf("after: live %q, choice %q", view.Facts.PermissionMode, view.PermissionMode)
 	}
 	if got := modeEvents(r.events(conv.ID)); !slices.Equal(got, []string{"auto"}) {
 		t.Errorf("mode events = %v", got)
@@ -178,9 +178,8 @@ func TestRefusedSwitchRestoresThePreviousChoice(t *testing.T) {
 	}
 }
 
-// a conversation with no choice keeps none after a refusal: it goes on
-// inheriting, rather than being pinned to the mode it happened to run in.
-func TestRefusedSwitchRestoresNoChoice(t *testing.T) {
+// a refusal puts back the request the conversation was copied with.
+func TestRefusedSwitchRestoresTheCopiedMode(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()
@@ -189,8 +188,8 @@ func TestRefusedSwitchRestoresNoChoice(t *testing.T) {
 	if outcome, err := r.svc.SetPermissionMode(conv.ID, "auto"); err != nil || outcome.Outcome != ModeRefused {
 		t.Fatalf("outcome = %+v, err %v", outcome, err)
 	}
-	if view := r.view(conv.ID); view.PermissionMode != "" {
-		t.Errorf("choice after a refusal = %q, want none", view.PermissionMode)
+	if view := r.view(conv.ID); view.PermissionMode != model.PermissionModeDefault {
+		t.Errorf("choice after a refusal = %q, want the copied default", view.PermissionMode)
 	}
 }
 
@@ -215,13 +214,14 @@ func TestUnconfirmedSwitchLeavesTheLiveModeAsReported(t *testing.T) {
 }
 
 // a report the log cannot record leaves the last confirmed mode on screen, as
-// every unrecorded transition does; nothing switches the harness back.
+// every unrecorded transition does; nothing switches the harness back. the
+// log fails once the request is recorded, while claude is being asked.
 func TestUnrecordedReportKeepsTheLastConfirmedMode(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()
 	startedIn(rt, "default")
-	r.closeLog(conv.ID)
+	rt.OnMode(func() { r.closeLog(conv.ID) })
 	if outcome := r.switchTo(conv.ID, "auto"); outcome != ModeConfirmed {
 		t.Fatalf("outcome = %q", outcome)
 	}
@@ -250,7 +250,9 @@ func TestOneSwitchAtATime(t *testing.T) {
 }
 
 // with no runtime, a choice is stored for the next launch: one registry write,
-// no harness call and no runtime event. the next launch passes it.
+// no harness call, and the operator's gesture recorded as one service-origin
+// mode_requested event, which is no report of what runs and asks nothing of
+// the operator. the next launch passes it.
 func TestChoiceWithoutARuntimeIsStoredForTheNextLaunch(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
@@ -262,6 +264,7 @@ func TestChoiceWithoutARuntimeIsStoredForTheNextLaunch(t *testing.T) {
 	}
 	waitFor(t, "the runtime to exit", rt.Exited)
 	before := len(r.events(conv.ID))
+	attention := r.view(conv.ID).Attention
 	sub := r.svc.Subscribe()
 	defer sub.Close()
 
@@ -272,8 +275,15 @@ func TestChoiceWithoutARuntimeIsStoredForTheNextLaunch(t *testing.T) {
 	if view.PermissionMode != "auto" || view.Facts != nil {
 		t.Errorf("choice %q, live facts %+v", view.PermissionMode, view.Facts)
 	}
-	if evs := r.events(conv.ID); len(evs) != before {
-		t.Errorf("storing a choice recorded %d events", len(evs)-before)
+	evs := r.events(conv.ID)
+	if len(evs) != before+1 {
+		t.Fatalf("storing a choice recorded %d events", len(evs)-before)
+	}
+	if ev := evs[len(evs)-1]; ev.Kind != model.EventRuntime || ev.Status != model.StatusModeRequested || ev.Origin != model.OriginService || ev.Facts == nil || ev.Facts.PermissionMode != "auto" {
+		t.Errorf("recorded %+v", ev)
+	}
+	if got := r.view(conv.ID).Attention; got != attention {
+		t.Errorf("recording the request moved attention from %q to %q", attention, got)
 	}
 	if modes := rt.Modes(); len(modes) != 0 {
 		t.Errorf("a stopped runtime was asked to switch: %v", modes)
@@ -293,6 +303,27 @@ func TestChoiceWithoutARuntimeIsStoredForTheNextLaunch(t *testing.T) {
 	}
 	if spec := r.fake.Last().Spec; spec.PermissionMode != "auto" {
 		t.Errorf("the next launch passed %q", spec.PermissionMode)
+	}
+}
+
+// a stored request the log cannot record is put back and refused: a mode
+// change is never left unrecorded.
+func TestUnrecordableStoredChoiceIsPutBack(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	startedIn(rt, "default")
+	finishTurn(rt, "a-1", "done")
+	if err := r.svc.Release(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the runtime to exit", rt.Exited)
+	r.closeLog(conv.ID)
+	if _, err := r.svc.SetPermissionMode(conv.ID, "auto"); err == nil {
+		t.Fatal("an unrecordable request was stored")
+	}
+	if got := r.view(conv.ID).PermissionMode; got != model.PermissionModeDefault {
+		t.Errorf("the request after the refusal = %q", got)
 	}
 }
 
@@ -323,7 +354,7 @@ func TestChoiceIsRefusedWhileUnsupervised(t *testing.T) {
 	r.restart()
 	_, err := r.svc.SetPermissionMode(conv.ID, "auto")
 	wantCode(t, err, CodeConflict)
-	if view := r.view(conv.ID); view.PermissionMode != "" {
+	if view := r.view(conv.ID); view.PermissionMode != model.PermissionModeDefault {
 		t.Errorf("choice written while unsupervised: %q", view.PermissionMode)
 	}
 	_, err = r.svc.SetPermissionMode("nope", "auto")
@@ -345,5 +376,95 @@ func TestHarnessReportedModeShowsButLeavesTheChoice(t *testing.T) {
 	}
 	if got := modeEvents(r.events(conv.ID)); !slices.Equal(got, []string{"default"}) {
 		t.Errorf("mode events = %v", got)
+	}
+}
+
+// a stored request interrupted between its event and its registry write is
+// applied at the next start from its event, recording nothing more; one the
+// registry already holds changes nothing.
+func TestInterruptedStoredChoiceIsAppliedAtTheNextStart(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	startedIn(rt, "default")
+	finishTurn(rt, "a-1", "done")
+	if err := r.svc.Release(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the runtime to exit", rt.Exited)
+	r.svc.mu.Lock()
+	l, err := r.svc.liveLocked(conv.ID)
+	if err == nil {
+		err = r.svc.record(l, &model.Event{Kind: model.EventRuntime, Status: model.StatusModeRequested, Origin: model.OriginService, Text: "the next launch passes it", Facts: &model.RuntimeFacts{PermissionMode: "plan"}})
+	}
+	r.svc.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(r.events(conv.ID))
+	r.restart()
+	if got := r.view(conv.ID).PermissionMode; got != "plan" {
+		t.Errorf("after the restart the request is %q, want the recorded plan", got)
+	}
+	if n := len(r.events(conv.ID)); n != before {
+		t.Errorf("settling the request recorded %d events", n-before)
+	}
+	r.restart()
+	if got := r.view(conv.ID).PermissionMode; got != "plan" || len(r.events(conv.ID)) != before {
+		t.Errorf("a second start moved it to %q", got)
+	}
+}
+
+// a live switch is recorded as the operator's request before claude is
+// asked, whatever claude answers: a confirmed one is followed by claude's own
+// report, a refused one by the request going back, recorded the same way,
+// and an unconfirmed one stands as recorded.
+func TestLiveSwitchRecordsTheRequestFirst(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	startedIn(rt, "default")
+	trail := func(from int) []string {
+		var out []string
+		for _, ev := range r.events(conv.ID)[from:] {
+			if ev.Kind == model.EventRuntime && (ev.Status == model.StatusModeRequested || ev.Status == model.StatusModeChanged) {
+				out = append(out, ev.Status+":"+ev.Facts.PermissionMode)
+			}
+		}
+		return out
+	}
+	var duringRecorded []string
+	from := len(r.events(conv.ID))
+	rt.OnMode(func() { duringRecorded = trail(from) })
+	if outcome := r.switchTo(conv.ID, "auto"); outcome != ModeConfirmed {
+		t.Fatalf("outcome = %q", outcome)
+	}
+	if !slices.Equal(duringRecorded, []string{"mode_requested:auto"}) {
+		t.Errorf("recorded before claude was asked: %v", duringRecorded)
+	}
+	if got := trail(from); !slices.Equal(got, []string{"mode_requested:auto", "mode_changed:auto"}) {
+		t.Errorf("a confirmed switch recorded %v", got)
+	}
+	rt.OnMode(nil)
+
+	from = len(r.events(conv.ID))
+	rt.FailMode(errors.New("not available"))
+	if outcome, err := r.svc.SetPermissionMode(conv.ID, "plan"); err != nil || outcome.Outcome != ModeRefused {
+		t.Fatalf("refused: %+v, %v", outcome, err)
+	}
+	if got := trail(from); !slices.Equal(got, []string{"mode_requested:plan", "mode_requested:auto"}) {
+		t.Errorf("a refused switch recorded %v", got)
+	}
+	if got := r.view(conv.ID).PermissionMode; got != "auto" {
+		t.Errorf("after the refusal the request is %q", got)
+	}
+
+	from = len(r.events(conv.ID))
+	rt.FailMode(fmt.Errorf("%w: no reply", harness.ErrModeUnconfirmed))
+	if outcome := r.switchTo(conv.ID, "acceptEdits"); outcome != ModeUnconfirmed {
+		t.Fatalf("unconfirmed outcome = %q", outcome)
+	}
+	if got := trail(from); !slices.Equal(got, []string{"mode_requested:acceptEdits"}) || r.view(conv.ID).PermissionMode != "acceptEdits" {
+		t.Errorf("an unconfirmed switch recorded %v", got)
 	}
 }

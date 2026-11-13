@@ -95,13 +95,14 @@ A project with no file gets your shell's own environment in the checkout and not
 - **mega finds its own programs before the activation.** `node`, `git` and the harness binaries come from your shell's environment as it was before the activation ran. An activation can change what an agent's commands see, but never which program mega itself runs.
 - **The approval remembers the names of the variables the activation changed.** If a later start finds it changing a different set, a new `LD_PRELOAD` say, nothing starts until you have looked and approved again. The project page shows the added and removed names, never their values.
 
-mega records which environment each runtime started in by names and a fingerprint, never values. The conversation header says when a running agent started in an older environment than the project's current one. The project page shows the variables the activation changes, and their values only when you ask.
+mega records which environment each runtime started in by names and a fingerprint, never values. The control bar at the foot of a conversation marks a running agent that started in an older environment than the project's current one; the header keeps the fingerprint. The project page shows the variables the activation changes, and their values only when you ask.
 
 ## Safety posture
 
 - **Loopback only.** The listener must be a loopback address. Requests are refused unless their `Host` is loopback and any `Origin` matches it, which keeps out web pages in your own browser as well as the network.
 - **No login.** Anyone who can reach the port on your machine can drive your agents, which is why it never listens anywhere else.
 - **Agents run with your permissions.** Each harness runs as you, in your checkout, with your settings and your permission rules. mega never relaxes a harness's permissions, never sets a trust flag on your behalf, and never approves anything for you: every approval it is asked for waits for your answer.
+- **A conversation's model, effort and permission mode are its own.** A new conversation copies them once from the harness's settings, and mega passes them on every launch; only you change them after that. A bypass mode in your settings is never copied: the conversation starts in the mode that asks. The control bar shows what you request, and each turn's line shows what the harness ran with.
 
 ## More
 
@@ -112,3 +113,5 @@ mega records which environment each runtime started in by names and a fingerprin
 ## License
 
 MIT; see `LICENSE`.
+
+The Claude Code and Codex marks on the control bar say which harness a conversation runs on; they belong to their owners and imply no endorsement.

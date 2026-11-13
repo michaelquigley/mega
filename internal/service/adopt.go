@@ -105,6 +105,20 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 	if name == "" {
 		name = harnessName + " session"
 	}
+	// an adopted conversation's request is copied once from the harness's
+	// settings, as a new conversation's is. claude settings that name no
+	// effort leave it to be chosen on the control bar before the first
+	// launch (errChooseEffort).
+	copyPlace, err := s.placeFor(projectID)
+	if err != nil {
+		return ConversationView{}, err
+	}
+	copyCtx, cancelCopy := context.WithTimeout(context.Background(), modelsTimeout)
+	asked, _, err := s.copyFor(copyCtx, harnessName, copyPlace, model.TurnSettings{})
+	cancelCopy()
+	if err != nil {
+		return ConversationView{}, err
+	}
 
 	s.mu.Lock()
 	if s.closed {
@@ -127,6 +141,10 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 		NativeID:  nativeID,
 		Mode:      model.ModeLongLived,
 		Runtime:   model.RuntimeNone,
+
+		PermissionMode: asked.Mode,
+		Model:          asked.Model,
+		Effort:         asked.Effort,
 	}
 	if err := s.update(func(doc *registry.Document) error {
 		doc.Conversations = append(doc.Conversations, conv)

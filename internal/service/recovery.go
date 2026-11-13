@@ -24,6 +24,7 @@ func (s *Service) recover() error {
 		if err != nil {
 			return err
 		}
+		s.settleModeRequestLocked(conv, l)
 		if err := s.loseUnresolvedLocked(l); err != nil {
 			return err
 		}

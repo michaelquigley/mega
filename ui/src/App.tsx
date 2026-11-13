@@ -549,7 +549,6 @@ export function App() {
       {launching && (
         <LaunchDialog
           projectId={launching}
-          inheritedMode={projects.find((p) => p.id === launching)?.inherited_permission_mode ?? ''}
           unavailable={Object.fromEntries((projects.find((p) => p.id === launching)?.environment?.missing ?? []).map((m) => [m.harness, m.reason]))}
           onClose={() => setLaunching(null)}
           onLaunched={(conversation) => {

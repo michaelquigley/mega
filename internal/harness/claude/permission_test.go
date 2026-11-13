@@ -30,9 +30,9 @@ func writeSettings(t *testing.T, path, mode string) {
 	}
 }
 
-func TestInheritedPermissionModeFollowsClaudesPrecedence(t *testing.T) {
+func TestSettingsModeFollowsClaudesPrecedence(t *testing.T) {
 	h, cwd := settingsHarness(t)
-	if mode := h.InheritedPermissionMode(cwd, os.Environ()); mode != "" {
+	if mode := h.settingsMode(cwd, os.Environ()); mode != "" {
 		t.Fatalf("no settings named a mode, got %q", mode)
 	}
 	layers := []struct{ path, mode string }{
@@ -43,7 +43,7 @@ func TestInheritedPermissionModeFollowsClaudesPrecedence(t *testing.T) {
 	}
 	for _, layer := range layers {
 		writeSettings(t, layer.path, layer.mode)
-		if got := h.InheritedPermissionMode(cwd, os.Environ()); got != layer.mode {
+		if got := h.settingsMode(cwd, os.Environ()); got != layer.mode {
 			t.Errorf("after %s: got %q, want %q", layer.path, got, layer.mode)
 		}
 	}
@@ -71,19 +71,19 @@ func TestNestedCheckoutReadsLocalAtTheRootAndSharedInPlace(t *testing.T) {
 	root, cwd := nestedCheckout(t)
 
 	writeSettings(t, filepath.Join(root, ".claude", "settings.json"), "plan")
-	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "" {
-		t.Errorf("the root's shared settings were inherited from below it: %q", got)
+	if got := h.settingsMode(cwd, os.Environ()); got != "" {
+		t.Errorf("the root's shared settings were read from below it: %q", got)
 	}
 	writeSettings(t, filepath.Join(cwd, ".claude", "settings.json"), "acceptEdits")
-	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "acceptEdits" {
+	if got := h.settingsMode(cwd, os.Environ()); got != "acceptEdits" {
 		t.Errorf("the checkout's own shared settings: %q", got)
 	}
 	writeSettings(t, filepath.Join(cwd, ".claude", "settings.local.json"), "default")
-	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "default" {
+	if got := h.settingsMode(cwd, os.Environ()); got != "default" {
 		t.Errorf("the checkout's own local settings: %q", got)
 	}
 	writeSettings(t, filepath.Join(root, ".claude", "settings.local.json"), "plan")
-	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "plan" {
+	if got := h.settingsMode(cwd, os.Environ()); got != "plan" {
 		t.Errorf("the root's local settings win over the checkout's: %q", got)
 	}
 }
@@ -100,33 +100,33 @@ func TestLocalSettingsStayInPlaceOutsideARepositoryOrInAWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeSettings(t, filepath.Join(root, ".claude", "settings.local.json"), "plan")
-	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "" {
+	if got := h.settingsMode(cwd, os.Environ()); got != "" {
 		t.Errorf("a worktree root's local settings were read from below it: %q", got)
 	}
 	plain := t.TempDir()
 	writeSettings(t, filepath.Join(plain, ".claude", "settings.local.json"), "acceptEdits")
-	if got := h.InheritedPermissionMode(plain, os.Environ()); got != "acceptEdits" {
+	if got := h.settingsMode(plain, os.Environ()); got != "acceptEdits" {
 		t.Errorf("outside a repository: %q", got)
 	}
 }
 
 // claude ignores auto and bypassPermissions from project and local files, so
-// mega does too and passes the manual mode, rather than passing nothing
-// and leaving claude to its own fallback.
-func TestAutoAndBypassFromProjectFilesAreNotInherited(t *testing.T) {
+// mega does too: the settings name no mode, and a new conversation copies
+// the manual one.
+func TestAutoAndBypassFromProjectFilesAreNotRead(t *testing.T) {
 	h, cwd := settingsHarness(t)
 	writeSettings(t, filepath.Join(cwd, ".claude", "settings.local.json"), "auto")
 	writeSettings(t, filepath.Join(cwd, ".claude", "settings.json"), "bypassPermissions")
-	if mode, inherited := h.launchMode(cwd, "", os.Environ()); mode != model.PermissionModeDefault || inherited {
-		t.Errorf("launch mode = %q, inherited %v", mode, inherited)
+	if mode := h.settingsMode(cwd, os.Environ()); mode != "" {
+		t.Errorf("settings mode = %q", mode)
 	}
 	writeSettings(t, filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json"), "auto")
-	if got := h.InheritedPermissionMode(cwd, os.Environ()); got != "auto" {
+	if got := h.settingsMode(cwd, os.Environ()); got != "auto" {
 		t.Errorf("auto from the user's own settings: %q", got)
 	}
 }
 
-func TestUnreadableSettingsLeadToTheManualMode(t *testing.T) {
+func TestUnreadableSettingsNameNoMode(t *testing.T) {
 	h, cwd := settingsHarness(t)
 	path := filepath.Join(cwd, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -135,8 +135,8 @@ func TestUnreadableSettingsLeadToTheManualMode(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"permissions":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if mode, inherited := h.launchMode(cwd, "", os.Environ()); mode != model.PermissionModeDefault || inherited {
-		t.Errorf("launch mode = %q, inherited %v", mode, inherited)
+	if mode := h.settingsMode(cwd, os.Environ()); mode != "" {
+		t.Errorf("settings mode = %q", mode)
 	}
 }
 
@@ -192,20 +192,20 @@ func argValue(args []string, name string) (string, bool) {
 	return "", false
 }
 
-func TestLaunchPassesTheChosenModeOrMegasDefault(t *testing.T) {
+// the requested mode is always passed: the settings never choose it at
+// launch, since a conversation copied them once, at creation. a spec with
+// no mode, which the service never sends, passes the manual one.
+func TestLaunchAlwaysPassesTheRequestedMode(t *testing.T) {
 	h, cwd := settingsHarness(t)
 	if mode, ok := modeArg(launchArgs(t, h, cwd, "auto")); !ok || mode != "auto" {
-		t.Errorf("chosen auto: --permission-mode %q (%v)", mode, ok)
-	}
-	if mode, ok := modeArg(launchArgs(t, h, cwd, "")); !ok || mode != model.PermissionModeDefault {
-		t.Errorf("no choice, no settings: --permission-mode %q (%v)", mode, ok)
+		t.Errorf("requested auto: --permission-mode %q (%v)", mode, ok)
 	}
 	writeSettings(t, filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json"), "acceptEdits")
-	if mode, ok := modeArg(launchArgs(t, h, cwd, "")); ok {
-		t.Errorf("no choice, settings name a mode: passed --permission-mode %q instead of inheriting", mode)
-	}
 	if mode, ok := modeArg(launchArgs(t, h, cwd, "plan")); !ok || mode != "plan" {
-		t.Errorf("a choice wins over the settings: --permission-mode %q (%v)", mode, ok)
+		t.Errorf("the request over the settings: --permission-mode %q (%v)", mode, ok)
+	}
+	if mode, ok := modeArg(launchArgs(t, h, cwd, "")); !ok || mode != model.PermissionModeDefault {
+		t.Errorf("no mode in the spec: --permission-mode %q (%v)", mode, ok)
 	}
 }
 
@@ -253,13 +253,12 @@ func TestSwitchFrameWaitsForTheShimsConfirmation(t *testing.T) {
 
 func TestInitAndRequestsCarryTheMode(t *testing.T) {
 	r, sink, _ := testRuntime()
-	r.inherited = true
 	init := func(mode string) {
 		r.handle([]byte(`{"type":"event","msg":{"type":"system","subtype":"init","session_id":"edfe4ade-9f59-4db3-89bc-75fcc8b52c44","permissionMode":"` + mode + `"}}`))
 	}
 	init("plan")
 	started := sink.events[0]
-	if started.Status != model.StatusStarted || started.Facts.PermissionMode != "plan" || !started.Facts.ModeInherited {
+	if started.Status != model.StatusStarted || started.Facts.PermissionMode != "plan" {
 		t.Fatalf("started = %+v %+v", started, started.Facts)
 	}
 	init("plan") // every turn re-reports init; an unchanged mode is not a change

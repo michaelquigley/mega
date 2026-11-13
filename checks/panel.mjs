@@ -13,10 +13,16 @@
 // focused and with its draft, and saying why; Send and Start disabled with the
 // reason while a shutdown is armed or the checkout is missing, the shutdown's
 // first when both apply; Start on a released conversation, which runs with
-// the mode asked for and no turn; the permission mode switched live, and
-// stored for the next launch when nothing runs; and a model and effort
-// applied, for claude and for codex, shown as the next prompt's until a turn
-// reports them; and the dock keeping the newest content in view as its
+// the mode asked for and no turn; a new conversation's request concrete
+// from creation, for each harness, and the launch dialog preselecting it
+// with no inherit choice; the bar's closed controls showing the request in
+// short values (claude's default mode as ask), the full descriptions in
+// their lists, and no word for where a value came from or when it applies;
+// the permission mode switched live, and stored when nothing runs; a model
+// and effort applied, for claude and for codex, shown on the bar at once
+// while the harness still runs the old ones, with the header keeping
+// identity only; the harness's mark leftmost on the bar,
+// collapsed and open; the bar on one row; and the dock keeping the newest content in view as its
 // height changes while the view follows the bottom (a turn's activity line,
 // a docked request, the reply box growing), never moving a view scrolled up.
 import { renameSync } from 'node:fs'
@@ -41,7 +47,6 @@ const cluster = page.locator('.panel-cluster')
 const box = page.getByRole('textbox', { name: 'Reply' })
 const expanded = async () => (await page.locator('.panel-cluster.expanded').count()) === 1
 const height = async () => Math.round((await box.boundingBox()).height)
-const facts = () => page.locator('.conversation-head .facts').first().textContent()
 const go = (id) =>
   page.evaluate((c) => {
     location.hash = `#/c/${c}`
@@ -180,15 +185,72 @@ await page.reload()
 await until('Start free again', async () => (await start.getAttribute('aria-label')) === 'Start the runtime on this session, sending nothing')
 check(true, 'the checkout back, Start is offered')
 
-// a mode chosen with nothing running is stored for the next launch, with no
-// event.
+// the control bar shows the request and nothing else: each closed control a
+// short value, the full descriptions in its open list, and no word for
+// where a value came from or when it applies. the bar stays one row; the
+// header keeps identity only.
+const bar = page.locator('form.reply .control-bar')
+const oneRow = () =>
+  page.evaluate(() => {
+    const items = [...document.querySelectorAll('form.reply .control-bar > .bar-start > *, form.reply .control-bar > .bar-end > *')].filter((e) => e.getBoundingClientRect().height > 0)
+    const middles = items.map((e) => {
+      const r = e.getBoundingClientRect()
+      return r.top + r.height / 2
+    })
+    return Math.max(...middles) - Math.min(...middles) <= 4
+  })
+const headerText = () => page.locator('.conversation-head').textContent()
+const barShot = (name) => bar.screenshot({ path: `${t.dir}/shots/${name}.png` })
+// shorts reads the closed controls, mode first when there is one.
+const shorts = async () => (await bar.locator('.short-value').allTextContents()).join(' · ')
+// words reads everything the bar says: its text, its options, and every
+// name and title on it.
+const words = () =>
+  bar.evaluate((b) =>
+    [b.textContent, ...[...b.querySelectorAll('[aria-label],[title]')].flatMap((e) => [e.getAttribute('aria-label'), e.getAttribute('title')])].filter(Boolean).join(' | '),
+  )
+const sourceWords = /\b(inherit\w*|requested|next)\b/i
 const mode = page.getByRole('combobox', { name: 'Permission mode' })
-check((await mode.locator('option:checked').textContent()) === 'Not chosen: default', 'a mode never chosen reads "Not chosen: default"')
-const seqBefore = (await convOf(G)).last_seq
+const pickers = page.locator('.model-control select')
+
+// a new conversation's request is concrete from creation, copied once from
+// the settings: claude's scratch settings name an effort only, so it takes
+// the list's default model and the manual mode, which shows as ask.
+for (const id of [C, D, G]) {
+  const c = await convOf(id)
+  check(c.model_choice === 'default' && c.effort_choice === 'medium' && c.permission_mode_choice === 'default', `claude conversation ${id} was created with a concrete request: ${c.model_choice} · ${c.effort_choice} · ${c.permission_mode_choice}`)
+}
+const x = await convOf(X)
+check(x.model_choice === 'fake-large' && x.effort_choice === 'medium' && !x.permission_mode_choice, `the codex conversation was created with its config's model and effort: ${x.model_choice} · ${x.effort_choice}`)
+for (const gone of ['inherited_permission_mode', 'permission_mode_inherited', 'permission_mode_requested', 'model_next', 'effort_next']) {
+  check(!(gone in x) && !(gone in (await convOf(G))) && !(gone in (await t.projectOf(P.id))), `the service sends no ${gone}`)
+}
+
+// a released claude conversation: its closed controls show the request in
+// short values.
+await until('the short values on G', async () => (await shorts()) === 'ask · Default · medium')
+check((await mode.inputValue()) === 'default' && (await mode.locator('option:checked').textContent()) === 'Ask: ask for each approval', 'claude\'s default mode shows as "ask" closed, and is described in full in its list')
+const modelList = await pickers.nth(0).locator('option').allTextContents()
+check(modelList.includes('Default (recommended) · default — Fake Opus') && modelList.includes('Fake Sonnet · fake-sonnet — The middle stand-in.'), `the open model list carries the full names and descriptions: ${modelList.join(' / ')}`)
+check(!sourceWords.test(await words()), `no control or note on the bar says inherit, requested or next: "${await words()}"`)
+check(await oneRow(), 'the control bar is one row')
+
+// a mode chosen with nothing running is stored for the next launch, and the
+// operator's gesture recorded as one event, drawn in the history, asking
+// nothing of the operator; the bar shows the request at once.
+const gBefore = await convOf(G)
 await mode.selectOption('auto')
 await until('the stored choice', async () => (await convOf(G)).permission_mode_choice === 'auto')
-await until('next launch shown', async () => (await facts()).includes('next launch: auto'))
-check((await convOf(G)).last_seq === seqBefore, `with nothing running the mode is stored for the next launch, with no event: "${await facts()}"`)
+await until('auto on the bar', async () => (await shorts()) === 'auto · Default · medium')
+const gAfter = await convOf(G)
+const requested = (await api('GET', `/api/conversations/${G}/events?since=${gBefore.last_seq}`)).body.events
+check(
+  gAfter.last_seq === gBefore.last_seq + 1 && requested.length === 1 && requested[0].status === 'mode_requested' && requested[0].origin === 'service' && requested[0].facts.permission_mode === 'auto',
+  `with nothing running the mode is stored and recorded as one mode_requested event: ${JSON.stringify(requested.map((e) => [e.status, e.origin, e.facts]))}`,
+)
+await until('the request in the history', async () => (await page.locator('.events .system', { hasText: 'Permission mode auto requested: the next launch passes it' }).count()) === 1)
+check(gAfter.attention === gBefore.attention, `the history shows "Permission mode auto requested", and attention stays ${gAfter.attention}`)
+check(!sourceWords.test(await words()) && (await oneRow()), 'still no word for when it applies, on one row')
 
 // Start on a released conversation: it runs with the mode asked for, and no
 // turn.
@@ -196,49 +258,130 @@ await go(D)
 await until('Start offered on D', async () => (await start.isEnabled()))
 await start.click()
 await until('D running', async () => (await convOf(D)).state === 'running')
-await until('the mode it asked for', async () => (await facts()).includes('permissions: default (requested)'))
+await until('the mode it asked for', async () => (await convOf(D)).permission_mode === 'default' && (await mode.inputValue()) === 'default')
 const dNow = await convOf(D)
-check(!dNow.turn_active && (await page.locator('.activity').count()) === 0, `Start runs the runtime, sending nothing: "${await facts()}"`)
+check(!dNow.turn_active && (await page.locator('.activity').count()) === 0, `Start runs the runtime, sending nothing, in the mode asked for: ${dNow.permission_mode}`)
 await page.getByRole('button', { name: 'More' }).click()
 check(await page.getByRole('menuitem', { name: 'Release' }).isEnabled(), 'and Release is offered')
 await page.keyboard.press('Escape')
 await outside()
 
-// the mode switched live: no "requested" and no next launch.
-await mode.selectOption('plan')
-await until('the live mode', async () => (await facts()).includes('permissions: plan') && !(await facts()).includes('requested'))
-check(!(await facts()).includes('next launch'), `a live switch applies at once: "${await facts()}"`)
+// the header keeps identity only: the harness and its version in words, and
+// no model, effort or permission mode, which the control bar shows.
+const headFacts = await page.locator('.conversation-head .facts').first().textContent()
+const head = await headerText()
+check(headFacts === 'Claude Code · vfake' && !head.includes('fake-opus') && !head.includes('effort') && !head.includes('permissions') && !head.includes('long-lived'), `the header names the harness and version in words, and no model, effort or mode: "${headFacts}"`)
 
-// a claude model and effort: the model is the next prompt's until a turn
-// reports it; claude never reports effort, so it shows as requested.
-const pickers = page.locator('.model-control select')
+// the harness's mark, beside the model, collapsed and open.
+const claudeMark = bar.getByRole('img', { name: 'Claude Code' })
+// leftmost: no other item of the bar starts left of the mark.
+const leftmost = (mark) =>
+  mark.evaluate((m) => {
+    const left = m.getBoundingClientRect().left
+    return [...document.querySelectorAll('form.reply .control-bar > .bar-start > *, form.reply .control-bar > .bar-end > *')].every((e) => e === m || e.getBoundingClientRect().left > left)
+  })
+check((await claudeMark.isVisible()) && (await claudeMark.getAttribute('title')) === 'Claude Code' && (await leftmost(claudeMark)), 'a claude conversation shows the Claude Code mark on the bar, by name, leftmost, with the box collapsed')
+await barShot('bar-claude-collapsed')
+await box.click()
+await until('the box open for the mark', expanded)
+check(await claudeMark.isVisible(), 'and with the box open')
+await barShot('bar-claude-open')
+await outside()
+await until('the box shut for the mark', async () => !(await expanded()))
+
+// the mode switched live.
+await mode.selectOption('plan')
+await until('the live mode', async () => (await convOf(D)).permission_mode === 'plan' && (await shorts()) === 'plan · Default · medium')
+check(!sourceWords.test(await words()), 'a live switch shows the request, plan, and says nothing of when it applies')
+// the request is recorded before claude is asked, and once claude confirms,
+// the history draws only claude's report.
+const dEvents = (await api('GET', `/api/conversations/${D}/events?since=0`)).body.events
+const planTrail = dEvents.filter((e) => e.kind === 'runtime' && ['mode_requested', 'mode_changed'].includes(e.status) && e.facts?.permission_mode === 'plan').map((e) => e.status)
+await until('the confirmation in the history', async () => (await page.locator('.events .system', { hasText: /^Permission mode plan/ }).count()) >= 1)
+const planRows = await page.locator('.events .system', { hasText: /^Permission mode plan/ }).allTextContents()
+check(
+  planTrail.join(',') === 'mode_requested,mode_changed' && planRows.length === 1 && !planRows[0].includes('requested'),
+  `the live request is recorded first, and the history shows only claude's confirmation: ${planTrail.join(', ')} / "${planRows.join('", "')}"`,
+)
+
+// a claude model and effort: the bar shows the request as soon as it is
+// made, while claude still runs the old model until the next response.
 await pickers.nth(0).selectOption('fake-sonnet')
 await pickers.nth(1).selectOption('low')
-await page.getByRole('button', { name: /^Apply the model and effort\. Applies from the next response\.$/ }).click()
-await until('the claude change shown', async () => (await facts()).includes('next prompt: fake-sonnet'))
-const claudeAsked = await facts()
-check(claudeAsked.startsWith('claude · fake-opus-1 · effort: low (requested)'), `applied, claude's model waits for the next response and its effort shows as requested: "${claudeAsked}"`)
+await page.getByRole('button', { name: 'Apply the model and effort', exact: true }).click()
+await until('the claude request shown', async () => (await convOf(D)).model_choice === 'fake-sonnet' && (await shorts()) === 'plan · Fake Sonnet · low')
+check((await convOf(D)).model === 'fake-opus-1' && !(await headerText()).includes('fake-sonnet'), `applied, the bar shows the request, Fake Sonnet at low, while claude still reports ${(await convOf(D)).model}`)
+check((await oneRow()) && !sourceWords.test(await words()), 'the control bar stays one row, with no next-send note')
 await box.click()
 await box.fill('echo\nagain')
 await box.press('Control+Enter')
-await until('claude reports the model', async () => (await facts()).startsWith('claude · fake-sonnet-1 · effort: low (requested)') && !(await facts()).includes('next prompt'))
-check(true, `the next response runs it: "${await facts()}"`)
+await until('claude reports the model', async () => (await convOf(D)).model === 'fake-sonnet-1')
+check((await shorts()) === 'plan · Fake Sonnet · low', 'the next response runs it, and the bar still shows the request')
 
-// a codex model and effort: the next prompt's until a turn reports them.
+// a codex conversation: its request in short values, then a change.
 await go(X)
-await until('X shown', async () => (await facts()).startsWith('codex · fake-large · effort: medium'))
-const before = await facts()
+await until('X shown', async () => (await page.locator('.conversation-head .facts').first().textContent()) === 'Codex · vfake')
+check((await convOf(X)).model === 'fake-large' && (await convOf(X)).effort === 'medium', 'a codex conversation runs fake-large at medium')
+await until('the codex shorts', async () => (await shorts()) === 'Fake Large · medium')
+check((await mode.count()) === 0 && !sourceWords.test(await words()) && (await oneRow()), 'a codex bar shows "Fake Large · medium", no mode, and no source or next words, on one row')
+const codexMark = bar.getByRole('img', { name: 'Codex' })
+check((await codexMark.isVisible()) && (await codexMark.getAttribute('title')) === 'Codex' && (await leftmost(codexMark)) && (await bar.getByRole('img', { name: 'Claude Code' }).count()) === 0, 'a codex conversation shows the Codex mark on the bar, by name, leftmost, with the box collapsed')
+await barShot('bar-codex-collapsed')
+await box.click()
+await until('the codex box open', expanded)
+check(await codexMark.isVisible(), 'and with the box open')
+await barShot('bar-codex-open')
+await outside()
 await pickers.nth(0).selectOption('fake-small')
 await pickers.nth(1).selectOption('low')
-await page.getByRole('button', { name: /^Apply the model and effort\. Applies from the next prompt\.$/ }).click()
-await until('the next prompt shown', async () => (await facts()).includes('next prompt: fake-small, effort low'))
-const pending = await facts()
-check(pending.startsWith('codex · fake-large · effort: medium'), `applied, the change waits for the next prompt: "${pending}" (was "${before}")`)
+await page.getByRole('button', { name: 'Apply the model and effort', exact: true }).click()
+await until('the codex request shown', async () => (await convOf(X)).model_choice === 'fake-small' && (await shorts()) === 'Fake Small · low')
+check((await convOf(X)).model === 'fake-large' && (await oneRow()), 'applied, the bar shows the request while codex still runs fake-large, on one row')
 await box.click()
 await box.fill('hello again')
 await box.press('Control+Enter')
-await until('the turn reports them', async () => (await facts()).startsWith('codex · fake-small · effort: low') && !(await facts()).includes('next prompt'), 30000)
-check(true, `the next turn runs them: "${await facts()}"`)
+await until('the turn reports them', async () => (await convOf(X)).model === 'fake-small' && (await convOf(X)).effort === 'low', 30000)
+check(true, 'the next turn runs them')
+
+// the launch dialog offers concrete values only, preselected from the
+// settings as the service copies them, and a launch from it is concrete.
+await page.goto(`${url}/#/p/${P.id}`)
+await page.locator('.section-actions button[aria-label="New conversation"]').click()
+const dialog = page.locator('dialog[open]')
+await dialog.waitFor()
+const field = (name) => dialog.getByRole('combobox', { name })
+await until('the claude copy preselected', async () => (await field('Model').inputValue()) === 'default' && (await field('Effort').inputValue()) === 'medium')
+check((await field('Permission mode').inputValue()) === 'default', 'the dialog preselects the copy for claude: default · medium · default')
+const dialogWords = async () => (await dialog.locator('select').allTextContents()).join(' ') + (await dialog.textContent())
+check(!/\binherit\w*/i.test(await dialogWords()), 'the dialog offers no inherit choice')
+await field('Harness').selectOption('codex')
+await until('the codex copy preselected', async () => (await field('Model').inputValue()) === 'fake-large' && (await field('Effort').inputValue()) === 'medium')
+check((await field('Permission mode').count()) === 0 && !/\binherit\w*/i.test(await dialogWords()), 'for codex: fake-large · medium, no mode, no inherit')
+await dialog.getByRole('textbox', { name: 'Opening prompt' }).fill('hello from the dialog')
+await dialog.getByRole('button', { name: 'Launch' }).click()
+await until('the dialog launched', async () => (await t.workspace()).conversations.some((c) => c.name === 'hello from the dialog'))
+const launched = (await t.workspace()).conversations.find((c) => c.name === 'hello from the dialog')
+check(launched.model_choice === 'fake-large' && launched.effort_choice === 'medium', `a codex conversation launched from the dialog is concrete: ${launched.model_choice} · ${launched.effort_choice}`)
+await until('the dialog conversation idle', async () => !(await convOf(launched.id)).turn_active)
+await go(D)
+// the marks in the dark theme, collapsed and open, for each harness.
+const dark = await t.page({ width: 1280, height: 700, colorScheme: 'dark' })
+for (const [id, label, name] of [
+  [D, 'Claude Code', 'claude'],
+  [X, 'Codex', 'codex'],
+]) {
+  await dark.goto(`${url}/#/c/${id}`)
+  const darkBar = dark.locator('form.reply .control-bar')
+  const mark = darkBar.getByRole('img', { name: label })
+  await mark.waitFor()
+  await darkBar.screenshot({ path: `${t.dir}/shots/bar-${name}-collapsed-dark.png` })
+  await dark.getByRole('textbox', { name: 'Reply' }).click()
+  await until(`the ${name} box open in the dark`, async () => (await dark.locator('.panel-cluster.expanded').count()) === 1)
+  check(await mark.isVisible(), `in the dark theme, the ${label} mark shows, collapsed and open`)
+  await darkBar.screenshot({ path: `${t.dir}/shots/bar-${name}-open-dark.png` })
+  await dark.locator('.conversation-head h1').click()
+}
+await dark.close()
 await t.shot(page, 'panel')
 
 // the dock keeps the newest content in view. while the view follows the

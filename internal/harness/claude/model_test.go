@@ -139,7 +139,7 @@ func TestInitReportsTheModelAndItsChanges(t *testing.T) {
 	}
 }
 
-func TestInheritedReadsTheFirstLayerNamingEach(t *testing.T) {
+func TestSettingsReadsTheFirstLayerNamingEach(t *testing.T) {
 	h, cwd := settingsHarness(t)
 	write := func(path, body string) {
 		t.Helper()
@@ -150,13 +150,14 @@ func TestInheritedReadsTheFirstLayerNamingEach(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if m, e, err := h.Inherited(t.Context(), harness.Place{Cwd: cwd, Env: os.Environ(), Find: os.Environ()}); err != nil || m != "" || e != "" {
-		t.Fatalf("no settings: %q %q %v", m, e, err)
+	place := harness.Place{Cwd: cwd, Env: os.Environ(), Find: os.Environ()}
+	if got, err := h.Settings(t.Context(), place); err != nil || got != (model.TurnSettings{}) {
+		t.Fatalf("no settings: %+v %v", got, err)
 	}
-	write(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json"), `{"model":"opus","effortLevel":"high"}`)
+	write(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json"), `{"model":"opus","effortLevel":"high","permissions":{"defaultMode":"plan"}}`)
 	write(filepath.Join(cwd, ".claude", "settings.json"), `{"model":"sonnet"}`)
-	if m, e, _ := h.Inherited(t.Context(), harness.Place{Cwd: cwd, Env: os.Environ(), Find: os.Environ()}); m != "sonnet" || e != "high" {
-		t.Errorf("project model over user effort: %q %q", m, e)
+	if got, _ := h.Settings(t.Context(), place); got != (model.TurnSettings{Model: "sonnet", Effort: "high", Mode: "plan"}) {
+		t.Errorf("project model over user effort and mode: %+v", got)
 	}
 }
 

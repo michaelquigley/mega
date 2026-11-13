@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
 import { interruptConversation, releaseConversation, removeConversation, resumeConversation, sendPrompt, setModel, setPermissionMode, startRuntime, updateConversation } from '../api'
-import { harnesses } from '../harnesses'
+import { harnessLabel, harnesses } from '../harnesses'
 import type { ConversationLog } from '../log'
 import type { Conversation, Project } from '../types'
 import { describeActivity } from '../activity'
@@ -12,6 +12,10 @@ import { Dialog } from './Dialog'
 import { Icon, IconButton } from './Icon'
 import { CopyButton } from './Copy'
 import { RequestCard } from './RequestCard'
+import { HarnessIcon } from './HarnessIcon'
+import { McpPanel } from './Mcp'
+import { mcpSummaryText, mcpTrouble, mcpTroubleText } from '../mcp'
+import { environmentReason } from '../checkout'
 
 // drafts stay in the browser, per conversation, and never reach the service.
 // they survive collapsing the box, switching conversations and reconnects.
@@ -44,8 +48,10 @@ const maxHeight = () => Math.round(window.innerHeight * 0.6)
 
 const clampHeight = (height: number) => Math.min(Math.max(height, minHeight), maxHeight())
 
+// the words the header used for a runtime started in an older environment.
+const staleEnvironment = 'started in an older environment: the project’s has changed since, and the next start picks it up'
+
 const terminalCommands: Record<string, string> = { claude: 'claude --resume', codex: 'codex resume' }
-const harnessName = (value: string) => harnesses.find((h) => h.value === value)?.label ?? value
 
 interface InputPanelProps {
   conversation: Conversation
@@ -69,7 +75,7 @@ interface InputPanelProps {
   heldBy: string | null
 }
 
-type Open = 'release' | 'rename' | 'remove' | null
+type Open = 'release' | 'rename' | 'remove' | 'mcp' | null
 
 // InputPanel is the conversation's control cluster, pinned to the bottom of
 // the column: the pending requests docked above everything else, the
@@ -284,7 +290,7 @@ export function InputPanel(props: InputPanelProps) {
   const applyModel = (model: string, effort: string) =>
     attempt(async () => {
       const { outcome, message } = await setModel(conversation.id, model, effort)
-      const name = harnessName(conversation.harness)
+      const name = harnessLabel(conversation.harness)
       if (outcome === 'refused') {
         throw new Error(`${name} refused the change: ${message ?? 'no reason given'}`)
       }
@@ -303,6 +309,11 @@ export function InputPanel(props: InputPanelProps) {
     conversation.native_id && terminalCommands[conversation.harness]
       ? `cd ${project.checkout} && ${terminalCommands[conversation.harness]} ${conversation.native_id}`
       : null
+  // the environment is on the bar only when it needs attention: the runtime
+  // started in an older environment than the project's now, or the project's
+  // environment refuses new work. the fingerprint and the names stay in the
+  // header, where they are identity.
+  const environmentNote = conversation.environment_stale ? staleEnvironment : environmentReason(project)
   const docked = [...pending].sort((a, b) => (Date.parse(a.at ?? '') || 0) - (Date.parse(b.at ?? '') || 0))
   // a dialog opened from the menu hands focus back to the More button when it
   // closes, so focus stays in the cluster.
@@ -373,6 +384,8 @@ export function InputPanel(props: InputPanelProps) {
         <PathList search={search} id={listId} />
         <div className="control-bar">
           <div className="bar-start">
+            {/* which harness this conversation runs on, always first. */}
+            <HarnessIcon harness={conversation.harness} />
             <IconButton
               type="submit"
               icon="send"
@@ -390,13 +403,17 @@ export function InputPanel(props: InputPanelProps) {
             {hasRuntime && (active || pending.length > 0) && (
               <IconButton icon="stop" label="Interrupt" disabled={busy} onClick={() => void attempt(() => interruptConversation(conversation.id))} />
             )}
+            {environmentNote && (
+              <span className="bar-mark env-mark" role="img" aria-label={environmentNote} title={environmentNote}>
+                <Icon name="warning_amber" />
+                <span className="word">environment</span>
+              </span>
+            )}
           </div>
           <div className="bar-end">
             {conversation.harness === 'claude' && state !== 'unsupervised' && (
               <ModeControl
-                live={state === 'running' && !!conversation.permission_mode}
-                mode={(state === 'running' && conversation.permission_mode) || conversation.permission_mode_choice}
-                inheritedMode={project.inherited_permission_mode}
+                mode={conversation.permission_mode_choice ?? ''}
                 disabled={busy || stale || settling || (state === 'running' && !conversation.permission_mode)}
                 onChange={switchMode}
               />
@@ -422,8 +439,10 @@ export function InputPanel(props: InputPanelProps) {
               }}
             >
               <IconButton icon="more_vert" label="More" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)} />
+              {mcpTrouble(conversation) && <span className="more-mark" role="img" aria-label={mcpTroubleText} title={mcpTroubleText} />}
               {menu && (
                 <div className="menu" role="menu">
+                  <MenuItem icon="extension" word={mcpSummaryText(conversation)} onClick={() => choose('mcp')} />
                   <MenuItem icon="logout" word="Release" disabled={busy || state !== 'running'} onClick={() => choose('release')} />
                   {canResume && (
                     <MenuItem
@@ -462,6 +481,7 @@ export function InputPanel(props: InputPanelProps) {
         </div>
       </form>
 
+      {open === 'mcp' && <McpPanel conversation={conversation} onClose={() => setOpen(null)} />}
       {open === 'release' && (
         <Dialog title="Release this conversation" onClose={() => setOpen(null)}>
           <p>
@@ -553,7 +573,7 @@ export function InputPanel(props: InputPanelProps) {
   )
 }
 
-function MenuItem({ icon, word, disabled, onClick }: { icon: 'logout' | 'play_arrow' | 'edit' | 'delete'; word: string; disabled?: boolean; onClick: () => void }) {
+function MenuItem({ icon, word, disabled, onClick }: { icon: 'logout' | 'play_arrow' | 'edit' | 'delete' | 'extension'; word: string; disabled?: boolean; onClick: () => void }) {
   return (
     <button type="button" role="menuitem" className="menu-item" title={word} aria-label={word} disabled={disabled} onClick={onClick}>
       <Icon name={icon} />

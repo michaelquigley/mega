@@ -31,15 +31,22 @@ The words mega's documents, cards and interface use, and what each one means her
 - **Attention.** What a conversation asks of the operator, computed by the service and never stored: a pending **request**, **unread** output from a finished turn, **working** while a turn runs, **idle**, an **error**, or **unsupervised**.
 - **Needs you.** The list of conversations with a pending request or unread output, across every project.
 - **Reading position.** How far the operator has read in a conversation. Opening a conversation moves it; it never answers a request.
-- **Mark.** The small shape that shows a conversation's attention, in the side panel, the rail and the needs-you list. A project's mark shows the most urgent state among its conversations.
+- **Mark.** The small shape that shows a conversation's attention, in the side panel, the rail and the needs-you list. A project's mark shows the most urgent state among its conversations. The **harness mark**, a vendor's logo on the control bar saying which harness a conversation runs on, is not attention. Nor are the control bar's environment mark and the dot on More for an MCP server that needs a look.
 
 ## The interface
 
 - **Side panel.** The left column: the needs-you list and the project tree. Collapsed, it is the **rail**.
-- **Conversation view.** The main column: the header, the history, and the input panel.
-- **Input panel.** The reply box and the **control bar** beneath it, where the conversation's controls cluster.
+- **Conversation view.** The main column: the header, the history, and the input panel. The **header** is identity, rarely consulted, and scrolls away with the history: name, label, state, harness and version, the environment's fingerprint and names, checkout and session id.
+- **Input panel.** The reply box and the **control bar** beneath it, where the conversation's controls cluster. The control bar is always in view, so it carries what the operator acts on or needs to notice:
+  - the harness mark;
+  - the **request**: the mode, model and effort, each shown closed as a short value;
+  - an environment that needs attention;
+  - the More menu, with the MCP servers.
 - **Activity line.** The line above the input panel that says what the conversation is doing and for how long.
-- **Permission mode.** How a Claude conversation treats approvals: ask each time, let the classifier decide, and so on. **Inherit** means the harness uses the operator's own settings, for the mode and for model and effort alike.
+- **Request.** What a conversation asks its harness to run with: a model, an effort, and for Claude a permission mode. It is always concrete, copied once from the harness's settings when the conversation is created, and passed on every launch; only the operator changes it after that. The control bar shows the request; there is no inherit.
+- **Turn line.** The compact line on a turn saying what it ran with, as the harness reported it. It shows while the pointer is over the turn or focus is inside it, and stays, in the notice colour, when the turn ran with something other than its request.
+- **Fill.** The one-time, recorded completion of a conversation created before every request was concrete: from what its log last reported, or at its next launch from the settings.
+- **Permission mode.** How a Claude conversation treats approvals: ask each time (Claude's `default`, shown as **ask**), let the classifier decide, and so on.
 
 ## A project's environment
 

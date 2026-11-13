@@ -7,7 +7,7 @@ import { waitingLabel, type Waiting } from '../waiting'
 import { EventList } from './EventList'
 import { IconButton } from './Icon'
 import { InputPanel } from './InputPanel'
-import { McpSummary } from './Mcp'
+import { harnessLabel } from '../harnesses'
 
 interface ConversationViewProps {
   conversation: Conversation
@@ -107,33 +107,16 @@ export function ConversationView(props: ConversationViewProps) {
             {stale ? `${stateLabels[state]} (last known)` : stateLabels[state]}
           </span>
         </div>
-        <p className="facts">
-          {[
-            conversation.harness,
-            conversation.model,
-            effortFact(conversation),
-            conversation.version && `v${conversation.version}`,
-            conversation.mode,
-            conversation.permission_mode && `permissions: ${conversation.permission_mode}${modeQualifier(conversation)}`,
-            // the stored choice is intent for the next launch; shown when there
-            // is no live mode, or apart from it when they differ.
-            conversation.permission_mode_choice &&
-              conversation.permission_mode_choice !== conversation.permission_mode &&
-              `next launch: ${conversation.permission_mode_choice}`,
-            nextPrompt(conversation),
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </p>
-        <p className="facts mcp-line">
-          <McpSummary conversation={conversation} />
-        </p>
+        {/* identity, rarely consulted: the harness and its version in words.
+            what the operator acts on or needs to notice (the model, effort and
+            permission mode, what the next send will do, the MCP servers, an
+            environment that needs attention) is on the control bar, which is
+            always in view. */}
+        <p className="facts">{[harnessLabel(conversation.harness), conversation.version && `v${conversation.version}`].filter(Boolean).join(' · ')}</p>
         {conversation.environment && (
-          <p className={`facts${conversation.environment_stale ? ' env-stale' : ''}`}>
+          <p className="facts">
             environment {conversation.environment.fingerprint}
             {conversation.environment.changed.length > 0 && ` · ${conversation.environment.changed.join(', ')}`}
-            {conversation.environment_stale &&
-              ' · started in an older environment: the project’s has changed since, and the next start picks it up'}
           </p>
         )}
         <p className="facts">
@@ -164,7 +147,21 @@ export function ConversationView(props: ConversationViewProps) {
       {log?.loaded && log.earlier && log.earlier.turns > 0 && (
         <Earlier turns={log.earlier.turns} events={log.earlier.events} loading={loadingEarlier} onEarlier={earlierPage} />
       )}
-      <EventList events={log?.events ?? []} pending={pending} turnActive={active} stale={stale} showNative={showNative} delta={delta} />
+      <EventList
+        events={log?.events ?? []}
+        pending={pending}
+        turnActive={active}
+        stale={stale}
+        showNative={showNative}
+        delta={delta}
+        projectId={project.id}
+        harness={conversation.harness}
+        inFlight={
+          conversation.turn_asked && conversation.turn_ran
+            ? { asked: conversation.turn_asked, ran: conversation.turn_ran, differs: conversation.turn_differs }
+            : undefined
+        }
+      />
       {(log === null || !log.loaded) && <Loading waiting={loading} />}
 
       <InputPanel
@@ -186,44 +183,6 @@ export function ConversationView(props: ConversationViewProps) {
       />
     </article>
   )
-}
-
-// modeQualifier says where the running mode came from: the operator's
-// settings, and whether claude has reported it yet or it is only what the
-// launch asked for.
-function modeQualifier(conversation: Conversation): string {
-  const notes = [conversation.permission_mode_inherited && 'inherited', conversation.permission_mode_requested && 'requested'].filter(Boolean)
-  return notes.length > 0 ? ` (${notes.join(', ')})` : ''
-}
-
-// effortFact is the effort in the header: as codex reports it, or for claude,
-// which never reports it, the level asked for, labelled as such.
-function effortFact(conversation: Conversation): string | undefined {
-  if (conversation.effort) {
-    return `effort: ${conversation.effort}`
-  }
-  if (conversation.harness === 'claude' && conversation.model && conversation.effort_choice) {
-    return `effort: ${conversation.effort_choice} (requested)`
-  }
-  return undefined
-}
-
-// nextPrompt is a model or effort the next prompt carries that the header
-// does not show as running yet: a change asked for while running (claude's
-// effort excepted, shown as requested already), or with no runtime, the
-// stored choice the next launch passes.
-function nextPrompt(conversation: Conversation): string | undefined {
-  const running = !!conversation.model
-  const model = running ? (conversation.model_next_inherit ? 'inherit' : conversation.model_next) : conversation.model_choice
-  const effort = running
-    ? conversation.harness === 'claude'
-      ? undefined
-      : conversation.effort_next_inherit
-        ? 'inherit'
-        : conversation.effort_next
-    : conversation.effort_choice
-  const parts = [model, effort && `effort ${effort}`].filter(Boolean)
-  return parts.length > 0 ? `next prompt: ${parts.join(', ')}` : undefined
 }
 
 // Earlier says how much history lies above what is shown, with the two ways

@@ -71,8 +71,7 @@ type runtime struct {
 	started     map[int]proc               // processes seen under the app-server, for the exit check
 	mcpCalls    []mcpCall                  // MCP tool calls in flight, oldest first, to name the tool an approval is for
 	commands    map[string]*runningCommand // shell commands started and not yet completed, by item id
-	cwd         string                     // the checkout, for reading what inherit means
-	model       string                     // the operator's choice, sent on every turn/start; empty inherits the config's
+	model       string                     // the conversation's model and effort, sent on every turn/start
 	effort      string
 	liveModel   string // the model and effort as codex last reported them
 	liveEffort  string
@@ -127,7 +126,7 @@ func (r *runtime) startTurn(threadID, uuid, body string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 	defer cancel()
 	resp := &turnResponse{}
-	if err := r.conn.call(ctx, "turn/start", r.turnStart(ctx, threadID, uuid, body), resp); err != nil {
+	if err := r.conn.call(ctx, "turn/start", r.turnStart(threadID, uuid, body), resp); err != nil {
 		return err
 	}
 	r.mu.Lock()
@@ -197,7 +196,7 @@ func (r *runtime) answerAsTurn(threadID, uuid, body string, stops int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 	defer cancel()
 	resp := &turnResponse{}
-	if err := r.conn.call(ctx, "turn/start", r.turnStart(ctx, threadID, uuid, body), resp); err != nil {
+	if err := r.conn.call(ctx, "turn/start", r.turnStart(threadID, uuid, body), resp); err != nil {
 		return err
 	}
 	r.mu.Lock()
@@ -246,39 +245,21 @@ func responseFor(req *serverRequest, answer harness.Answer) any {
 	}
 }
 
-// turnStart builds a turn/start carrying the operator's model and effort.
-// codex takes each as an override that persists in the thread, so an
-// unchosen one is sent as the config's current value, read afresh from
-// config/read: inherit then follows the operator's config even on a thread
-// that once had an override. if the config cannot be read, or names none,
-// that field is sent as none.
-func (r *runtime) turnStart(ctx context.Context, threadID, uuid, body string) *turnStartParams {
+// turnStart builds a turn/start carrying the conversation's model and
+// effort. codex takes each as an override that persists in the thread, and
+// sending both on every turn keeps the thread on what the operator requests.
+func (r *runtime) turnStart(threadID, uuid, body string) *turnStartParams {
 	r.mu.Lock()
-	chosenModel, chosenEffort, cwd := r.model, r.effort, r.cwd
-	r.mu.Unlock()
-	if chosenModel == "" || chosenEffort == "" {
-		configModel, configEffort, err := readConfig(ctx, r.conn, cwd)
-		if err != nil {
-			dl.Warnf("reading what thread '%s' inherits: %v", threadID, err)
-		}
-		if chosenModel == "" {
-			chosenModel = configModel
-		}
-		if chosenEffort == "" {
-			chosenEffort = configEffort
-		}
-	}
-	return &turnStartParams{ThreadID: threadID, Input: text(body), ClientUserMessageID: uuid, Model: chosenModel, Effort: chosenEffort}
+	defer r.mu.Unlock()
+	return &turnStartParams{ThreadID: threadID, Input: text(body), ClientUserMessageID: uuid, Model: r.model, Effort: r.effort}
 }
 
-// SetModel stores the operator's choice for the next turn/start, inherit
-// included; nothing is sent until then, so it is always deferred. codex
-// reports the change with thread/settings/updated when that turn starts.
+// SetModel stores the operator's choice for the next turn/start; nothing is
+// sent until then, so it is always deferred. codex reports the change with
+// thread/settings/updated when that turn starts.
 func (r *runtime) SetModel(model, effort string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	// the choice replaces the stored one whole: an empty field is inherit,
-	// sent as the config's current value by every later turn/start.
 	r.model, r.effort = model, effort
 	return true, nil
 }

@@ -61,13 +61,14 @@ type ConversationView struct {
 	Attention   string
 	AttentionAt time.Time
 
-	// ModelNext and EffortNext are a change asked for while running that the
-	// next prompt carries; empty once that turn has ended. ModelNextInherit
-	// and EffortNextInherit say the change is to inherit (codex only).
-	ModelNext         string
-	EffortNext        string
-	ModelNextInherit  bool
-	EffortNextInherit bool
+	// TurnAsked and TurnRan are what the turn in flight asked for and, once
+	// its first output has arrived, ran with; nil when no turn is in flight,
+	// and TurnRan before then. a finished turn carries its own on its
+	// turn_end event. TurnDiffers names where TurnRan is not what was
+	// asked for, as a turn_end's record does.
+	TurnAsked   *model.TurnSettings
+	TurnRan     *model.TurnSettings
+	TurnDiffers []string
 }
 
 // live is the in-memory side of one conversation. the pending set lives here
@@ -91,13 +92,6 @@ type live struct {
 	refused   *model.Event
 	switching bool // a permission mode or model change is waiting on the runtime
 
-	// nextModel and nextEffort are a change asked for while running, shown as
-	// the next prompt's until a turn begun after the change ends. nextSent is
-	// whether such a turn has begun.
-	nextModel  pendingSetting
-	nextEffort pendingSetting
-	nextSent   bool
-
 	// session is a native session this conversation created that the registry
 	// does not hold yet: one a runtime reported, or the last one the log shows
 	// started. the next launch binds it and resumes it; a fresh session starts
@@ -108,6 +102,10 @@ type live struct {
 	// turnStartedAt is when the turn in flight began; zero when none is. it
 	// lives only here, beside turnActive, and is never stored.
 	turnStartedAt time.Time
+	// turnAsked is what the turn in flight asked for, and turnRan what it ran
+	// with, kept at its first output (ranLocked); both go on its turn_end.
+	turnAsked model.TurnSettings
+	turnRan   *model.TurnSettings
 	// background is the work the runtime keeps running outside a turn, as it
 	// last reported it; it goes with the runtime.
 	background []model.BackgroundJob
@@ -318,9 +316,15 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 	}
 	view.Background = slices.Clone(l.background)
 	view.MCPServers, view.MCPReported = cloneMCP(l.mcp), l.mcpReported
-	view.ModelNext, view.EffortNext = l.nextModel.value, l.nextEffort.value
-	view.ModelNextInherit = l.nextModel.set && l.nextModel.value == ""
-	view.EffortNextInherit = l.nextEffort.set && l.nextEffort.value == ""
+	if l.turnActive {
+		asked := l.turnAsked
+		view.TurnAsked = &asked
+		if l.turnRan != nil {
+			ran := *l.turnRan
+			view.TurnRan = &ran
+			view.TurnDiffers = s.differs(conv.Harness, asked, ran)
+		}
+	}
 	view.Pending = make([]model.Request, 0, len(l.pending))
 	view.PendingAt = make(map[string]time.Time, len(l.pending))
 	for _, req := range l.pending {
@@ -508,6 +512,10 @@ func (k *sink) Event(ev *model.Event) {
 		s.harnessModelChanged(l, ev)
 		return
 	}
+	if ev.Kind == model.EventTurnEnd && l.turnActive {
+		// the turn's own record of what it asked for and ran with.
+		ev.Turn = s.turnRecordLocked(l)
+	}
 	if err := s.record(l, ev); err != nil {
 		dl.Errorf("%v", err)
 		return
@@ -518,16 +526,17 @@ func (k *sink) Event(ev *model.Event) {
 		// answer that starts the next turn. output the adapter marks as after
 		// its turn opens none: no turn is coming to end it.
 		if !l.turnActive && !ev.AfterTurn {
-			l.beginTurn(ev.At)
+			s.beginTurnLocked(l, ev.At)
+			s.changed()
+		}
+		if ev.Kind != model.EventUser && l.turnActive && l.turnRan == nil {
+			// the turn's first output: what it runs with is settled.
+			s.ranLocked(l)
 			s.changed()
 		}
 	case model.EventTurnEnd:
 		l.turnActive, l.turnStartedAt = false, time.Time{}
-		if l.nextSent {
-			// a model or effort asked for has had its prompt; from here the
-			// harness's report stands alone.
-			l.nextModel, l.nextEffort, l.nextSent = pendingSetting{}, pendingSetting{}, false
-		}
+		l.turnAsked, l.turnRan = model.TurnSettings{}, nil
 		s.endTurnLocked(l)
 		s.changed()
 	}
@@ -784,9 +793,7 @@ func (k *sink) Exited(err error) {
 	if err := s.transition(l, ev, "", func() {
 		l.turnActive, l.turnStartedAt, l.facts, l.background = false, time.Time{}, nil, nil
 		l.mcp, l.mcpReported = nil, false
-		// a change asked of this runtime dies with it; the next launch
-		// passes the stored choice.
-		l.nextModel, l.nextEffort, l.nextSent = pendingSetting{}, pendingSetting{}, false
+		l.turnAsked, l.turnRan = model.TurnSettings{}, nil
 	}); err != nil {
 		dl.Errorf("the stop of '%s' could not be recorded; it stays recorded running: %v", l.id, err)
 		return
@@ -794,24 +801,6 @@ func (k *sink) Exited(err error) {
 	if err := s.updateConversation(l.id, func(c *model.Conversation) { c.Runtime = model.RuntimeNone }); err != nil {
 		dl.Errorf("recording that '%s' stopped: %v", l.id, err)
 	}
-}
-
-// beginTurn marks a turn in flight from at, the time its first event was
-// recorded (now, if it was not recorded). a model or effort change asked for
-// before it goes with it.
-func (l *live) beginTurn(at time.Time) {
-	if at.IsZero() {
-		at = time.Now().UTC()
-	}
-	l.turnActive, l.turnStartedAt = true, at
-	l.nextSent = true
-}
-
-// pendingSetting is one side of a change asked for while running: set, with
-// the value asked for, which empty means inherit.
-type pendingSetting struct {
-	value string
-	set   bool
 }
 
 // cloneFacts copies runtime facts with nothing mutable shared: the

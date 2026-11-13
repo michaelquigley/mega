@@ -38,19 +38,17 @@ type settingsLayer struct {
 // capability report, 2026-11-09).
 var ignoredInProject = map[string]bool{"auto": true, "bypassPermissions": true}
 
-// InheritedPermissionMode returns the permissions.defaultMode the operator's
-// claude settings name for a session in cwd, as claude 2.1.318 resolves it, or
-// "" when none does. it reads, highest precedence first: managed settings; the
+// settingsMode returns the permissions.defaultMode the operator's claude
+// settings name for a session in cwd, as claude 2.1.318 resolves it, or ""
+// when none does. it reads, highest precedence first: managed settings; the
 // local settings.local.json at the repository root, then the one in cwd; the
 // shared .claude/settings.json in cwd (never the repository root's, which
 // claude does not read for a session below it); then the user's settings.json
 // ($CLAUDE_CONFIG_DIR, else ~/.claude, as env, the project's resolved
-// environment, names them; with none, mega's home). auto and bypassPermissions named in a
-// project or local file are skipped, as claude ignores them there. it only
-// reads. a file that cannot be read is skipped with a warning. every way this
-// can differ from claude ends in mega passing the manual mode, never in
-// passing nothing where claude would find no mode.
-func (h *Harness) InheritedPermissionMode(cwd string, env []string) string {
+// environment, names them; with none, mega's home). auto and bypassPermissions
+// named in a project or local file are skipped, as claude ignores them there.
+// it only reads. a file that cannot be read is skipped with a warning.
+func (h *Harness) settingsMode(cwd string, env []string) string {
 	for _, layer := range h.settingsLayers(cwd, env) {
 		settings := &claudeSettings{}
 		if err := dd.BindJSONFile(settings, layer.path); err != nil {
@@ -68,26 +66,29 @@ func (h *Harness) InheritedPermissionMode(cwd string, env []string) string {
 	return ""
 }
 
-// Inherited says what model and effort level the operator's claude settings
-// give a session in cwd with none chosen: the first layer, in claude's
-// precedence, that names each. per-model effort overrides (modelSettings)
-// and environment variables are not read, so this is what the settings files
-// say at the top level. it only reads.
-func (h *Harness) Inherited(_ context.Context, place harness.Place) (string, string, error) {
-	var model, effort string
+// Settings says what the operator's claude settings name for a session in
+// cwd: the first model, effortLevel and permissions.defaultMode, each from
+// the first layer, in claude's precedence, that names it. per-model effort
+// overrides (modelSettings) and environment variables are not read, so this
+// is what the settings files say at the top level. a new conversation copies
+// it once (service.copyFor), which checks each value against what mega
+// offers. it only reads.
+func (h *Harness) Settings(_ context.Context, place harness.Place) (model.TurnSettings, error) {
+	var settings model.TurnSettings
 	for _, layer := range h.settingsLayers(place.Cwd, place.Env) {
-		settings := &claudeSettings{}
-		if err := dd.BindJSONFile(settings, layer.path); err != nil {
+		file := &claudeSettings{}
+		if err := dd.BindJSONFile(file, layer.path); err != nil {
 			continue
 		}
-		if model == "" {
-			model = settings.Model
+		if settings.Model == "" {
+			settings.Model = file.Model
 		}
-		if effort == "" {
-			effort = settings.EffortLevel
+		if settings.Effort == "" {
+			settings.Effort = file.EffortLevel
 		}
 	}
-	return model, effort, nil
+	settings.Mode = h.settingsMode(place.Cwd, place.Env)
+	return settings, nil
 }
 
 func (h *Harness) settingsLayers(cwd string, env []string) []settingsLayer {
@@ -164,21 +165,6 @@ func ownedByMe(path string) bool {
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	return !ok || int(stat.Uid) == os.Getuid()
-}
-
-// launchMode is the --permission-mode to pass for a chosen mode, and whether
-// passing none leaves the mode to the operator's settings. a chosen mode is
-// passed as it is. no choice is mega's default: inherit what the
-// settings name, else pass the manual mode explicitly, so a claude whose own
-// fallback changes cannot pick a looser mode on mega's behalf.
-func (h *Harness) launchMode(cwd, chosen string, env []string) (mode string, inherited bool) {
-	if chosen != "" {
-		return chosen, false
-	}
-	if h.InheritedPermissionMode(cwd, env) != "" {
-		return "", true
-	}
-	return model.PermissionModeDefault, false
 }
 
 // lookup reads a variable from an environment list.

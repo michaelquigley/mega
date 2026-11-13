@@ -69,7 +69,8 @@ const conversationPath = (id: string) => `/api/conversations/${encodeURIComponen
 // getMcp reads a conversation's MCP servers in full. it is read only.
 export const getMcp = (id: string) => request<ConversationMcp>('GET', `${conversationPath(id)}/mcp`)
 
-// what the operator chose at launch; an empty field inherits.
+// what the operator chose at launch. the launch dialog sends concrete values;
+// a field left empty is copied once from the harness's settings.
 export interface LaunchChoice {
   permissionMode: string
   model: string

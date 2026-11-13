@@ -268,7 +268,7 @@ func TestRemoveConversationOnTheWire(t *testing.T) {
 func TestPermissionModeOnTheWire(t *testing.T) {
 	f := start(t)
 	status, project := f.do(t, http.MethodPost, "/api/projects", createBody("p", f.checkout))
-	if status != http.StatusCreated || project["inherited_permission_mode"] != "" {
+	if _, ok := project["inherited_permission_mode"]; status != http.StatusCreated || ok {
 		t.Fatalf("create project: %d %v", status, project)
 	}
 	path := fmt.Sprintf("/api/projects/%s/conversations", project["id"])
@@ -291,7 +291,10 @@ func TestPermissionModeOnTheWire(t *testing.T) {
 		t.Fatalf("switch: %d %v", status, body)
 	}
 	got := f.conversation(t, id)
-	if got["permission_mode"] != "auto" || got["permission_mode_choice"] != "auto" || got["permission_mode_inherited"] != false {
+	if got["permission_mode"] != "auto" || got["permission_mode_choice"] != "auto" {
+		t.Errorf("after the switch: %v", got)
+	}
+	if _, ok := got["permission_mode_inherited"]; ok {
 		t.Errorf("after the switch: %v", got)
 	}
 }
@@ -302,7 +305,7 @@ func TestModelAndEffortOnTheWire(t *testing.T) {
 		{ID: "default", Resolved: "claude-opus-5-5", DisplayName: "Default", IsDefault: true, Efforts: []string{"low", "high"}},
 		{ID: "haiku", Resolved: "claude-haiku-4-5"},
 	}})
-	f.fake.SetInherited("sonnet", "")
+	f.fake.SetSettings(model.TurnSettings{Model: "haiku", Mode: "auto"})
 	_, project := f.do(t, http.MethodPost, "/api/projects", createBody("p", f.checkout))
 	pid := project["id"].(string)
 
@@ -321,8 +324,11 @@ func TestModelAndEffortOnTheWire(t *testing.T) {
 	if efforts, ok := second["efforts"].([]any); !ok || len(efforts) != 0 {
 		t.Errorf("a model with no effort levels lists %v", second["efforts"])
 	}
-	if inherited, _ := list["inherited"].(map[string]any); inherited["model"] != "sonnet" {
-		t.Errorf("inherited = %v", list["inherited"])
+	if copied, _ := list["copy"].(map[string]any); copied["model"] != "haiku" || copied["mode"] != "auto" || copied["need_effort"] != nil {
+		t.Errorf("copy = %v", list["copy"])
+	}
+	if _, ok := list["inherited"]; ok {
+		t.Errorf("the list still says what inherit means: %v", list["inherited"])
 	}
 	if status, body := f.do(t, http.MethodGet, "/api/projects/"+pid+"/models?harness=pi", ""); status != http.StatusBadRequest {
 		t.Errorf("an unknown harness: %d %v", status, body)
@@ -348,11 +354,42 @@ func TestModelAndEffortOnTheWire(t *testing.T) {
 		t.Fatalf("change: %d %v", status, body)
 	}
 	got := f.conversation(t, id)
-	if got["model"] != "claude-opus-5-5" || got["effort_choice"] != "high" || got["effort_next"] != "high" {
+	if got["model"] != "claude-opus-5-5" || got["effort_choice"] != "high" {
 		t.Errorf("after the change: %v", got)
 	}
-	if _, ok := got["model_next"]; ok {
-		t.Errorf("an unchanged model is pending: %v", got["model_next"])
+	for _, gone := range []string{"model_next", "effort_next", "model_next_inherit", "effort_next_inherit", "permission_mode_requested"} {
+		if _, ok := got[gone]; ok {
+			t.Errorf("%s is still on the wire: %v", gone, got[gone])
+		}
+	}
+
+	// the turn in flight says what it asked for and ran with; a finished
+	// turn carries both on its turn_end. the mode was copied from the
+	// settings, and claude's effort is the one sent.
+	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"})
+	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	if status, body := f.do(t, http.MethodPost, "/api/conversations/"+id+"/prompt", `{"text":"two"}`); status != http.StatusAccepted {
+		t.Fatalf("prompt: %d %v", status, body)
+	}
+	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "working", NativeID: "a-2"})
+	got = f.conversation(t, id)
+	asked, _ := got["turn_asked"].(map[string]any)
+	ran, _ := got["turn_ran"].(map[string]any)
+	if asked["model"] != "default" || asked["effort"] != "high" || asked["mode"] != "auto" || ran["model"] != "claude-opus-5-5" || ran["effort"] != "high" {
+		t.Errorf("in flight: asked %v, ran %v", asked, ran)
+	}
+	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	var turn map[string]any
+	for _, ev := range f.events(t, id, 0) {
+		if ev["kind"] == model.EventTurnEnd {
+			turn, _ = ev["turn"].(map[string]any)
+		}
+	}
+	if turn == nil || turn["asked"].(map[string]any)["model"] != "default" || turn["ran"].(map[string]any)["model"] != "claude-opus-5-5" || turn["differs"] != nil {
+		t.Errorf("turn_end turn = %v", turn)
+	}
+	if got := f.conversation(t, id); got["turn_asked"] != nil || got["turn_ran"] != nil {
+		t.Errorf("after the turn: %v %v", got["turn_asked"], got["turn_ran"])
 	}
 }
 
@@ -441,9 +478,9 @@ func TestStartOnTheWire(t *testing.T) {
 	if next == rt || !next.Spec.Idle || next.Spec.NativeID != rt.NativeID() || len(next.Prompts()) != 0 {
 		t.Fatalf("launched %+v with %d prompts", next.Spec, len(next.Prompts()))
 	}
-	next.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID(), PermissionMode: "default", ModeRequested: true}})
+	next.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID(), PermissionMode: "default"}})
 	conv := f.conversation(t, id)
-	if conv["state"] != "running" || conv["turn_active"] != false || conv["permission_mode"] != "default" || conv["permission_mode_requested"] != true {
+	if conv["state"] != "running" || conv["turn_active"] != false || conv["permission_mode"] != "default" {
 		t.Errorf("after start: %v", conv)
 	}
 	if status, body := f.do(t, http.MethodPost, path+"/start", ""); status != http.StatusConflict || body["code"] != "conflict" {

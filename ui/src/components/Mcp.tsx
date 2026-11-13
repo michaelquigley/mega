@@ -1,31 +1,15 @@
 import { useEffect, useState } from 'react'
 import { getMcp } from '../api'
-import { harnessName, mcpNotice, mcpRunning, mcpStatusLabels, mcpSummaryText, signInHint } from '../mcp'
+import { harnessName, mcpRunning, mcpStatusLabels, signInHint } from '../mcp'
 import type { Conversation, ConversationMcp } from '../types'
 import { Dialog } from './Dialog'
 
-// McpSummary is the conversation's MCP servers in one line of its header, in
-// the notice colour while any is not connected. a press opens the list. it
-// is read only, and never attention.
-export function McpSummary({ conversation }: { conversation: Conversation }) {
-  const [open, setOpen] = useState(false)
-  const text = mcpSummaryText(conversation)
-  const label = `${text}: show the servers and their tools`
-  return (
-    <>
-      <button type="button" className={`mcp-summary${mcpNotice(conversation) ? ' notice' : ''}`} title={label} aria-label={label} onClick={() => setOpen(true)}>
-        {text}
-      </button>
-      {open && <McpPanel conversation={conversation} onClose={() => setOpen(false)} />}
-    </>
-  )
-}
-
-// McpPanel lists the servers, each with its status and its error, and its
-// tools on expansion; a server that needs signing in says where that is
-// done. it reads the list when it opens and again whenever the summary
-// changes while it is open.
-function McpPanel({ conversation, onClose }: { conversation: Conversation; onClose: () => void }) {
+// McpPanel lists the conversation's MCP servers, opened from the More menu on
+// the control bar: each with its status and its error, and its tools on
+// expansion; a server that needs signing in says where that is done. it
+// reads the list when it opens and again whenever the workspace read's
+// summary changes while it is open. it is read only, and never attention.
+export function McpPanel({ conversation, onClose }: { conversation: Conversation; onClose: () => void }) {
   const [read, setRead] = useState<ConversationMcp | null>(null)
   const [error, setError] = useState<string | null>(null)
   const changed = `${conversation.state}:${JSON.stringify(conversation.mcp ?? null)}`

@@ -7,9 +7,6 @@ export interface Project {
   // starred projects form their own group at the top of the tree.
   starred: boolean
   untrusted: boolean
-  // the claude mode the operator's settings name for the checkout, which a
-  // launch with no choice inherits; empty when none does.
-  inherited_permission_mode: string
   // checkout_missing: why the checkout cannot be worked in now ("does not
   // exist", "not a directory", "not readable"), computed on every read;
   // absent when it can.
@@ -141,29 +138,25 @@ export interface Conversation {
   output_seq: number
   model?: string
   version?: string
-  // the running mode, as the runtime last reported or mega last
-  // confirmed it, and whether the operator's settings chose it.
+  // the running mode, as the runtime last reported or mega last confirmed
+  // it.
   permission_mode?: string
-  permission_mode_inherited: boolean
-  // permission_mode_requested: the running mode is only the one the runtime
-  // was launched with; claude reports its mode at a turn's start, and a
-  // runtime started with no prompt has had none.
-  permission_mode_requested?: boolean
-  // the recorded choice every launch passes; empty is mega's default.
-  permission_mode_choice: string
-  // the recorded model and effort every launch (and, for codex, every prompt)
-  // passes; absent inherits the operator's settings.
+  // the request: what every launch (and, for codex, every prompt) passes.
+  // concrete from creation; effort_choice is absent only for a model that
+  // takes no effort level (or, rarely, one still to be chosen), and
+  // permission_mode_choice for codex.
+  permission_mode_choice?: string
   model_choice?: string
   effort_choice?: string
   // the effort the harness reported, where it reports one (codex). claude
   // never does, so its effort is only ever what was requested.
   effort?: string
-  // a change asked for while running that the next prompt carries.
-  model_next?: string
-  effort_next?: string
-  // the next prompt returns that field to inherit (codex only).
-  model_next_inherit?: boolean
-  effort_next_inherit?: boolean
+  // what the turn in flight asked for and, from its first output, ran with,
+  // and where the two differ. a finished turn carries its own on its
+  // turn_end event.
+  turn_asked?: TurnSettings
+  turn_ran?: TurnSettings
+  turn_differs?: string[]
   pending: PendingRequest[]
   // the runtime's background jobs; absent when none, or when there is no
   // runtime to ask (unknown, for an unsupervised conversation).
@@ -215,12 +208,28 @@ export interface ModelOption {
   is_default: boolean
 }
 
-// what a harness offers for a checkout, and what a launch with no choice gets
-// there, where the harness's settings say.
+// what a harness offers for a checkout, and what a new conversation there
+// copies from the harness's settings. need_effort: the copied model takes an
+// effort level and the settings name none, so the operator chooses one.
 export interface Models {
   version?: string
   models: ModelOption[]
-  inherited: { model?: string; effort?: string }
+  copy: { model?: string; effort?: string; mode?: string; need_effort?: boolean }
+}
+
+// a turn's model, effort and (claude) permission mode.
+export interface TurnSettings {
+  model?: string
+  effort?: string
+  mode?: string
+}
+
+// what a turn asked for and what the harness reported it ran with; differs
+// names the fields where they are not the same.
+export interface TurnRecord {
+  asked: TurnSettings
+  ran: TurnSettings
+  differs?: string[]
 }
 
 // About is what the service says of its own build (GET /api/version): what
@@ -302,9 +311,12 @@ export interface ConversationEvent {
   tool?: string
   tool_use_id?: string
   req?: { id: string; kind: string; payload?: RequestPayload | null; outcome?: string }
-  // mode_confirmed: a mode report that only confirms the mode a start with no
-  // prompt requested; recorded, never drawn.
+  // mode_confirmed: a mode report, in older logs, that only confirmed the
+  // mode a start with no prompt requested; recorded, never drawn.
   facts?: { session?: string; model?: string; effort?: string; version?: string; permission_mode?: string; mode_confirmed?: boolean; cwd?: string }
+  // turn: on a turn_end, what the turn asked for and ran with; absent on
+  // turns recorded before mega kept it, and where the harness said nothing.
+  turn?: TurnRecord
   raw?: unknown
 }
 

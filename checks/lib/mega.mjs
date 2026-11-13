@@ -97,6 +97,15 @@ export async function suite(name) {
   // it, so the operator's shell start-up files and Claude settings are never
   // read. its profile puts this node, which the fakes run on, on PATH.
   writeFileSync(join(dir, 'home/.profile'), `export PATH="${dirname(process.execPath)}:$PATH"\n`)
+  // the scratch Claude settings, both where the override points Claude and in
+  // the scratch HOME, name an effort level, as Michael's do: claude's model
+  // list names no default effort, so a new conversation copies this one.
+  // they name no model and no mode, so a new conversation copies the list's
+  // default model and the manual mode.
+  const claudeSettings = JSON.stringify({ effortLevel: 'medium' }) + '\n'
+  writeFileSync(join(dir, 'claudecfg/settings.json'), claudeSettings)
+  mkdirSync(join(dir, 'home/.claude'), { recursive: true })
+  writeFileSync(join(dir, 'home/.claude/settings.json'), claudeSettings)
   const config = join(dir, 'mega.yaml')
   writeFileSync(
     config,

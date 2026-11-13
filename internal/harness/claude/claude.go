@@ -175,12 +175,15 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 	}
 	args := []string{"run", "--cwd", spec.Cwd, "--exec", executable, sessionFlag, nativeID}
-	mode, inherited := h.launchMode(spec.Cwd, spec.PermissionMode, spec.Env)
-	if mode != "" {
-		args = append(args, "--permission-mode", mode)
+	// the conversation's mode, model and effort, always passed. a mode is
+	// always given; were one ever missing, the manual mode is passed, never
+	// nothing, so claude's settings cannot pick a looser one. an effort is
+	// missing only for a model that takes none.
+	mode := spec.PermissionMode
+	if mode == "" {
+		mode = model.PermissionModeDefault
 	}
-	// the operator's choice of model and effort; none chosen passes nothing,
-	// so claude's own settings apply.
+	args = append(args, "--permission-mode", mode)
 	if spec.Model != "" {
 		args = append(args, "--model", spec.Model)
 	}
@@ -197,14 +200,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		// the shim was never started, so no session can exist.
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 	}
-	// the mode the session starts in, as mega asked for it: the one
-	// passed, or the one the operator's settings name when none is. an idle
-	// launch reports it until claude does.
-	launchMode := mode
-	if inherited {
-		launchMode = h.InheritedPermissionMode(spec.Cwd, spec.Env)
-	}
-	r, err := start(cmd, nativeID, sink, inherited, launchMode, spec.Idle)
+	r, err := start(cmd, nativeID, sink, mode, spec.Idle)
 	if err != nil {
 		return nil, err
 	}

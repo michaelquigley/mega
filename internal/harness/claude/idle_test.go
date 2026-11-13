@@ -36,19 +36,18 @@ func modeEvents(evs []*model.Event) []*model.Event {
 }
 
 // ready shows the runtime started with what claude answered and the mode the
-// launch asked for, marked requested, and no session, since claude has
-// reported none; the first turn's init replaces it with
-// claude's report, once, even when it is the same mode.
-func TestReadyStartsTheRuntimeWithTheRequestedMode(t *testing.T) {
+// launch passed, and no session, since claude has reported none; a first
+// turn's init in the same mode reports no change.
+func TestReadyStartsTheRuntimeWithTheLaunchedMode(t *testing.T) {
 	r, sink, _ := testRuntime()
-	r.launchMode, r.inherited = "acceptEdits", true
+	r.launchMode = "acceptEdits"
 	r.handle([]byte(`{"type":"ready","version":"2.1.318","model":"claude-opus-5-5"}`))
 	if len(sink.events) != 1 {
 		t.Fatalf("events = %v", summary(sink.events))
 	}
 	started := sink.events[0]
 	f := started.Facts
-	if started.Status != model.StatusStarted || f.Session != "" || f.Version != "2.1.318" || f.Model != "claude-opus-5-5" || f.PermissionMode != "acceptEdits" || !f.ModeInherited || !f.ModeRequested {
+	if started.Status != model.StatusStarted || f.Session != "" || f.Version != "2.1.318" || f.Model != "claude-opus-5-5" || f.PermissionMode != "acceptEdits" {
 		t.Fatalf("started = %+v %+v", started, f)
 	}
 	// a second ready, or init at the first turn, starts nothing again.
@@ -63,40 +62,44 @@ func TestReadyStartsTheRuntimeWithTheRequestedMode(t *testing.T) {
 			t.Errorf("started twice: %+v", ev)
 		}
 	}
-	reports := modeEvents(sink.events)
-	if len(reports) != 1 || reports[0].Facts.PermissionMode != "acceptEdits" || !reports[0].Facts.ModeInherited || reports[0].Facts.ModeRequested || !reports[0].Facts.ModeConfirmed {
+	if reports := modeEvents(sink.events); len(reports) != 0 {
 		t.Fatalf("reports = %+v", reports)
 	}
 }
 
-// a first turn reporting another mode than the one requested is a change,
-// no longer inherited.
+// a first turn reporting another mode than the one launched is a change.
 func TestFirstInitAfterReadyReportsADifferentMode(t *testing.T) {
 	r, sink, _ := testRuntime()
-	r.launchMode, r.inherited = "default", true
+	r.launchMode = "default"
 	r.handle([]byte(`{"type":"ready","version":"2.1.318","model":"m"}`))
 	r.handle([]byte(`{"type":"event","msg":{"type":"system","subtype":"init","session_id":"edfe4ade-9f59-4db3-89bc-75fcc8b52c44","permissionMode":"plan","model":"m"}}`))
 	reports := modeEvents(sink.events)
-	if len(reports) != 1 || reports[0].Facts.PermissionMode != "plan" || reports[0].Facts.ModeInherited || reports[0].Facts.ModeConfirmed {
+	if len(reports) != 1 || reports[0].Facts.PermissionMode != "plan" || reports[0].Facts.ModeConfirmed {
 		t.Fatalf("reports = %+v", reports)
 	}
 }
 
-// a switch confirmed before any turn is a report: it replaces the requested
-// mode even when it names the same one.
-func TestSwitchBeforeAnyTurnReplacesTheRequestedMode(t *testing.T) {
+// a switch confirmed before any turn is reported, and a switch to the mode
+// already in effect is not.
+func TestSwitchBeforeAnyTurnIsReported(t *testing.T) {
 	r, sink, _ := testRuntime()
 	r.launchMode = "default"
 	r.handle([]byte(`{"type":"ready","version":"2.1.318","model":"m"}`))
 	if err := switchWith(r, "default", `{"type":"permission_mode_set","id":"mode-1","mode":"default"}`); err != nil {
 		t.Fatal(err)
 	}
+	if reports := modeEvents(sink.events); len(reports) != 0 {
+		t.Fatalf("a switch to the launched mode reported %+v", reports)
+	}
+	if err := switchWith(r, "plan", `{"type":"permission_mode_set","id":"mode-2","mode":"plan"}`); err != nil {
+		t.Fatal(err)
+	}
 	reports := modeEvents(sink.events)
-	if len(reports) != 1 || reports[0].Facts.PermissionMode != "default" {
+	if len(reports) != 1 || reports[0].Facts.PermissionMode != "plan" {
 		t.Fatalf("reports = %+v", reports)
 	}
 	// claude's init at the first turn, the same mode: no further report.
-	r.handle([]byte(`{"type":"event","msg":{"type":"system","subtype":"init","session_id":"edfe4ade-9f59-4db3-89bc-75fcc8b52c44","permissionMode":"default","model":"m"}}`))
+	r.handle([]byte(`{"type":"event","msg":{"type":"system","subtype":"init","session_id":"edfe4ade-9f59-4db3-89bc-75fcc8b52c44","permissionMode":"plan","model":"m"}}`))
 	if n := len(modeEvents(sink.events)); n != 1 {
 		t.Errorf("reports after init = %d", n)
 	}
@@ -108,7 +111,7 @@ func TestPromptedLaunchStartsFromInit(t *testing.T) {
 	r, sink, _ := testRuntime()
 	r.launchMode = "default"
 	r.handle([]byte(`{"type":"event","msg":{"type":"system","subtype":"init","session_id":"edfe4ade-9f59-4db3-89bc-75fcc8b52c44","permissionMode":"default","model":"m"}}`))
-	if f := sink.events[0].Facts; sink.events[0].Status != model.StatusStarted || f.ModeRequested || f.PermissionMode != "default" {
+	if f := sink.events[0].Facts; sink.events[0].Status != model.StatusStarted || f.PermissionMode != "default" {
 		t.Fatalf("started = %+v", f)
 	}
 	if n := len(modeEvents(sink.events)); n != 0 {

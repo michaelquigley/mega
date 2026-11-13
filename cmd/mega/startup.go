@@ -100,10 +100,9 @@ func start(cfg *config.Config) (*instance, error) {
 	}
 	claudeHarness := claude.New(claude.Config{Node: cfg.Claude.Node, Shim: cfg.Claude.Shim, Executable: cfg.Claude.Executable})
 	svc, err := service.New(reg, service.Options{
-		IsUntrusted:   untrustedChecker(),
-		InheritedMode: claudeHarness.InheritedPermissionMode,
-		EventLogPath:  cfg.EventLogPath,
-		Resolver:      resolver,
+		IsUntrusted:  untrustedChecker(),
+		EventLogPath: cfg.EventLogPath,
+		Resolver:     resolver,
 		Harnesses: []harness.Harness{
 			claudeHarness,
 			codex.New(codex.Config{Binary: cfg.Codex.Binary}),

@@ -68,17 +68,9 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 	}
 	// thread/start and thread/resume take a model but no effort (0.166.0
-	// schema); an unchosen model is sent as the config's, so a resumed thread
-	// that once had an override returns to the config. the effort goes with
+	// schema): the conversation's model goes with them, and its effort with
 	// every turn/start.
 	threadModel := spec.Model
-	if threadModel == "" {
-		configModel, _, err := readConfig(ctx, c, spec.Cwd)
-		if err != nil {
-			dl.Warnf("reading what a thread in '%s' inherits: %v", spec.Cwd, err)
-		}
-		threadModel = configModel
-	}
 	if spec.NativeID == "" {
 		err = c.call(ctx, "thread/start", &threadStartParams{Cwd: spec.Cwd, Model: threadModel}, started)
 		var refused *replyError
@@ -102,7 +94,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	}
 	r.mu.Lock()
 	r.threadID = started.Thread.ID
-	r.cwd, r.model, r.effort = spec.Cwd, spec.Model, spec.Effort
+	r.model, r.effort = spec.Model, spec.Effort
 	r.liveModel, r.liveEffort = started.Model, started.ReasoningEffort
 	r.mu.Unlock()
 	sink.Event(&model.Event{
@@ -235,20 +227,24 @@ func (h *Harness) Models(ctx context.Context, place harness.Place) (harness.Cata
 	return catalog, nil
 }
 
-// Inherited says what model and effort a thread with none chosen gets in
-// cwd: codex's own effective config for the checkout, project layers
-// included, from config/read (capability report, 0.166.0). it only reads.
-func (h *Harness) Inherited(ctx context.Context, place harness.Place) (string, string, error) {
-	cwd := place.Cwd
+// Settings says what model and effort codex's own effective config gives a
+// thread in cwd, project layers included, from config/read (capability
+// report, 0.166.0): what a new conversation copies once. codex has no
+// permission mode. it only reads.
+func (h *Harness) Settings(ctx context.Context, place harness.Place) (model.TurnSettings, error) {
 	c, err := dial(h.cfg.Binary, place, quiet{})
 	if err != nil {
-		return "", "", err
+		return model.TurnSettings{}, err
 	}
 	defer shutDown(c)
 	if err := c.initialize(ctx); err != nil {
-		return "", "", err
+		return model.TurnSettings{}, err
 	}
-	return readConfig(ctx, c, cwd)
+	configModel, configEffort, err := readConfig(ctx, c, place.Cwd)
+	if err != nil {
+		return model.TurnSettings{}, err
+	}
+	return model.TurnSettings{Model: configModel, Effort: configEffort}, nil
 }
 
 // readConfig reads the model and effort codex's effective config gives cwd,

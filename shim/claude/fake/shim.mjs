@@ -37,6 +37,10 @@
 //                    interrupted, which ends it as any interrupt does
 //   mcp-sign-in      one assistant message, "signed in": the notes MCP
 //                    server is connected from this turn's system/init on
+//   fallback MODEL   this turn's system/init reports MODEL, a resolved id,
+//                    in place of the model requested, as claude falling back
+//                    to another model would; one assistant message, "ok".
+//                    the next turn reports the requested model again
 //   anything else    one assistant message, "ok"
 //
 // mcp_status answers with three MCP servers, shaped as claude code 2.1.318's
@@ -202,7 +206,7 @@ const mcpServers = () => [
   { name: 'broken', status: 'failed', error: 'spawn /nonexistent/mcp-server ENOENT', transport: 'stdio', scope: 'user', source: 'user' },
 ]
 
-const init = () =>
+const init = (model = current) =>
   out({
     type: 'event',
     msg: {
@@ -210,7 +214,7 @@ const init = () =>
       subtype: 'init',
       uuid: randomUUID(),
       session_id: session,
-      model: current,
+      model,
       claude_code_version: 'fake',
       permissionMode: mode,
       cwd,
@@ -332,7 +336,7 @@ lines.on('line', (line) => {
       appendFileSync(join(store, 'sessions.jsonl'), JSON.stringify({ id: session, cwd, first, at: Date.now() }) + '\n')
     }
     if (frame.text.startsWith('mcp-sign-in')) notesSignedIn = true
-    init()
+    init(frame.text.match(/^fallback\s+(\S+)/)?.[1])
     keep({ type: 'user', uuid: frame.uuid, session_id: session, parent_tool_use_id: null, message: { role: 'user', content: frame.text } })
     void turn(frame.text)
   } else if (frame.type === 'set_permission_mode') {
