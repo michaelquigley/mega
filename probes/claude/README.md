@@ -84,3 +84,13 @@ Fixture repository used: `/home/michael/Repos/q/research/roundhouse-fixtures/cla
 ## Moved store (2026-11-11)
 
 `moved-store.mjs --cwd NEWPATH --session UUID --log logs/x.jsonl` checks a session after its checkout was copied to `NEWPATH` and a copy of its store directory was moved to the name `NEWPATH` maps to; the caller does both. It reads the session back through `listSessions` and `getSessionMessages` from `NEWPATH`, then resumes it by id with one prompt asking for its earlier replies. It records the answering session, the reply, and where the transcript grew.
+
+## MCP status (2026-11-12)
+
+`mcp-status.mjs --cwd DIR --log logs/x.jsonl [--mcp SCRIPT] [--kill] [--add-broken] [--prompt] [--exec PATH]` starts a fresh session with streaming input and no prompt. It polls `mcpServerStatus()` at 0 to 12 s, recording each answer and every stream message meanwhile. It never toggles, reconnects or authenticates a server, and writes no settings.
+- `--mcp` passes a stdio MCP server for this query only, named `fixture`.
+- `--kill` then kills that server's process, found below the probe itself, and polls again.
+- `--add-broken` calls `setMcpServers` with the fixture and a server whose command does not exist.
+- `--prompt` sends one short prompt last, to record `system/init`.
+
+The summary names only `fixture`, and counts the operator's own servers by status and scope. Run it with `CLAUDE_CONFIG_DIR` set to a scratch directory to see an untrusted checkout without writing the operator's config.

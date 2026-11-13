@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -41,6 +43,7 @@ type shimFrame struct {
 	Error          string `dd:",+nullable"`
 	Version        string `dd:",+nullable"`
 	Model          string `dd:",+nullable"`
+	Servers        any    `dd:",+opaque,+nullable"`
 }
 
 // command frames sent to the shim.
@@ -86,6 +89,21 @@ type modeFrame struct {
 	Mode string
 }
 
+// mcpFrame asks the shim for mcpServerStatus().
+type mcpFrame struct {
+	Type string
+	ID   string
+}
+
+// claude announces no change to its MCP servers on the stream, and reports
+// one that is still connecting as pending (capability report, 2026-11-12). so
+// the adapter asks as the runtime starts, again every mcpSettle while any
+// server is connecting (up to mcpSettleTries in a row), and again whenever a
+// turn's system/init reports other statuses than the last answer did.
+var mcpSettle = time.Second
+
+const mcpSettleTries = 60
+
 // modeTimeout bounds the wait for the shim to confirm a mode switch, which the
 // sdk answers at once (capability report, 2.1.318).
 var modeTimeout = 30 * time.Second
@@ -124,6 +142,14 @@ type runtime struct {
 	interrupted bool   // an interrupt was sent during the current turn
 	gone        bool   // the shim's output has ended
 	failure     string // the shim's last error frame
+	// the MCP servers: an ask in flight, another wanted after it, the asks
+	// so far, the statuses claude gave in its last answer (its own words, by
+	// name), and how many asks in a row found a server still connecting.
+	mcpAsking   bool
+	mcpAgain    bool
+	mcpNext     int
+	mcpStatuses map[string]string
+	mcpSettles  int
 }
 
 // errExited fails an answer whose runtime ended before the shim confirmed it.
@@ -489,6 +515,9 @@ func (r *runtime) handle(line []byte) {
 		waiting.done <- nil
 	case "ready":
 		r.ready(frame)
+		r.askMCP()
+	case "mcp_status":
+		r.mcpAnswered(frame)
 	case "interrupted", "exit":
 	default:
 		dl.Debugf("unknown frame '%s' from claude shim for '%s'", frame.Type, r.nativeID)
@@ -562,6 +591,16 @@ func (r *runtime) event(raw map[string]any) {
 		return
 	}
 	if msg.Type == "system" && msg.Subtype == "init" {
+		// a turn's init lists every MCP server with its status: the first
+		// asks for the servers in full, and so does one whose statuses
+		// differ from the last answer.
+		statuses := initMCPStatuses(raw)
+		r.mu.Lock()
+		askMCP := !r.started || !maps.Equal(statuses, r.mcpStatuses)
+		r.mu.Unlock()
+		if askMCP {
+			r.askMCP()
+		}
 		r.mu.Lock()
 		first := !r.started
 		r.started = true
@@ -714,4 +753,138 @@ func (r *runtime) backgroundChanged(raw map[string]any) {
 	r.backgroundSeen = seen
 	r.mu.Unlock()
 	r.sink.Background(jobs)
+}
+
+// askMCP asks the shim for the servers. one ask is in flight at a time; one
+// wanted meanwhile follows it.
+func (r *runtime) askMCP() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.askMCPLocked()
+}
+
+// askMCPLocked is askMCP for callers holding r.mu.
+func (r *runtime) askMCPLocked() {
+	if r.gone {
+		return
+	}
+	if r.mcpAsking {
+		r.mcpAgain = true
+		return
+	}
+	r.mcpNext++
+	if err := r.send(&mcpFrame{Type: "mcp_status", ID: fmt.Sprintf("mcp-%d", r.mcpNext)}); err != nil {
+		dl.Warnf("asking claude shim for '%s' for its MCP servers: %v", r.nativeID, err)
+		return
+	}
+	r.mcpAsking = true
+}
+
+// mcpAnswered reports claude's answer as the whole list, and asks again while
+// a server is still connecting.
+func (r *runtime) mcpAnswered(frame *shimFrame) {
+	r.mu.Lock()
+	r.mcpAsking = false
+	again := r.mcpAgain
+	r.mcpAgain = false
+	if frame.Error != "" {
+		dl.Warnf("claude shim for '%s' could not report its MCP servers: %s", r.nativeID, frame.Error)
+		if again {
+			r.askMCPLocked()
+		}
+		r.mu.Unlock()
+		return
+	}
+	servers, statuses := claudeMCP(frame.Servers)
+	r.mcpStatuses = statuses
+	connecting := slices.ContainsFunc(servers, func(s model.MCPServer) bool { return s.Status == model.MCPConnecting })
+	settle := false
+	if connecting && r.mcpSettles < mcpSettleTries {
+		r.mcpSettles++
+		settle = !again
+	} else if !connecting {
+		r.mcpSettles = 0
+	}
+	if again {
+		r.askMCPLocked()
+	}
+	r.mu.Unlock()
+	r.sink.MCPServers(servers)
+	if settle {
+		time.AfterFunc(mcpSettle, r.askMCP)
+	}
+}
+
+// claudeStatuses maps claude's server statuses to mega's.
+var claudeStatuses = map[string]string{
+	"connected":  model.MCPConnected,
+	"pending":    model.MCPConnecting,
+	"failed":     model.MCPFailed,
+	"needs-auth": model.MCPNeedsSignIn,
+	"disabled":   model.MCPDisabled,
+}
+
+// claudeMCP reads an mcpServerStatus() answer: each server's name, status,
+// error and tools. claude code 2.1.318 gives a tool's name but no description
+// (capability report, 2026-11-12); one that does is shown. the statuses in
+// claude's own words come back too, by name, to compare with a turn's init.
+func claudeMCP(raw any) ([]model.MCPServer, map[string]string) {
+	list, _ := raw.([]any)
+	servers := make([]model.MCPServer, 0, len(list))
+	statuses := make(map[string]string, len(list))
+	for _, entry := range list {
+		s, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := s["name"].(string)
+		if name == "" {
+			continue
+		}
+		native, _ := s["status"].(string)
+		statuses[name] = native
+		server := model.MCPServer{Name: name}
+		server.Error, _ = s["error"].(string)
+		if status, ok := claudeStatuses[native]; ok {
+			server.Status = status
+		} else {
+			server.Status = model.MCPFailed
+			if server.Error == "" {
+				server.Error = fmt.Sprintf("claude reported the status '%s'", native)
+			}
+		}
+		tools, _ := s["tools"].([]any)
+		for _, t := range tools {
+			tool, ok := t.(map[string]any)
+			if !ok {
+				continue
+			}
+			toolName, _ := tool["name"].(string)
+			if toolName == "" {
+				continue
+			}
+			description, _ := tool["description"].(string)
+			server.Tools = append(server.Tools, model.MCPTool{Name: toolName, Description: harness.FirstLine(description)})
+		}
+		servers = append(servers, server)
+	}
+	harness.SortMCP(servers)
+	return servers, statuses
+}
+
+// initMCPStatuses is the statuses a system/init gives its MCP servers, in
+// claude's own words, by name.
+func initMCPStatuses(raw map[string]any) map[string]string {
+	list, _ := raw["mcp_servers"].([]any)
+	statuses := make(map[string]string, len(list))
+	for _, entry := range list {
+		s, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, _ := s["name"].(string); name != "" {
+			statuses[name], _ = s["status"].(string)
+		}
+	}
+	return statuses
 }

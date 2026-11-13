@@ -19,6 +19,8 @@
 //   {"type":"permission_mode_set","id":...,"mode":...,"error":...}  it did not
 //   {"type":"model_set","id":...,"model":...[,"error":...]}
 //   {"type":"effort_set","id":...,"effort":...[,"error":...]}
+//   {"type":"mcp_status","id":...,"servers":[...]}  mcpServerStatus(), verbatim
+//   {"type":"mcp_status","id":...,"error":...}
 //   {"type":"ready","version":...,"model":...}  --idle only: claude answered initialize
 //   {"type":"error","message":...}
 //   {"type":"exit","code":N}
@@ -30,6 +32,7 @@
 //   {"type":"set_permission_mode","id":...,"mode":...}
 //   {"type":"set_model","id":...,"model":...}
 //   {"type":"set_effort","id":...,"effort":...}
+//   {"type":"mcp_status","id":...}         the session's MCP servers, as claude reports them
 //   {"type":"close"}
 //
 // the shim decides nothing: every request waits for the service's answer, the
@@ -167,6 +170,13 @@ export async function run(opt, sdk, io) {
       if (!q) { emit({ ...reply, error: 'no session yet' }); return; }
       const call = isModel ? q.setModel(m.model) : q.applyFlagSettings({ effortLevel: m.effort });
       call.then(() => emit(reply)).catch(e => emit({ ...reply, error: String(e?.message ?? e) }));
+    } else if (m.type === 'mcp_status') {
+      // relayed as claude answers it; when to ask is the service's call.
+      const reply = { type: 'mcp_status', id: m.id };
+      if (!q) { emit({ ...reply, error: 'no session yet' }); return; }
+      q.mcpServerStatus()
+        .then(servers => emit({ ...reply, servers }))
+        .catch(e => emit({ ...reply, error: String(e?.message ?? e) }));
     } else if (m.type === 'close') {
       close();
     }

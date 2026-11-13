@@ -1,0 +1,45 @@
+{
+ "data": [
+  {
+   "name": "broken",
+   "runtimeStatus": "failed",
+   "pluginId": null,
+   "httpOrigin": null,
+   "serverInfo": null,
+   "tools": {},
+   "toolsError": "MCP startup failed: No such file or directory (os error 2)",
+   "resources": [],
+   "resourceTemplates": [],
+   "authStatus": "unsupported"
+  },
+  {
+   "name": "fixture",
+   "runtimeStatus": "connected",
+   "pluginId": null,
+   "httpOrigin": null,
+   "serverInfo": {
+    "name": "codex-rt1-fixture",
+    "title": null,
+    "version": "0.0.1",
+    "description": null,
+    "icons": null,
+    "websiteUrl": null
+   },
+   "tools": {
+    "echo": {
+     "name": "echo",
+     "description": "Echo the given text back, and log the call."
+    },
+    "pick_color": {
+     "name": "pick_color",
+     "description": "Ask the user to pick a color through an elicitation form."
+    }
+   },
+   "toolsError": null,
+   "resources": [],
+   "resourceTemplates": [],
+   "authStatus": "unsupported"
+  }
+ ],
+ "nextCursor": null
+}

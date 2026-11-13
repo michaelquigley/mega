@@ -71,3 +71,11 @@ See `NOTES.md` for the first investigation and `NOTES-followup.md` for the recon
 ## Idle resume (2026-11-10)
 
 `node idle-resume.mjs --cwd DIR --log logs/x.jsonl [--hold SECONDS] [--thread ID]` seeds a fresh thread with one short turn on its own app-server, unless `--thread` names one. A second app-server then resumes the thread with `thread/resume` and sends no `turn/start` for `--hold` seconds (120 by default). It records every frame, the rollout file's size and mtime, and the memory of the app-server and everything below it, then closes stdin and times the exit.
+
+## MCP status (2026-11-12)
+
+`node mcp-status.mjs --cwd DIR --log logs/x.jsonl [--other DIR] [--kill]` starts one app-server in `--cwd`. It asks `mcpServerStatus/list` with no thread loaded, then starts an ephemeral thread there (no rollout) and lists with that thread's id at 0 to 4 s. It records every `mcpServer/startupStatus/updated` notification and when it came. It never logs in to, refreshes, enables or disables a server, and writes no configuration.
+- `--other` starts a second ephemeral thread in another checkout, to compare the lists.
+- `--kill` kills the fixture server's process, found below the probe, and lists again.
+
+The summary names the servers called `fixture`, `project` and `broken`, and counts the operator's own by status. Run it with `CODEX_HOME` set to a scratch directory to try a configuration without writing the operator's.

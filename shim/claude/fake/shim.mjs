@@ -33,7 +33,16 @@
 //   echo             one assistant message: the lines after the first
 //   stream MS N      the lines after the first, streamed N characters every
 //                    MS, then landed as one assistant message
+//   mcp-sign-in      one assistant message, "signed in": the notes MCP
+//                    server is connected from this turn's system/init on
 //   anything else    one assistant message, "ok"
+//
+// mcp_status answers with three MCP servers, shaped as claude code 2.1.318's
+// mcpServerStatus() shapes them (capability report, 2026-11-12): fixture,
+// pending on the first ask and connected after, with two tools by name and
+// no description; notes, a claude.ai connector that needs signing in until
+// an mcp-sign-in turn; and broken, failed with an error. system/init lists
+// the three with their statuses, as claude's does.
 //
 // with --idle (a launch with no prompt coming) it sends no system/init until
 // the first prompt, as claude does, and reports ready with its version and
@@ -167,6 +176,30 @@ async function toolCall(name, input, ms, result = 'ok') {
 const filler = (i) =>
   `Message ${i}. ` + 'This line stands in for a paragraph of agent output, long enough to wrap. '.repeat(3)
 
+// the MCP servers, and how many times they have been asked for.
+let mcpAsks = 0
+let notesSignedIn = false
+const mcpServers = () => [
+  mcpAsks <= 1
+    ? { name: 'fixture', status: 'pending', transport: 'stdio', scope: 'dynamic', source: 'dynamic' }
+    : {
+        name: 'fixture',
+        status: 'connected',
+        serverInfo: { name: 'fixture', version: '0.0.1' },
+        transport: 'stdio',
+        scope: 'dynamic',
+        source: 'dynamic',
+        tools: [
+          { name: 'echo', annotations: {} },
+          { name: 'pick_color', annotations: {} },
+        ],
+      },
+  notesSignedIn
+    ? { name: 'notes', status: 'connected', transport: 'claudeai-proxy', scope: 'claudeai', source: 'claudeai', tools: [{ name: 'search', annotations: {} }] }
+    : { name: 'notes', status: 'needs-auth', transport: 'claudeai-proxy', scope: 'claudeai', source: 'claudeai' },
+  { name: 'broken', status: 'failed', error: 'spawn /nonexistent/mcp-server ENOENT', transport: 'stdio', scope: 'user', source: 'user' },
+]
+
 const init = () =>
   out({
     type: 'event',
@@ -179,6 +212,7 @@ const init = () =>
       claude_code_version: 'fake',
       permissionMode: mode,
       cwd,
+      mcp_servers: mcpServers().map(({ name, status, source }) => ({ name, status, source })),
     },
   })
 if (rest.includes('--idle')) {
@@ -253,6 +287,9 @@ async function turn(text) {
     }
     say(`Started ${count} background ${count === 1 ? 'job' : 'jobs'}.`)
     end()
+  } else if (verb === 'mcp-sign-in') {
+    say('signed in')
+    end()
   } else if (verb === 'busy') {
     const ms = Number(a) || 1000
     say('Looking at the failing test first, then the handler it exercises.')
@@ -290,6 +327,7 @@ lines.on('line', (line) => {
       first = frame.text
       appendFileSync(join(store, 'sessions.jsonl'), JSON.stringify({ id: session, cwd, first, at: Date.now() }) + '\n')
     }
+    if (frame.text.startsWith('mcp-sign-in')) notesSignedIn = true
     init()
     keep({ type: 'user', uuid: frame.uuid, session_id: session, parent_tool_use_id: null, message: { role: 'user', content: frame.text } })
     void turn(frame.text)
@@ -323,6 +361,9 @@ lines.on('line', (line) => {
     waiting.clear()
     out({ type: 'interrupted', response: {} })
     end('error_during_execution')
+  } else if (frame.type === 'mcp_status') {
+    mcpAsks++
+    out({ type: 'mcp_status', id: frame.id, servers: mcpServers() })
   } else if (frame.type === 'close') {
     out({ type: 'exit', code: 0 })
     process.exit(0)

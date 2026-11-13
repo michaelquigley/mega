@@ -58,6 +58,10 @@ type conversationView struct {
 	// Background is the work the runtime keeps running outside a turn;
 	// absent when none.
 	Background []*backgroundView `dd:",+omitempty"`
+	// MCP counts the runtime's MCP servers by status; absent until it has
+	// reported them, and with no runtime. the servers themselves are on
+	// their own read.
+	MCP *mcpSummaryView `dd:",+omitempty"`
 	// Environment is what the running runtime was launched with, as names and
 	// fingerprints; absent when no runtime runs. EnvironmentStale says it
 	// would start in another environment now.
@@ -125,6 +129,7 @@ func newConversationView(conv service.ConversationView) *conversationView {
 	for _, req := range conv.Pending {
 		view.Pending = append(view.Pending, &requestView{ID: req.ID, Kind: req.Kind, Payload: req.Payload, At: conv.PendingAt[req.ID]})
 	}
+	view.MCP = newMCPSummary(conv)
 	return view
 }
 

@@ -40,7 +40,11 @@ type ConversationView struct {
 	// Background is the work the runtime keeps running outside a turn, from
 	// memory; empty when none, or when there is no runtime to ask.
 	Background []model.BackgroundJob
-	Facts      *model.RuntimeFacts
+	// MCPServers are the runtime's MCP servers, from memory, and MCPReported
+	// says the runtime has reported them; both are empty with no runtime.
+	MCPServers  []model.MCPServer
+	MCPReported bool
+	Facts       *model.RuntimeFacts
 	// EnvironmentStale says the running runtime would start in another
 	// environment now: its project's activation, or the fingerprint of the
 	// project's latest resolution, has changed since it started. it is
@@ -107,9 +111,14 @@ type live struct {
 	// background is the work the runtime keeps running outside a turn, as it
 	// last reported it; it goes with the runtime.
 	background []model.BackgroundJob
-	facts      *model.RuntimeFacts
-	pending    []*model.Request
-	pendingAt  map[string]time.Time // when each pending request was recorded
+	// mcp is the runtime's MCP servers as it last reported them, and
+	// mcpReported whether it has reported any yet; they go with the
+	// runtime, and are never attention.
+	mcp         []model.MCPServer
+	mcpReported bool
+	facts       *model.RuntimeFacts
+	pending     []*model.Request
+	pendingAt   map[string]time.Time // when each pending request was recorded
 
 	// fault is whether the last runtime ended badly: an error, an exit during a
 	// turn, or a launch that did not start. a runtime that starts or stops
@@ -308,6 +317,7 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 		view.EnvironmentStale = s.envStaleLocked(conv, l.facts.Environment)
 	}
 	view.Background = slices.Clone(l.background)
+	view.MCPServers, view.MCPReported = cloneMCP(l.mcp), l.mcpReported
 	view.ModelNext, view.EffortNext = l.nextModel.value, l.nextEffort.value
 	view.ModelNextInherit = l.nextModel.set && l.nextModel.value == ""
 	view.EffortNextInherit = l.nextEffort.set && l.nextEffort.value == ""
@@ -608,6 +618,43 @@ func (k *sink) started(ev *model.Event) {
 	}
 }
 
+// MCPServers replaces the runtime's list of MCP servers. like background
+// jobs it is held in memory beside the runtime's facts, never recorded, and
+// shown as it changes; it is not attention, so a server that failed or needs
+// signing in never puts a conversation in the needs-you list. an unchanged
+// list announces nothing.
+func (k *sink) MCPServers(servers []model.MCPServer) {
+	s := k.s
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !k.current() {
+		return
+	}
+	if k.l.mcpReported && slices.EqualFunc(k.l.mcp, servers, sameMCPServer) {
+		return
+	}
+	k.l.mcp, k.l.mcpReported = cloneMCP(servers), true
+	s.changed()
+}
+
+func sameMCPServer(a, b model.MCPServer) bool {
+	return a.Name == b.Name && a.Status == b.Status && a.Error == b.Error && slices.Equal(a.Tools, b.Tools)
+}
+
+// cloneMCP copies a list, tools and all, so neither side can change the
+// other's.
+func cloneMCP(servers []model.MCPServer) []model.MCPServer {
+	if servers == nil {
+		return nil
+	}
+	out := make([]model.MCPServer, len(servers))
+	for i, server := range servers {
+		out[i] = server
+		out[i].Tools = slices.Clone(server.Tools)
+	}
+	return out
+}
+
 // Background replaces the runtime's list of background jobs. it is held in
 // memory beside turn_active, never recorded, and shown as it changes; it is
 // not attention, so it never puts a conversation in the needs-you list.
@@ -736,6 +783,7 @@ func (k *sink) Exited(err error) {
 	}
 	if err := s.transition(l, ev, "", func() {
 		l.turnActive, l.turnStartedAt, l.facts, l.background = false, time.Time{}, nil, nil
+		l.mcp, l.mcpReported = nil, false
 		// a change asked of this runtime dies with it; the next launch
 		// passes the stored choice.
 		l.nextModel, l.nextEffort, l.nextSent = pendingSetting{}, pendingSetting{}, false

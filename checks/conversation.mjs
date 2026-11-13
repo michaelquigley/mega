@@ -23,14 +23,18 @@
 // newer-activity control and the shutdown banner sharing it; the project page
 // and the connecting view centred the same way; and the labels, none on the
 // operator's own prompts, "outside mega" on one from outside, "From outside
-// mega" on its reply. it saves the centred conversation, light and dark,
-// with the panel open and collapsed.
+// mega" on its reply. and the MCP servers: the header's summary, in the
+// notice colour while one is not connected, and the list it opens, with each
+// status, an error, the harness's own place to sign in, tools on expansion,
+// and nothing to change; a sign-in followed; never attention; nothing with no
+// runtime; for claude and for codex. it saves the centred conversation, light
+// and dark, with the panel open and collapsed.
 import { join } from 'node:path'
 import { appendImported, appendNative, appendTurns } from './lib/gen.mjs'
 import { suite } from './lib/mega.mjs'
 
 const t = await suite('conversation')
-const { url, port, check, until, api, convOf } = t
+const { url, port, check, until, api, convOf, workspace } = t
 
 // two conversations, launched and released, then made long while the service
 // is stopped.
@@ -221,6 +225,77 @@ const reply = page.locator('.events .message.assistant', { hasText: 'a reply giv
 check((await own.locator('.who').count()) === 0 && (await prompts.locator('.who', { hasText: /^you/i }).count()) === 0, "the operator's own prompts carry no label")
 check((await outside.locator('.who').textContent()) === 'outside mega' && (await reply.locator('.who').textContent()) === 'From outside mega', 'a prompt from outside mega reads "outside mega", and its reply "From outside mega"')
 await t.shot(page, 'outside')
+
+// MCP servers: the header's summary and the list it opens, read only and
+// never attention. C, released, has nothing to ask.
+const summary = page.locator('.conversation-head .mcp-summary')
+const dialog = page.locator('dialog[open]')
+check((await summary.textContent()) === 'MCP servers: not running' && !(await summary.getAttribute('class')).includes('notice'), 'a conversation with no runtime says its MCP servers are not running')
+await summary.click()
+await dialog.waitFor()
+await until('the list read', async () => (await dialog.textContent()).includes('This conversation is not running, so there are no servers to ask.'))
+check(true, 'and its list says so')
+await dialog.getByRole('button', { name: 'Close' }).click()
+await until('the list closed', async () => (await dialog.count()) === 0)
+
+// a claude conversation: the fake's fixture connects, notes needs signing
+// in, broken failed. the summary settles once the fixture has connected.
+const M = (await t.launch(P.id, 'claude', 'echo\nhello', { name: 'servers' })).id
+await page.evaluate((id) => {
+  location.hash = `#/c/${id}`
+}, M)
+const settled = '3 MCP servers, 1 needs sign-in, 1 failed'
+await until('the claude summary', async () => (await summary.textContent()) === settled, 30000)
+check((await summary.getAttribute('class')).includes('notice'), `the summary reads "${settled}", in the notice colour`)
+await summary.click()
+await dialog.waitFor()
+await until('the claude list', async () => (await dialog.locator('.mcp-server').count()) === 3)
+const server = (name) => dialog.locator('.mcp-server', { has: page.locator('.mcp-name', { hasText: new RegExp(`^${name}$`) }) })
+const statusOf = async (name) => server(name).locator('.mcp-status').textContent()
+check((await statusOf('broken')) === 'Failed' && (await server('broken').locator('.error').textContent()) === 'spawn /nonexistent/mcp-server ENOENT', 'a failed server says why')
+check((await statusOf('notes')) === 'Needs sign-in' && (await server('notes').locator('.notice').textContent()).includes('run claude in this checkout and use /mcp') && (await server('notes').locator('.notice').textContent()).includes('mega does not sign in for you'), 'a server that needs signing in says it is done in the harness, and where')
+const fixtureTools = server('fixture').locator('.mcp-tools li')
+check((await statusOf('fixture')) === 'Connected' && !(await fixtureTools.first().isVisible()), 'a connected server lists its tools only on expansion')
+await server('fixture').locator('summary').click()
+await until('the tools shown', async () => (await fixtureTools.first().isVisible()))
+check(JSON.stringify(await fixtureTools.locator('code').allTextContents()) === '["echo","pick_color"]', 'expanded, it lists its tools by name; claude gives no descriptions')
+check((await dialog.locator('button').count()) === 1, 'the list is read only: its one control is Close')
+await t.shot(page, 'mcp-claude')
+
+// a sign-in, done in the harness, shows in the summary and the open list.
+check((await api('POST', `/api/conversations/${M}/prompt`, { text: 'mcp-sign-in' })).status === 202, 'the fake signs notes in on its next turn')
+await until('the summary after the sign-in', async () => (await summary.textContent()) === '3 MCP servers, 1 failed')
+await until('the open list after the sign-in', async () => (await statusOf('notes')) === 'Connected')
+check(true, 'the summary and the open list follow the change')
+await dialog.getByRole('button', { name: 'Close' }).click()
+await until('the list closed again', async () => (await dialog.count()) === 0)
+await until('the turn read', async () => !(await convOf(M)).turn_active && (await convOf(M)).attention === 'idle')
+check(!(await workspace()).needs_you.includes(M), 'a failed server is not attention: the conversation is idle and not in needs-you')
+
+// a codex conversation: its own servers, with descriptions, and its own
+// sign-in.
+const X = (await t.launch(P.id, 'codex', 'hello', { name: 'codex servers' })).id
+await page.evaluate((id) => {
+  location.hash = `#/c/${id}`
+}, X)
+await until('the codex summary', async () => (await summary.textContent()) === settled, 30000)
+await summary.click()
+await dialog.waitFor()
+await until('the codex list', async () => (await dialog.locator('.mcp-server').count()) === 3)
+check((await server('docs').locator('.notice').textContent()).includes('codex mcp login docs'), 'a codex server that needs signing in names codex mcp login')
+await server('fixture').locator('summary').click()
+await until('the codex tools', async () => (await fixtureTools.first().isVisible()))
+check((await fixtureTools.first().textContent()) === 'echo Echo the given text back, and log the call.', `codex's tools carry their descriptions: "${await fixtureTools.first().textContent()}"`)
+await dialog.getByRole('button', { name: 'Close' }).click()
+await until('the codex list closed', async () => (await dialog.count()) === 0)
+
+// released, the servers go with the runtime.
+await page.evaluate((id) => {
+  location.hash = `#/c/${id}`
+}, M)
+await api('POST', `/api/conversations/${M}/release`)
+await until('released: not running', async () => (await summary.textContent()) === 'MCP servers: not running')
+check((await convOf(M)).mcp === undefined, 'released, the summary says not running, and the workspace read carries no servers')
 await page.evaluate((id) => {
   location.hash = `#/c/${id}`
 }, B)

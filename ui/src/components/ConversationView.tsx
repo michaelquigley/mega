@@ -7,6 +7,7 @@ import { waitingLabel, type Waiting } from '../waiting'
 import { EventList } from './EventList'
 import { IconButton } from './Icon'
 import { InputPanel } from './InputPanel'
+import { McpSummary } from './Mcp'
 
 interface ConversationViewProps {
   conversation: Conversation
@@ -122,6 +123,9 @@ export function ConversationView(props: ConversationViewProps) {
           ]
             .filter(Boolean)
             .join(' · ')}
+        </p>
+        <p className="facts mcp-line">
+          <McpSummary conversation={conversation} />
         </p>
         {conversation.environment && (
           <p className={`facts${conversation.environment_stale ? ' env-stale' : ''}`}>

@@ -12,6 +12,8 @@
 //   background MS  a command left running as a terminal session: its
 //                item/started, the reply, the turn's end, then its
 //                item/completed MS later, outside the turn (codex-cli 0.166.0)
+//   mcp-sign-in  a reply of "signed in"; the docs MCP server is connected
+//                from then on, announced with mcpServer/startupStatus/updated
 //   anything     a reply of "ok"
 // turn/interrupt resolves a pending elicitation and ends the turn interrupted.
 // thread/resume with no turn/start holds the thread idle until a prompt, as
@@ -23,6 +25,13 @@
 // passed, or the inherited model; a turn/start model or effort override is
 // kept for later turns and reported with thread/settings/updated before the
 // turn, as codex-cli 0.166.0 does.
+//
+// MCP servers: thread/start and thread/resume announce each server's
+// startup with mcpServer/startupStatus/updated, and mcpServerStatus/list,
+// asked with the thread's id, gives three, shaped as codex-cli 0.166.0
+// shapes them (capability report, 2026-11-12): fixture, connected, with two
+// tools and their descriptions; docs, which needs signing in until an
+// mcp-sign-in turn; and broken, which failed to start.
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 
@@ -47,6 +56,46 @@ const catalog = [
 const inherited = { model: 'fake-large', model_reasoning_effort: 'medium' }
 let runModel = inherited.model
 let runEffort = inherited.model_reasoning_effort
+
+let docsSignedIn = false
+const mcpServers = () => [
+  {
+    name: 'broken',
+    authStatus: 'unsupported',
+    runtimeStatus: 'failed',
+    tools: {},
+    toolsError: 'MCP startup failed: No such file or directory (os error 2)',
+    resources: [],
+    resourceTemplates: [],
+  },
+  docsSignedIn
+    ? { name: 'docs', authStatus: 'oAuth', runtimeStatus: 'connected', tools: { search: { name: 'search', title: 'Search', description: 'Search the documentation.\nReturns the best matches.' } }, toolsError: null, resources: [], resourceTemplates: [] }
+    : { name: 'docs', authStatus: 'notLoggedIn', runtimeStatus: 'authenticationRequired', tools: {}, toolsError: null, resources: [], resourceTemplates: [] },
+  {
+    name: 'fixture',
+    authStatus: 'unsupported',
+    runtimeStatus: 'connected',
+    serverInfo: { name: 'fixture', version: '0.0.1' },
+    tools: {
+      pick_color: { name: 'pick_color', description: 'Ask the user to pick a color through an elicitation form.' },
+      echo: { name: 'echo', description: 'Echo the given text back, and log the call.' },
+    },
+    toolsError: null,
+    resources: [],
+    resourceTemplates: [],
+  },
+]
+const startup = (name, status, error = null, failureReason = null) =>
+  notify('mcpServer/startupStatus/updated', { name, status, error, failureReason, threadId: threadID })
+// announceStartup sends what codex sends as a thread's servers start: each
+// starting, then ready or failed.
+const announceStartup = () => {
+  for (const s of mcpServers()) startup(s.name, 'starting')
+  startup('fixture', 'ready')
+  startup('broken', 'failed', 'MCP client for `broken` failed to start: MCP startup failed: No such file or directory (os error 2)')
+  if (docsSignedIn) startup('docs', 'ready')
+  else startup('docs', 'failed', 'MCP client for `docs` needs signing in', 'reauthenticationRequired')
+}
 
 const thread = (tid) => ({ id: tid, cliVersion: 'fake', cwd: process.cwd(), preview: '', createdAt: 0, updatedAt: 0, turns: [] })
 const started = (tid) => ({ thread: thread(tid), model: runModel, reasoningEffort: runEffort, cwd: process.cwd(), approvalPolicy: 'on-request', sandbox: { type: 'workspaceWrite' }, instructionSources: [] })
@@ -95,6 +144,10 @@ async function runTurn(turn, text) {
       item: { type: 'mcpToolCall', id: item, server: 'fixture', tool: 'echo', status: accepted ? 'completed' : 'failed', arguments: { text: arg }, result: accepted ? { content: [{ type: 'text', text: `echo: ${arg}` }] } : null, error: accepted ? null : { message: 'user rejected MCP tool call' } },
     })
     agent(turn, accepted ? `echo: ${arg}` + (answer._meta?.persist ? ` (approved for the ${answer._meta.persist})` : '') : 'DECLINED')
+  } else if (verb === 'mcp-sign-in') {
+    docsSignedIn = true
+    startup('docs', 'ready')
+    agent(turn, 'signed in')
   } else if (verb === 'form') {
     const answer = await ask('mcpServer/elicitation/request', {
       threadId: threadID,
@@ -153,11 +206,20 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       runEffort = inherited.model_reasoning_effort
       threadID = id()
       send({ id: msg.id, result: started(threadID) })
+      announceStartup()
       break
     case 'thread/resume':
       if (p.model) runModel = p.model
       threadID = p.threadId
       send({ id: msg.id, result: started(threadID) })
+      announceStartup()
+      break
+    case 'mcpServerStatus/list':
+      if (p.threadId !== threadID) {
+        send({ id: msg.id, error: { code: -32602, message: `fake codex: no thread '${p.threadId}'` } })
+        break
+      }
+      send({ id: msg.id, result: { data: mcpServers(), nextCursor: null } })
       break
     case 'thread/read':
       send({ id: msg.id, result: { thread: thread(p.threadId) } })

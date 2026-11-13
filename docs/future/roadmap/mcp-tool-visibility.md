@@ -1,6 +1,6 @@
 ---
 title: mcp tool visibility
-state: researching
+state: evaluating
 created: 2026-11-11
 tags: [feature, spike]
 ---

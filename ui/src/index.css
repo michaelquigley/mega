@@ -366,6 +366,98 @@ pre {
   padding: 0 4px;
 }
 
+/* the conversation's MCP servers in one line of its header: quiet like the
+   facts around it, on the notice tone while any server is not connected. a
+   press opens the list. */
+.mcp-summary {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  margin: 0 -5px;
+  padding: 0 4px;
+}
+
+.mcp-summary:hover,
+.mcp-summary:focus-visible {
+  background: var(--selected);
+  color: var(--text);
+}
+
+.mcp-summary.notice {
+  background: var(--notice-bg);
+  border-color: var(--notice-line);
+  color: var(--text);
+  margin: 0;
+}
+
+.mcp-servers,
+.mcp-tools {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mcp-servers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mcp-server {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mcp-server summary {
+  align-items: baseline;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+}
+
+.mcp-name {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.mcp-status {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: calc(12px * var(--fs));
+  padding: 0 8px;
+}
+
+.mcp-connected .mcp-status {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.mcp-failed .mcp-status {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.mcp-needs_sign_in .mcp-status,
+.mcp-connecting .mcp-status {
+  background: var(--notice-bg);
+  border-color: var(--notice-line);
+}
+
+.mcp-count {
+  margin: 0;
+}
+
+.mcp-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 0 18px;
+}
+
 /* the build's version, beside the connection status: discreet, and a press
    opens what the service says of its build. */
 .version-label {

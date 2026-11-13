@@ -1,6 +1,6 @@
 ---
 title: version metadata in web ui
-state: researching
+state: evaluating
 created: 2026-11-11
 tags: [enhancement]
 ---

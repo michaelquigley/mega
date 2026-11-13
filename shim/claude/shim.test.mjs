@@ -57,6 +57,10 @@ function fakeSdk(seen) {
         (seen.models ??= []).push(model);
       };
       gen.applyFlagSettings = async settings => { (seen.flags ??= []).push(settings); };
+      gen.mcpServerStatus = async () => {
+        if (seen.mcpFails) throw new Error('mcp gone');
+        return [{ name: 'fixture', status: 'connected', tools: [{ name: 'echo', annotations: {} }] }];
+      };
       gen.supportedModels = async () => [{ value: 'opus', displayName: 'Opus', supportedEffortLevels: ['low', 'high'] }];
       gen.initializationResult = async () => {
         if (seen.initFails) throw new Error('cli gone');
@@ -213,6 +217,22 @@ test('an idle launch whose initialize fails reports an error and no ready', asyn
   const error = await h.next(f => f.type === 'error');
   assert.match(error.message, /did not answer initialize: cli gone/);
   assert.equal(h.frames.some(f => f.type === 'ready'), false);
+  h.send({ type: 'close' });
+  assert.equal(await done, 0);
+});
+
+test('relays mcpServerStatus() verbatim, and its failure', async () => {
+  const h = harness();
+  const seen = { prompts: [], modes: [] };
+  const done = main(['run', '--cwd', '/tmp/x', '--exec', '/bin/claude', '--session-id', 's-9'], fakeSdk(seen), h.io);
+  await h.next(f => f.type === 'event');
+  h.send({ type: 'mcp_status', id: 'mcp-1' });
+  assert.deepEqual(await h.next(f => f.type === 'mcp_status' && f.id === 'mcp-1'), {
+    type: 'mcp_status', id: 'mcp-1', servers: [{ name: 'fixture', status: 'connected', tools: [{ name: 'echo', annotations: {} }] }],
+  });
+  seen.mcpFails = true;
+  h.send({ type: 'mcp_status', id: 'mcp-2' });
+  assert.deepEqual(await h.next(f => f.type === 'mcp_status' && f.id === 'mcp-2'), { type: 'mcp_status', id: 'mcp-2', error: 'mcp gone' });
   h.send({ type: 'close' });
   assert.equal(await done, 0);
 });

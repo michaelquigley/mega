@@ -76,6 +76,13 @@ type runtime struct {
 	effort      string
 	liveModel   string // the model and effort as codex last reported them
 	liveEffort  string
+	// the MCP servers: a list running, and another wanted after it.
+	mcpBusy  bool
+	mcpAgain bool
+	// mcpReport orders the MCP reports against the exit: once mcpExited is
+	// set, none is made.
+	mcpReport sync.Mutex
+	mcpExited bool
 }
 
 func newRuntime(sink harness.Sink) *runtime {
@@ -344,6 +351,7 @@ func (r *runtime) watch() {
 	for _, id := range aborted {
 		r.sink.Resolved(id, model.OutcomeAborted)
 	}
+	r.mcpEnd()
 	err := r.conn.err
 	if pids := survivors(seen, survivorGrace); len(pids) > 0 {
 		err = errors.Join(err, fmt.Errorf("%w: pids %v", harness.ErrLeftRunning, pids))
@@ -360,6 +368,11 @@ func (r *runtime) notify(method string, params map[string]any) {
 			r.activeTurn = n.Turn.ID
 			r.mu.Unlock()
 		}
+		// a server that died since the last list is not announced.
+		r.refreshMCP()
+	case "mcpServer/startupStatus/updated":
+		// a server starting, ready or failed: the list says where each stands.
+		r.refreshMCP()
 	case "turn/completed":
 		r.turnCompleted(params)
 	case "item/started":
@@ -431,7 +444,7 @@ func (r *runtime) notify(method string, params map[string]any) {
 		r.sink.Event(&model.Event{Kind: model.EventNative, Origin: model.OriginManaged, Text: "error", Raw: params})
 	default:
 		// transport chatter: status flags, token usage, reasoning and output
-		// deltas, MCP startup. the items carry the conversation.
+		// deltas. the items carry the conversation.
 	}
 }
 

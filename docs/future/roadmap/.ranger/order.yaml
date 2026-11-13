@@ -1,26 +1,23 @@
 building:
-  - ui-test-runner.md
 horizon:
   - agents-roles-and-lifecycles-in-a-project.md
   - hand-off-between-conversations.md
   - start-up-reads-every-log.md
   - mega-as-the-development-hub.md
 researching:
-  - version-metadata-in-web-ui.md
-  - you.md
-  - center-conversation.md
-  - mcp-tool-visibility.md
-  - expanded-states.md
-  - ctrl-or-n.md
+  - action-view-improvements.md
   - claude-shim-distribution.md
   - mega-on-twentytwo.md
-  - action-view-improvements.md
+  - project-mcp-servers-and-hooks-run-without-approval.md
+  - reads-after-the-service-closes.md
   - codex-approval-policy.md
   - codex-discovery-e2e-reads-its-own-thread.md
   - relocate-a-projects-checkout.md
 evaluating:
-  - environment-follow-ups.md
-  - each-project-runs-in-its-own-environment.md
-  - opening-a-conversation-costs-its-whole-history.md
+  - expanded-states.md
+  - ctrl-or-n.md
+  - mcp-tool-visibility.md
+  - center-conversation.md
+  - version-metadata-in-web-ui.md
   - path-search-in-the-input-panel.md
   - model-and-effort-selection.md

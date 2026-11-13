@@ -23,7 +23,7 @@ Where things go:
 
 ## What each suite covers
 
-- **`conversation.mjs`** (38 steps): the conversation view, on long conversations and in its layout. Two conversations are made about twenty thousand events long with `lib/gen.mjs` while the service is stopped. It checks the following:
+- **`conversation.mjs`** (52 steps): the conversation view, on long conversations and in its layout. Two conversations are made about twenty thousand events long with `lib/gen.mjs` while the service is stopped. It checks the following:
   - opening reads only the tail: ten turns, at the newest reply, saying how much is earlier;
   - Show earlier and Show all, each holding the view;
   - the native events toggle refetching what is shown;
@@ -33,9 +33,16 @@ Where things go:
   - a held, then failed, opening read naming the request, its time, the attempt and the error;
   - the connecting view naming a failing workspace read;
   - the 960px column centred in its pane, with the panel open and collapsed to the rail, light and dark; the header, history, input panel, show-earlier bar, newer-activity control and shutdown banner sharing it; the project page and the connecting view centred the same way;
-  - no label on the operator's own prompts, "outside mega" on a prompt from outside, and "From outside mega" on its reply.
+  - no label on the operator's own prompts, "outside mega" on a prompt from outside, and "From outside mega" on its reply;
+  - MCP servers, for the fake Claude and the fake Codex:
+    - the header's summary, on the notice tone while a server is not connected, and "not running" with no runtime;
+    - the list it opens: each status, a failed server's error, a server needing sign-in saying where that is done in the harness, and tools on expansion, with descriptions from Codex;
+    - nothing to change in it;
+    - a sign-in followed in the summary and the open list;
+    - never attention;
+    - cleared on release.
 
-  It saves the centred conversation as `shots/centred-{light,dark}-{panel,rail}.png`.
+  It saves the centred conversation as `shots/centred-{light,dark}-{panel,rail}.png`, and the MCP list as `shots/mcp-claude.png`.
 - **`environment.mjs`** (29 steps): a project's environment on its page. It checks the following:
   - the unapproved state, and its refusal on New conversation and Adopt;
   - approval, and the names it records;

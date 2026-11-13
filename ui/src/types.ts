@@ -172,6 +172,35 @@ export interface Conversation {
   environment?: RuntimeEnvironment
   // the runtime would start in another environment now.
   environment_stale?: boolean
+  // the runtime's MCP servers, counted by status; absent until it has
+  // reported them, and with no runtime. the servers are on their own read.
+  mcp?: McpSummary
+}
+
+export interface McpSummary {
+  servers: number
+  connected: number
+  connecting: number
+  failed: number
+  needs_sign_in: number
+  disabled: number
+}
+
+export type McpStatus = 'connected' | 'connecting' | 'failed' | 'needs_sign_in' | 'disabled'
+
+// ConversationMcp is a conversation's MCP servers in full
+// (GET /api/conversations/{id}/mcp): read only, and from memory.
+export interface ConversationMcp {
+  running: boolean
+  reported: boolean
+  servers: McpServer[]
+}
+
+export interface McpServer {
+  name: string
+  status: McpStatus
+  error?: string
+  tools: { name: string; description?: string }[]
 }
 
 // one model a harness offers, and the effort levels it takes (none for a

@@ -21,9 +21,14 @@ type recordingSink struct {
 	requests []string
 	payloads []any
 	resolved []string
-	// background holds every list reported, in order.
+	// background holds every list reported, in order; mcp every MCP list.
 	background [][]model.BackgroundJob
+	mcp        [][]model.MCPServer
 	next       int
+}
+
+func (s *recordingSink) MCPServers(servers []model.MCPServer) {
+	s.mcp = append(s.mcp, servers)
 }
 
 func (s *recordingSink) Background(jobs []model.BackgroundJob) {

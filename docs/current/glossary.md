@@ -23,6 +23,7 @@ The words mega's documents, cards and interface use, and what each one means her
 - **Request.** Something the agent is waiting on the operator for: an **approval** to run something, or a **question** with choices or fields. A request is answerable only while it is pending. A pending request is **docked** above the input panel; its row in the history records that it happened.
 - **Native events.** What a harness emits that mega passes through without interpreting: status, bookkeeping, reasoning summaries. Hidden unless the native events box is ticked, and never counted as output.
 - **Background job.** Work an agent left running after its turn ended. It is activity, not attention.
+- **MCP server.** A program a harness connects to for more tools, configured in the harness's own settings, as an MCP tool approval's server is. A running conversation reports its servers, each **connected**, **connecting**, **failed**, **needs sign-in** or **disabled**, with its tools. mega shows them and changes nothing: signing in is done in the harness's own terminal. Like a background job, it is state to see, not attention.
 - **The recent tail.** The last several turns of a conversation, which is what opening it loads. Earlier history is reached with "Show earlier" or "Show all".
 
 ## Attention

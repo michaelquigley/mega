@@ -1,4 +1,4 @@
-import type { About, Conversation, History, Models, Project, Workspace } from './types'
+import type { About, Conversation, ConversationMcp, History, Models, Project, Workspace } from './types'
 
 export class ApiError extends Error {
   readonly code: string
@@ -65,6 +65,9 @@ export const removeProject = (id: string) =>
   request<void>('DELETE', `/api/projects/${encodeURIComponent(id)}`)
 
 const conversationPath = (id: string) => `/api/conversations/${encodeURIComponent(id)}`
+
+// getMcp reads a conversation's MCP servers in full. it is read only.
+export const getMcp = (id: string) => request<ConversationMcp>('GET', `${conversationPath(id)}/mcp`)
 
 // what the operator chose at launch; an empty field inherits.
 export interface LaunchChoice {

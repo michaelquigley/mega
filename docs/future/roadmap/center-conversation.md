@@ -1,6 +1,6 @@
 ---
 title: center conversation
-state: researching
+state: evaluating
 created: 2026-11-12
 tags: [enhancement]
 ---

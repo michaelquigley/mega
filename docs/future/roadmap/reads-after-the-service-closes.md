@@ -1,6 +1,6 @@
 ---
-title: Reads after the service closes
-state: inbox
+title: reads after the service closes
+state: researching
 created: 2026-11-12
 tags: [defect]
 ---

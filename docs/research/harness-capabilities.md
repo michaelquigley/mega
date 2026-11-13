@@ -660,6 +660,78 @@ The fixtures `claude-rt1` and `codex-rt1` each gained a scratch `.devprj` and `e
 
 No harness rebuilds its environment so that the launch environment fails to reach its commands. Codex reorders `PATH` through its login shell, which mega does not control and does not change.
 
+## Follow-up (2026-11-12): MCP server status
+
+What each harness says of a conversation's MCP servers, and when, for the `mcp-tool-visibility` card. The probes are `probes/claude/mcp-status.mjs` and `probes/codex/mcp-status.mjs`, and their logs are under each probe's `logs/` (`mcp-status-*`). Each run starts a fresh session or an ephemeral thread, sends at most one short prompt, and never logs in, reconnects, enables or disables a server. Untrusted runs used a scratch `CLAUDE_CONFIG_DIR` or `CODEX_HOME` with an empty or probe-only configuration, so the operator's configuration was never written. `~/.claude.json`'s entry for `claude-rt1` and `~/.codex/config.toml`'s mtime were checked unchanged after the runs. The operator's own servers are counted, not named.
+
+### Claude Code 2.1.318, Agent SDK 0.3.318
+
+The runs:
+- A fresh idle session in `claude-rt1`, which is trusted, with the `codex-rt1` fixture server passed for the query only.
+- The same with a temporary `.mcp.json` in `claude-rt1` naming that server, removed afterwards.
+- An untrusted scratch checkout with that `.mcp.json`, under an empty scratch config directory.
+
+The findings:
+
+- **`mcpServerStatus()` carries each server's tools, but not their descriptions** `[observed]`.
+  - A connected server lists its tools as `{name, annotations}`. No `description` arrives, though the SDK type declares one and the fixture server sends one for each tool.
+  - Other fields: `name`, `status`, `serverInfo` (`{name, version}`) and `config`, which can carry a URL. Also `transport`, `scope`, `source`, an `error` when failed, and `sessionProxied` on claude.ai connectors.
+  - A server that is `pending`, `needs-auth` or `failed` has no `tools` field.
+  - `system/init` lists only `{name, status, source}` per server, with the tool names flat in `tools` as `mcp__<server>__<tool>`.
+- **An idle session reports from its first moment** `[observed]`.
+  - The first `mcpServerStatus()`, asked about 8 ms after the query began, was answered after about 400 ms.
+  - In that first answer, one user server and the passed fixture were `pending`, and two user servers were already `connected`.
+  - The fixture was `connected` with its two tools by 0.5 s. The claude.ai connectors were not listed at all until about 1 s. They then appeared as `pending`, `connected` or `needs-auth`, so the list grew from 4 servers to 8.
+  - Later calls answered in 0 to 4 ms. An idle session with no login at all, in a scratch config directory, reported the same way.
+- **Nothing on the stream announces a change** `[observed]`. During the hold, the only messages were the checkout's own hook frames.
+  - A server added with `setMcpServers` sent nothing. That server, one whose command does not exist, showed `failed` at once with an `error` and scope `dynamic`. The error text was the CLI's own internal message, not the operating system's.
+  - The fixture server's process, killed with SIGKILL, stayed `connected` in `mcpServerStatus()` for the following 6 s. It was still `connected` in the next turn's `system/init`.
+  - `system/init` at each turn start is the only report that comes without asking. It lists every server with its status.
+- **Project servers load without trust** `[observed]`. A `.mcp.json` server appeared, scope `project`, and connected with its tools in both checkouts:
+  - the trusted one, whose `enabledMcpjsonServers` is empty;
+  - the untrusted scratch one, whose config recorded no entry for the checkout at all.
+
+  An SDK session neither asks to approve a project server nor waits for trust. This agrees with the headless documentation quoted under C7, and the trusted entry was unchanged afterwards.
+- **Statuses:** `connected`, `pending`, `failed`, `needs-auth` and `disabled`. Signing in is done inside an interactive `claude`, with `/mcp`.
+
+### codex-cli 0.166.0
+
+The runs:
+- One app-server in `codex-rt1`, whose project `.codex/config.toml` defines the fixture server and which is trusted in the operator's config. It asked `mcpServerStatus/list` with no thread, then started an ephemeral thread there and listed again over 4 s.
+- A second ephemeral thread in an untrusted scratch checkout whose own `.codex/config.toml` defines two servers.
+- The fixture server's process was then killed.
+- A second run under a scratch `CODEX_HOME` defined the fixture and a broken server at user level.
+
+The findings:
+
+- **The list carries tools with descriptions** `[observed]`.
+  - Each server has `name`, `authStatus` (`unsupported`, `notLoggedIn`, `bearerToken`, `oAuth`, `unknown`), `runtimeStatus`, `tools` as an object keyed by name, `toolsError`, and more. Its other fields are `serverInfo`, `serverCapabilities`, `resources`, `resourceTemplates`, `httpOrigin`, `pluginId` and `toolListMeta`.
+  - Each tool has `name`, `title`, `description`, `inputSchema`, `outputSchema`, `annotations` and `_meta`.
+  - The order of the tools changes from one call to the next.
+- **With no thread loaded, the list is the user-level servers, discovered for the asking** `[observed]`.
+  - The list had their tools but `runtimeStatus: null`, even while a thread was loaded on the same app-server.
+  - The project's own server was absent, though the app-server ran in that checkout.
+  - With the operator's six servers a list took about 2.4 s; with the scratch home's two, about 40 ms.
+- **The list is per thread** `[observed]`.
+  - With the `codex-rt1` thread's id, it gave seven servers with `runtimeStatus` `connected`, including the project's fixture.
+  - With the untrusted thread's id, it gave six: neither of that checkout's servers appeared.
+
+  So project servers load only once the checkout is trusted, as the approval follow-up found. A list with a thread took 1 to 5 s with the operator's servers.
+- **`mcpServer/startupStatus/updated` reports startup, per server and per thread** `[observed]`.
+  - Its params are `{name, status, error, failureReason, threadId}`. The status is `starting`, then `ready` or `failed`.
+  - It arrives as the thread starts. The operator's servers went from `starting` to `ready` within about 1 s, and the fixture within 25 ms.
+  - The broken server's `failed` carried `error: "MCP client for \`broken\` failed to start: MCP startup failed: No such file or directory (os error 2)"`. The list's `toolsError` said `"MCP startup failed: No such file or directory (os error 2)"`, with `runtimeStatus: failed`.
+- **A server that dies is not announced** `[observed]`. After the fixture's process was killed, no notification came, but the next list said `runtimeStatus: failed`, within 0.2 s, with its tools still listed.
+- **`runtimeStatus`** is `notStarted`, `starting`, `connected`, `authenticationRequired`, `failed`, `cancelled` or `disabled`, or null `[schema]`. `failureReason: reauthenticationRequired` marks a startup that needs signing in again `[schema]`. Neither sign-in case was observed: no fixture server asks for it. Signing in is done with `codex mcp login <name>` in a terminal.
+- **Resolving a server needs no login**: an ephemeral `thread/start` under a scratch `CODEX_HOME` with no login worked `[observed]`.
+
+### What this permits
+
+Both harnesses can report a conversation's servers as plain data: name, status, error, and tools. Codex also gives each tool a description; Claude 2.1.318 does not.
+- **Claude.** There is no change notification, so the adapter asks `mcpServerStatus()` as the runtime starts. It asks again while any server is pending, until none is, and again whenever a turn's `system/init` reports different statuses.
+- **Codex.** The adapter lists with its thread's id once the thread is loaded, and again after each burst of `mcpServer/startupStatus/updated`.
+- **What neither shows.** Neither notices a server that dies quietly: Claude does not notice at all, and Codex only when asked. A list asked again at each turn start costs little and catches the Codex case.
+
 ## Recommendations
 
 - Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. mega should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.

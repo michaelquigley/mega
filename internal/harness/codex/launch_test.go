@@ -15,6 +15,9 @@ import (
 const (
 	fakeMode   = "MEGA_FAKE_APP_SERVER"
 	fakeFrames = "MEGA_FAKE_APP_SERVER_FRAMES"
+	// fakeMCPList is a file holding the mcpServerStatus/list reply, for mode
+	// "mcp".
+	fakeMCPList = "MEGA_FAKE_APP_SERVER_MCP_LIST"
 )
 
 // TestMain lets the test binary stand in for `codex app-server` when the
@@ -59,15 +62,37 @@ func fakeAppServer(mode string) {
 			fmt.Printf(`{"id":%v,"result":{"config":{"model":"gpt-b","model_reasoning_effort":"low"},"origins":{}}}`+"\n", frame["id"])
 		case "turn/start":
 			fmt.Printf(`{"id":%v,"result":{"turn":{"id":"turn-%v","status":"inProgress","items":[]}}}`+"\n", frame["id"], frame["id"])
+			if mode == "mcp" {
+				fmt.Printf(`{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-%v","status":"inProgress","items":[]}}}`+"\n", frame["id"])
+			}
+		case "mcpServerStatus/list":
+			// the recorded list, for the thread's own id only.
+			params, _ := frame["params"].(map[string]any)
+			reply, err := os.ReadFile(os.Getenv(fakeMCPList))
+			if params["threadId"] != "t-1" || err != nil {
+				fmt.Printf(`{"id":%v,"error":{"code":-32602,"message":"no thread"}}`+"\n", frame["id"])
+				continue
+			}
+			fmt.Printf(`{"id":%v,"result":%s}`+"\n", frame["id"], strings.Join(strings.Fields(string(reply)), " "))
 		case "thread/start", "thread/resume":
-			if mode == "start" {
+			if mode == "start" || mode == "mcp" {
 				// the thread runs the model passed, or "unset" when none was.
 				params, _ := frame["params"].(map[string]any)
 				running, ok := params["model"].(string)
 				if !ok {
 					running = "unset"
 				}
+				// codex announces each server's startup as the thread starts,
+				// before its reply (capability report, 2026-11-12).
+				if mode == "mcp" {
+					for _, server := range []string{"fixture", "broken"} {
+						fmt.Printf(`{"method":"mcpServer/startupStatus/updated","params":{"name":%q,"status":"starting","error":null,"failureReason":null,"threadId":"t-1"}}`+"\n", server)
+					}
+				}
 				fmt.Printf(`{"id":%v,"result":{"thread":{"id":"t-1","cliVersion":"0.166.0"},"model":%q,"reasoningEffort":"high","cwd":"/f"}}`+"\n", frame["id"], running)
+				if mode == "mcp" {
+					fmt.Println(`{"method":"mcpServer/startupStatus/updated","params":{"name":"fixture","status":"ready","error":null,"failureReason":null,"threadId":"t-1"}}`)
+				}
 				continue
 			}
 			switch mode {

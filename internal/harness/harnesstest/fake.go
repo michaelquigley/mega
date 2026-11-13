@@ -466,6 +466,9 @@ func (r *Runtime) HoldOnClose() {
 // Background reports the runtime's background jobs, as an adapter would.
 func (r *Runtime) Background(jobs []model.BackgroundJob) { r.sink.Background(jobs) }
 
+// MCPServers reports the runtime's MCP servers, as an adapter would.
+func (r *Runtime) MCPServers(servers []model.MCPServer) { r.sink.MCPServers(servers) }
+
 func (r *Runtime) Emit(ev *model.Event) {
 	if ev.Origin == "" {
 		ev.Origin = model.OriginManaged

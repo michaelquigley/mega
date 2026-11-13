@@ -20,9 +20,16 @@ type recordingSink struct {
 	requests []string
 	payloads []map[string]any
 	resolved []string
-	// background holds every list reported, in order.
+	// background holds every list reported, in order; mcp every MCP list.
 	background [][]model.BackgroundJob
+	mcp        [][]model.MCPServer
 	next       int
+}
+
+func (s *recordingSink) MCPServers(servers []model.MCPServer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mcp = append(s.mcp, servers)
 }
 
 func (s *recordingSink) Background(jobs []model.BackgroundJob) {
@@ -86,6 +93,10 @@ func testRuntime() (*runtime, *recordingSink, *wire) {
 	// a chosen model and effort, so a turn/start needs no config/read first;
 	// the inherit tests clear them.
 	r.cwd, r.model, r.effort = "/f", "gpt-test", "medium"
+	// the MCP lists are tested on their own (mcp_test.go); one marked in
+	// flight keeps a turn's start from adding a list to the frames these
+	// tests expect.
+	r.mcpBusy = true
 	return r, sink, w
 }
 

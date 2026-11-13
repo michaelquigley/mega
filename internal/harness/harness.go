@@ -329,6 +329,11 @@ type Sink interface {
 	// a fact for display, never recorded.
 	Background(jobs []model.BackgroundJob)
 
+	// MCPServers reports the conversation's MCP servers, whole: each call
+	// replaces the last. it is a fact for display, never recorded and never
+	// attention.
+	MCPServers(servers []model.MCPServer)
+
 	// Exited reports that the runtime process ended. err is nil for a clean
 	// exit. it is the last call a sink receives.
 	Exited(err error)

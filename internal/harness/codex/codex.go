@@ -120,6 +120,9 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		Text: instructionSummary(started.InstructionSources),
 	})
 	go r.watch()
+	// the thread's MCP servers, as they stand now; startup notifications
+	// that came before the thread was known asked for nothing.
+	r.refreshMCP()
 	return r, nil
 }
 
