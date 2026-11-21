@@ -11,7 +11,8 @@
 // a draft opening it on focus; a control in the bar keeping it open and a
 // press outside closing it; a draft kept across a switch of conversation,
 // the box open on return with the cursor at its end; Ctrl+Enter sending, closing and emptying the box and going
-// to the end, following the reply; a refused send keeping the box open,
+// to the end, following the reply; the Send button doing the same, the box
+// not opening again as it takes the cursor back; a refused send keeping the box open,
 // focused and with its draft, and saying why; Send and Start disabled with the
 // reason while a shutdown is armed or the checkout is missing, the shutdown's
 // first when both apply; Start on a released conversation, which runs with
@@ -45,7 +46,8 @@
 // output; and a failed read tried again; Ctrl+Space from
 // the history and the side panel, and nothing with a dialog open or the
 // cursor already there; Escape leaving the box for the history, whose keys
-// then scroll, and closing the path list first; Page Up and Page Down
+// then scroll, and closing the path list first; a send closing the path
+// list with the box; Page Up and Page Down
 // scrolling the history from an empty box and ending following, and the
 // box's own with a draft; and the allow keys from a box the switch focused
 // and from the history.
@@ -204,13 +206,23 @@ await wheel(-1e6)
 await box.fill('drip 4 150')
 await box.press('Control+Enter')
 await until('the box shut and empty', async () => !(await expanded()) && (await box.inputValue()) === '')
-check(await box.evaluate((b) => b !== document.activeElement), 'Ctrl+Enter sends: the box closes, empties and lets go of focus')
+check(await box.evaluate((b) => b === document.activeElement), 'Ctrl+Enter sends: the box closes and empties, and keeps the cursor for the next prompt')
 await until('the reply landed', async () => (await page.locator('.events .message.assistant', { hasText: 'Drip 4.' }).count()) === 1 && !(await convOf(C)).turn_active)
 const atEnd = await page.evaluate(() => {
   const m = document.querySelector('.main')
   return m.scrollHeight - m.scrollTop - m.clientHeight
 })
 check(atEnd <= 32, `the view went to the end and followed the reply: ${Math.round(atEnd)}px from the bottom`)
+
+// the Send button sends as Ctrl+Enter does. the press takes the focus from
+// the box, so the send gives it back: focus coming back must not open the box
+// again on the draft just sent.
+await box.fill('echo\nsent by the button')
+await send.click()
+await until('the box empty after Send', async () => (await box.inputValue()) === '' && (await focused()))
+await settled()
+check(!(await expanded()) && (await height()) === resting, 'the Send button sends: the box closes and empties, and keeps the cursor for the next prompt')
+await until('the button’s reply landed', async () => (await page.locator('.events .message.assistant', { hasText: 'sent by the button' }).count()) === 1 && !(await convOf(C)).turn_active)
 
 // a refused send keeps the box open, focused and with its draft.
 await page.route('**/api/conversations/*/prompt', (route) => route.fulfill({ status: 409, contentType: 'application/json', body: '{"code":"conflict","message":"refused by the check"}' }))
@@ -745,7 +757,7 @@ must((await api('DELETE', `/api/conversations/${left}`)).status === 204, 'the co
 await page.evaluate((p) => {
   location.hash = `#/p/${p}`
 }, P.id)
-await page.getByRole('button', { name: /Adopt a session/ }).click()
+await page.locator('article.detail').getByRole('button', { name: /Adopt a session/ }).click()
 const adoptDialog = page.locator('dialog[open].adopt-dialog')
 await until('the session to adopt listed', async () => (await adoptDialog.locator('label.session-row', { hasText: 'a session to adopt for the focus' }).count()) === 1)
 await adoptDialog.locator('label.session-row', { hasText: 'a session to adopt for the focus' }).click()
@@ -910,6 +922,36 @@ const beforeKey = await scroller.evaluate((m) => m.scrollTop)
 await page.keyboard.press('PageUp')
 await until('the history scrolled by its own key', async () => (await scroller.evaluate((m) => m.scrollTop)) < beforeKey)
 check(true, 'and the keys then scroll the history')
+// typing anywhere goes to the reply box: from the history, the first
+// character with it, at the end of the draft. Space is the history's own.
+const spaceTop = await scroller.evaluate((m) => m.scrollTop)
+await page.keyboard.press('Space')
+await until('Space scrolled the history', async () => (await scroller.evaluate((m) => m.scrollTop)) > spaceTop)
+check(!(await focused()) && (await box.inputValue()) === 'abc', 'Space in the history scrolls it and types nothing')
+await page.keyboard.type('de')
+await until('typed into the box', async () => (await box.inputValue()) === 'abcde')
+check(await focused(), 'typing in the history goes to the reply box, the first character with it, at the end of the draft')
+// not from another field that takes text, nor with a dialog open.
+await page.evaluate(() => {
+  const field = document.createElement('input')
+  field.id = 'type-field'
+  document.querySelector('.conversation-head').append(field)
+  field.focus()
+})
+await page.keyboard.type('zz')
+check((await page.evaluate(() => document.getElementById('type-field').value)) === 'zz' && (await box.inputValue()) === 'abcde', "typing in another field stays in that field")
+await page.evaluate(() => document.getElementById('type-field').remove())
+await page.evaluate(() => {
+  const d = document.createElement('dialog')
+  d.id = 'type-dialog'
+  d.append(document.createElement('button'))
+  document.body.append(d)
+  d.showModal()
+})
+await page.keyboard.type('q')
+check((await box.inputValue()) === 'abcde' && !(await focused()), 'with a dialog open, typing goes nowhere near the reply box')
+await page.evaluate(() => document.getElementById('type-dialog').remove())
+await box.fill('abc')
 await box.click()
 await box.fill('look @')
 const pathList = page.locator('.path-list')
@@ -920,6 +962,15 @@ check(await focused(), 'with the path list open, Escape closes the list first, t
 await page.keyboard.press('Escape')
 await until('then leaves', async () => !(await focused()))
 check(true, 'and a second Escape leaves the box')
+// a send with the path list open closes the list with the box.
+await box.click()
+await box.fill('echo\nsent from the list @')
+await until('the path list open for a send', async () => await pathList.isVisible())
+await box.press('Control+Enter')
+await until('the box empty after a send from the list', async () => (await box.inputValue()) === '')
+await settled()
+check(!(await pathList.isVisible()) && !(await expanded()) && (await focused()), 'a send with the path list open closes the list with the box, the cursor still in the box')
+await until('the send from the list answered', async () => (await page.locator('.events .message.assistant', { hasText: 'sent from the list @' }).count()) === 1 && !(await convOf(H)).turn_active)
 await box.fill('')
 await outside()
 

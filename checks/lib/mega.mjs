@@ -384,9 +384,12 @@ export async function suite(name, { bare = false, tz, searchDirs = [], megaName 
   const consoleErrors = []
   const pages = []
   // timezoneId gives the page a zone of its own, as a hardened browser that
-  // tells a page it is in UTC does.
-  const page = async ({ width = 1280, height = 900, colorScheme = 'light', init, initArg, timezoneId } = {}) => {
+  // tells a page it is in UTC does. platform is what navigator.platform
+  // says, which picks the page's keys and how it names them: Linux by
+  // default, whatever machine the checks run on, and 'MacIntel' for a Mac.
+  const page = async ({ width = 1280, height = 900, colorScheme = 'light', init, initArg, timezoneId, platform = 'Linux x86_64' } = {}) => {
     const ctx = await browser.newContext({ viewport: { width, height }, colorScheme, ...(timezoneId ? { timezoneId } : {}) })
+    await ctx.addInitScript((value) => Object.defineProperty(Navigator.prototype, 'platform', { get: () => value, configurable: true }), platform)
     if (init) await ctx.addInitScript(init, initArg)
     const p = await ctx.newPage()
     pages.push(p)

@@ -1,6 +1,6 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent } from 'react'
 import { starProject } from '../api'
-import { folds, isFolded } from '../prefs'
+import { folds, isFolded, type FoldChoice } from '../prefs'
 import { select, type Selection } from '../selection'
 import { connectionLabel, connectionOf, failing, serviceAddress, type Knowledge, type StreamState } from '../stream'
 import { useWallNow } from '../clock'
@@ -12,8 +12,9 @@ import { LastInstructed } from './LastInstructed'
 import { lastInstructed } from '../instructed'
 import { FooterGate } from './Gate'
 import { Icon, IconButton } from './Icon'
-import { missingReason } from '../checkout'
-import { panelShortcut } from './SidePanel'
+import { environmentReason, missingReason } from '../checkout'
+import { collapseAll, expandAll, nextWaiting, panelFocus, panelToggle } from '../keys'
+import { entryRow, focusPanel } from '../panel'
 import { aboutTitle, newerLabel } from '../build'
 import { shutDownFooter } from '../gate'
 
@@ -32,6 +33,12 @@ interface SidebarProps {
   // what the page is waiting for, named in the connection label's title.
   waiting: Waiting | null
   onRegister: () => void
+  // a project row's adopt a session and new conversation, and what holds
+  // new work page-wide, a shutdown; the row adds its own checkout and
+  // environment, as the project page does.
+  onLaunch: (projectId: string) => void
+  onAdopt: (projectId: string) => void
+  heldBy: string | null
   onCollapse: () => void
   gate: ShutdownGate | undefined
   shutDownAt: Date | null
@@ -52,7 +59,7 @@ interface SidebarProps {
 export function Sidebar(props: SidebarProps) {
   const { projects, conversations, needsYou, selection, streamState, stale, loaded, knowledge, onRegister, onCollapse } = props
   const { gate, shutDownAt, shutDownHeard, gateBusy, onArm, onCancelShutdown } = props
-  const { waiting: waitingFor, about, newer, onAbout } = props
+  const { waiting: waitingFor, about, newer, onAbout, onLaunch, onAdopt, heldBy } = props
   // before the first read the page knows nothing, and says so, never "none".
   const unknownText =
     knowledge === 'unreachable'
@@ -101,11 +108,62 @@ export function Sidebar(props: SidebarProps) {
     }
   }
 
+  // expand all and collapse all record a choice for every project, as a
+  // press on each one's own control would.
+  const foldAll = (choice: FoldChoice) => folds.setAll(projects.map((project) => project.id), choice)
+
+  // the keys in the projects tree. Up, Down, Home and End move the focus
+  // along the rows, across both groups and on into the needs-you list above
+  // (rowStep). Right unfolds a folded project, or
+  // goes to its first conversation; Left folds an unfolded one, or goes from
+  // a conversation to its project. a fold or an unfold is a choice, as the
+  // chevron's is. the keys only move the focus: Enter or Space opens a row,
+  // since opening a conversation marks it read and puts the cursor in its
+  // reply box.
+  const onTreeKey = (event: KeyboardEvent<HTMLElement>) => {
+    const here = rowOf(event)
+    if (!here) {
+      return
+    }
+    event.preventDefault()
+    let next: HTMLElement | null | undefined
+    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      const project = projects.find((p) => p.id === here.dataset.project)
+      if (project) {
+        const folded = isFolded(foldState, project)
+        if ((event.key === 'ArrowRight' && folded) || (event.key === 'ArrowLeft' && !folded)) {
+          folds.toggle(project)
+        } else if (event.key === 'ArrowRight') {
+          next = here.closest('li')?.querySelector<HTMLElement>('.tree-children .tree-item')
+        }
+      } else if (event.key === 'ArrowLeft') {
+        next = here.closest('.tree-children')?.closest('li')?.querySelector<HTMLElement>('.project-item')
+      }
+    } else {
+      next = rowStep(event.currentTarget, here, event.key)
+    }
+    next?.focus()
+  }
+
+  // the needs-you list takes Up, Down, Home and End, as the tree does, the
+  // two being one run of rows.
+  const onWaitingKey = (event: KeyboardEvent<HTMLElement>) => {
+    const here = rowOf(event)
+    if (!here || event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      return
+    }
+    event.preventDefault()
+    rowStep(event.currentTarget, here, event.key)?.focus()
+  }
+
   // where the operator left off in each project; not attention.
   const leftOff = lastInstructed(conversations)
   const projectItem = (project: Project) => {
     const inProject = conversations.filter((conversation) => conversation.project_id === project.id)
     const folded = isFolded(foldState, project)
+    // new work in the project is held as on its page: by a shutdown, a
+    // missing checkout or a refused environment, the reason as the label.
+    const held = heldBy ?? missingReason(project) ?? environmentReason(project)
     return (
       <li key={project.id}>
         <div className={isSelected('project', project.id) ? 'project-row selected' : 'project-row'}>
@@ -119,6 +177,7 @@ export function Sidebar(props: SidebarProps) {
           <button
             type="button"
             className="tree-item project-item"
+            data-project={project.id}
             aria-current={isSelected('project', project.id) ? 'true' : undefined}
             onClick={() => select({ kind: 'project', id: project.id })}
           >
@@ -130,6 +189,8 @@ export function Sidebar(props: SidebarProps) {
               </span>
             )}
           </button>
+          <IconButton className="row-action" icon="download" label={held ?? `Adopt a session in ${project.name}`} disabled={held !== null} onClick={() => onAdopt(project.id)} />
+          <IconButton className="row-action" icon="add_comment" label={held ?? `New conversation in ${project.name}`} disabled={held !== null} onClick={() => onLaunch(project.id)} />
           <IconButton
             className={project.starred ? 'star starred' : 'star'}
             icon={project.starred ? 'star' : 'star_border'}
@@ -164,18 +225,18 @@ export function Sidebar(props: SidebarProps) {
   }
 
   return (
-    <nav className="sidebar">
-      <section className="needs-you">
+    <nav className="sidebar" onClick={onPanelClick} onKeyDown={onPanelKey} aria-keyshortcuts={panelFocus.aria}>
+      <section className="needs-you" tabIndex={-1}>
         <div className="section-head">
           <h2>Needs you</h2>
-          <span className="muted shortcut" title="Next waiting conversation: Ctrl+/, anywhere but in a dialog">
-            Ctrl+/
+          <span className="muted shortcut" title={`Next waiting conversation: ${nextWaiting.label}, anywhere but in a dialog`}>
+            {nextWaiting.label}
           </span>
         </div>
         {unknown ?? (waiting.length === 0 ? (
           <p className="muted">Nothing waiting.</p>
         ) : (
-          <ul>
+          <ul onKeyDown={onWaitingKey}>
             {waiting.map((conversation) => (
               <li key={conversation.id}>
                 <button
@@ -195,18 +256,26 @@ export function Sidebar(props: SidebarProps) {
           </ul>
         ))}
       </section>
-      <section className="projects">
+      <section className="projects" tabIndex={-1} onKeyDown={onTreeKey}>
         <div className="section-head">
           <h2>Projects</h2>
-          <IconButton
-            icon="create_new_folder"
-            label={loaded ? 'Register a project' : 'Register a project (waiting for the service)'}
-            // a word as well as the icon while there is nothing yet, so the
-            // first page can name the control it points to.
-            word={loaded && projects.length === 0 ? 'Register' : undefined}
-            disabled={!loaded}
-            onClick={onRegister}
-          />
+          <span className="section-actions">
+            {loaded && projects.length > 0 && (
+              <>
+                <IconButton icon="unfold_more" label={`Expand all projects (${expandAll.label})`} aria-keyshortcuts={expandAll.aria} onClick={() => foldAll('unfolded')} />
+                <IconButton icon="unfold_less" label={`Collapse all projects (${collapseAll.label})`} aria-keyshortcuts={collapseAll.aria} onClick={() => foldAll('folded')} />
+              </>
+            )}
+            <IconButton
+              icon="create_new_folder"
+              label={loaded ? 'Register a project' : 'Register a project (waiting for the service)'}
+              // a word as well as the icon while there is nothing yet, so the
+              // first page can name the control it points to.
+              word={loaded && projects.length === 0 ? 'Register' : undefined}
+              disabled={!loaded}
+              onClick={onRegister}
+            />
+          </span>
         </div>
         {starError && <p className="error">{starError}</p>}
         {unknown}
@@ -243,11 +312,87 @@ export function Sidebar(props: SidebarProps) {
           {!gate?.armed && !shutDownAt && (
             <IconButton icon="power_settings_new" label="Shut down when every agent is idle" disabled={gateBusy || !loaded || stale} onClick={onArm} />
           )}
-          <IconButton icon="keyboard_double_arrow_left" label={`Collapse the side panel (${panelShortcut})`} onClick={onCollapse} />
+          <IconButton icon="keyboard_double_arrow_left" label={`Collapse the side panel (${panelToggle.label})`} onClick={onCollapse} />
         </span>
       </footer>
     </nav>
   )
+}
+
+// onPanelClick gives the focus to the list a pointer clicks in, a row or a
+// row's control included, once the click has done its own work: the list
+// holds it with no row highlighted, and the first row key highlights one
+// (onPanelKey). Safari and Firefox on macOS leave a clicked button
+// unfocused, so without this the keys had nothing to start from. opening a
+// conversation still puts the cursor in its reply box afterwards, as
+// InputPanel does for any way of opening it. a click made by the keyboard,
+// Enter or Space on a focused control (detail 0), leaves the focus where it
+// is, and so does a click outside the two lists, or one that ends a text
+// selection.
+function onPanelClick(event: MouseEvent<HTMLElement>) {
+  const target = event.target as Element
+  const list = target.closest('section.needs-you') ? 'needs-you' : target.closest('section.projects') ? 'projects' : null
+  if (!list || event.detail === 0 || !window.getSelection()?.isCollapsed) {
+    return
+  }
+  focusPanel(list)
+}
+
+// onPanelKey: with the focus on one of the panel's lists and no row
+// highlighted, the first row key highlights one. Home and End go to the
+// panel's first and last row, and any other to the list's entry row
+// (entryRow); every key after that moves from the row, as onTreeKey and
+// onWaitingKey do.
+function onPanelKey(event: KeyboardEvent<HTMLElement>) {
+  const target = event.target as Element
+  const list = target.matches('section.needs-you') ? 'needs-you' : target.matches('section.projects') ? 'projects' : null
+  if (!list || !rowKeys.has(event.key) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+    return
+  }
+  event.preventDefault()
+  const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('.tree-item')]
+  const row = event.key === 'Home' ? rows[0] : event.key === 'End' ? rows[rows.length - 1] : entryRow(list)
+  row?.focus()
+}
+
+// rowKeys are the keys a list of rows takes, with no modifier.
+const rowKeys = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'])
+
+// rowOf is the row a key is pressed on, when the list takes that key: the
+// row's main button, which the fold and the star on a project's row stand
+// for. for any other key, or away from a row, it is null and the key is left
+// alone.
+function rowOf(event: KeyboardEvent<HTMLElement>): HTMLElement | null {
+  if (!rowKeys.has(event.key) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+    return null
+  }
+  const target = event.target as HTMLElement
+  return target.closest('.project-row')?.querySelector<HTMLElement>('.project-item') ?? target.closest<HTMLElement>('.tree-item')
+}
+
+// rowStep is where Up and Down move the focus, one row along and never past
+// either end, and Home and End, to the first and the last row. the rows are
+// the whole panel's in the order they are shown: the needs-you list, then
+// the tree, leaving out what is folded. so Up from the first project goes to
+// the last waiting conversation, and Down from it back.
+function rowStep(list: HTMLElement, here: HTMLElement, key: string): HTMLElement | undefined {
+  const panel = list.closest<HTMLElement>('nav.sidebar') ?? list
+  const rows = [...panel.querySelectorAll<HTMLElement>('.tree-item')]
+  const at = rows.indexOf(here)
+  if (at < 0) {
+    return undefined
+  }
+  switch (key) {
+    case 'ArrowDown':
+      return rows[Math.min(at + 1, rows.length - 1)]
+    case 'ArrowUp':
+      return rows[Math.max(at - 1, 0)]
+    case 'Home':
+      return rows[0]
+    case 'End':
+      return rows[rows.length - 1]
+  }
+  return undefined
 }
 
 // ConnectionStatus is the footer's connection label. while the page waits on

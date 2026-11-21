@@ -20,6 +20,7 @@ Where things go:
 - Each suite gets `<root>/<suite>/`, emptied when the suite starts and left afterwards. It holds the suite's service log, `service.log`, its screenshots under `shots/`, its checkouts and data.
 - Each suite's printed output is also kept in `<root>/<suite>.out`.
 - The port is 18470, or `MEGA_CHECK_PORT`. A suite refuses 6342, the operator's default, and 8470, the default before 2026-11-18, which a mega not yet restarted may still serve. It refuses to start while something else answers on its port. The firstrun suite also starts megas on the four ports above its own, and refuses those the same way, before anything starts (`requireScratchPort`).
+- Every page's `navigator.platform` is `Linux x86_64`, whatever machine the checks run on, because it picks the page's keys and how the page names them (`ui/src/keys.ts`). A suite asks for a Mac with `t.page({ platform: 'MacIntel' })`.
 
 ## What each suite covers
 
@@ -117,7 +118,7 @@ Where things go:
   - the override;
   - values only on request;
   - a project with no file.
-- **`panel.mjs`** (137 steps): the input panel. Its config names `~/Sandbox` and `~/Screenshots`, in its scratch `HOME`, beyond the checkout. It checks the following:
+- **`panel.mjs`** (143 steps): the input panel. Its config names `~/Sandbox` and `~/Screenshots`, in its scratch `HOME`, beyond the checkout. It checks the following:
   - the reply box resting at one line with the cursor in it when the page loads on a conversation, and its title naming Ctrl+Space;
   - focus alone leaving it at one line, the first character opening it to its height, and a draft opening it on focus;
   - the line above the panel staying put as the box opens and closes, and a view at the bottom staying there;
@@ -127,10 +128,13 @@ Where things go:
   - nothing read behind a dialog: a conversation switched to by the address behind one, and output arriving in the open conversation while one is open, staying unread until the dialog closes and read then;
   - Ctrl+Space from the history and from the side panel, and nothing with a dialog open or with the cursor already there;
   - Escape leaving the box for the history, whose keys then scroll it, and closing the path list first;
+  - a send with the path list open closing the list with the box, the cursor kept in the box;
+  - typing from the history going to the reply box, the first character with it, at the end of the draft; Space scrolling the history and typing nothing; typing in another field staying there; nothing reaching the box with a dialog open;
   - Page Up and Page Down scrolling the history from an empty box and ending following as a wheel does, and the box's own with a draft;
   - the allow keys from a box the switch focused, and from the history after Escape;
   - a read waiting for the view: output arriving while scrolled up, "Newer activity below" showing, staying unread and read on return to the newest output; the same when a dialog closes over a view still scrolled up; and a read refused once, tried again once, after a wait;
-  - Ctrl+Enter sending, closing the box and going to the end, following the reply;
+  - Ctrl+Enter sending, closing the box with the cursor kept in it, and going to the end, following the reply;
+  - the Send button doing the same, the box not opening again on the sent draft as it takes the cursor back;
   - a refused send keeping the box open, focused and with its draft;
   - Send and Start disabled with the reason while a shutdown is armed or the checkout is missing, the shutdown's first;
   - Start on a released conversation;
@@ -203,13 +207,19 @@ Where things go:
   - the asking page, back in touch before its first workspace read of the new service has landed, which the check holds, not reporting the old shutdown as under way; and, the new service armed from elsewhere before that read lands, showing the gate armed afresh, never the old shutdown;
   - both pages recovering when the service returns.
 
-- **`side.mjs`** (74 steps): the side panel and the rail. Its mega is named `side-check` in its config. It checks the following:
+- **`side.mjs`** (124 steps): the side panel and the rail. Its mega is named `side-check` in its config. It checks the following:
   - projects sorted by name ignoring case, the id breaking a tie, and starred first in their own group;
   - project rows bolder than their conversations;
   - folds: a starred project unfolded and any other folded until the operator chooses; his choice kept across a reload and outlasting a star or an unstar; navigation by the needs-you list or Ctrl+/ unfolding without recording a choice; the old folded list carried over as folded choices; a removed project's choice forgotten; a folded project keeping its rollup mark;
+  - expand all and collapse all before Register, titled with their keys, each recording a choice for every project, kept across a reload, collapse all folding the open conversation's project too. It saves the projects section as `shots/projects-head.png`;
+  - Ctrl+Shift+Down and Up collapsing and expanding all from the page, Ctrl+Shift+Up left to the reply box, and ⌃⌘↑ doing nothing off a Mac;
+  - the Mac's keys, on a page whose `navigator.platform` is `MacIntel`: the hint and every title and `aria-keyshortcuts` naming the ⌃⌘ keys and ⌘↩; ⌃⌘↓ and ⌃⌘↑ collapsing and expanding all; ⌃⌘N opening the next waiting conversation and Ctrl+/ still doing so; ⌃⌘R putting the cursor in the reply box; ⌃⌘S collapsing the panel from the reply box and Ctrl+' showing it again; ⌃⌘P giving the tree the focus with no row highlighted from the reply box, the first arrow then highlighting the open conversation, and from the rail, opening the panel first;
+  - the arrow keys, on a page of their own: Up, Down, Home and End across both groups and the needs-you list as one run of rows, stopping at either end of the panel; Right unfolding a project or going into it, Left going to the project or folding it, each fold a recorded choice; the keys from a row's fold control; a key with a modifier left alone; nothing opened by an arrow, and Enter opening a row; the needs-you list taking Up, Down, Home and End, and not Left;
+  - the focus into the panel: a pointer's click on a row, as Safari's and Firefox's on macOS (a click event from script with no focus of its own) and as Chromium's, opening it and leaving the tree holding the focus with no row highlighted; Enter on a focused row keeping the focus on it; a click on each heading giving its list the focus, no row highlighted; the first arrow, Up or Down, highlighting the list's selected row, else its first, and End the panel's last; Ctrl+Shift+L giving the tree the focus the same way, named in the panel's `aria-keyshortcuts`. Chromium cannot show Safari's own clicks; `probes/keys/focus-walk.mjs` drives WebKit for that;
+  - a project row's adopt a session and new conversation, before its star: hidden at rest, shown with the focus on the row and under the pointer, each opening the project page's dialog, and both held by a missing checkout with the reason as their title. It saves the hovered row as `shots/project-row-hover.png`;
   - stars seen by a second page from the stream alone;
   - the panel's width within 200 to 480, kept across a reload;
-  - shortcuts: Ctrl+/ from the page and from the reply box, no bare n, Ctrl+' collapsing and expanding from either, typing nothing, and the hint and titles naming them;
+  - shortcuts: Ctrl+/ from the page and from the reply box, a bare n typing into the reply box and moving nothing, Ctrl+' collapsing and expanding from either, typing nothing, and the hint and titles naming them;
   - the rail: the count, one mark per project in tree order, the working arc, its width, kept across a reload, and a mark opening the panel on its project;
   - a missing checkout's mark in the tree and on the rail, lifting when it is back;
   - project removal refused while a runtime lives and naming it, then deleting the project's logs;

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mega key probe</title>
+<style>
+  body { font: 15px/1.4 system-ui, sans-serif; margin: 2em; max-width: 52em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border-bottom: 1px solid #ddd; padding: 4px 8px; text-align: left; }
+  td.seen { color: #1a7f37; font-weight: 600; }
+  td.unseen { color: #999; }
+  textarea { width: 100%; height: 4em; }
+  #log { font: 12px/1.4 ui-monospace, monospace; white-space: pre; max-height: 18em; overflow: auto; background: #f6f6f6; padding: 8px; }
+</style>
+</head>
+<body>
+<h1>mega key probe</h1>
+<p>Press each key below, once with the focus on the page and once in the text field. A row turns green when the page sees the key. A key the browser or the system takes never reaches the page and stays grey. Nothing is sent anywhere.</p>
+<p id="platform"></p>
+<textarea placeholder="Click here, then press the keys again: a field that takes text"></textarea>
+<table>
+  <thead><tr><th>Key</th><th>mega's action</th><th>On the page</th><th>In the field</th></tr></thead>
+  <tbody id="keys"></tbody>
+</table>
+<h2>Every key press</h2>
+<div id="log"></div>
+<script>
+// the chords mega binds, as keys.ts matches them. every one is taken here,
+// so the browser's own action, where it has one, does not run.
+const letter = (e, l) => {
+  const key = e.key.toLowerCase()
+  return /^[a-z]$/.test(key) ? key === l : e.code === `Key${l.toUpperCase()}`
+}
+const ctrlMeta = (e) => e.ctrlKey && e.metaKey && !e.altKey && !e.shiftKey
+const ctrlOnly = (e) => e.ctrlKey && !e.metaKey && !e.altKey
+const keys = [
+  ['⌃⌘N', 'next waiting conversation', (e) => ctrlMeta(e) && letter(e, 'n')],
+  ['⌃⌘S', 'show or hide the side panel', (e) => ctrlMeta(e) && letter(e, 's')],
+  ['⌃⌘R', 'put the cursor in the reply box', (e) => ctrlMeta(e) && letter(e, 'r')],
+  ['⌃⌘P', 'put the focus on the side panel', (e) => ctrlMeta(e) && letter(e, 'p')],
+  ['⌃⌘↑', 'expand all projects', (e) => ctrlMeta(e) && e.key === 'ArrowUp'],
+  ['⌃⌘↓', 'collapse all projects', (e) => ctrlMeta(e) && e.key === 'ArrowDown'],
+  ['⌘↩', 'send; allow the oldest approval', (e) => e.metaKey && !e.ctrlKey && !e.shiftKey && e.key === 'Enter'],
+  ['⇧⌘↩', 'allow the tool for the session', (e) => e.metaKey && !e.ctrlKey && e.shiftKey && e.key === 'Enter'],
+  ['Ctrl+/', 'next waiting conversation', (e) => ctrlOnly(e) && e.code === 'Slash'],
+  ["Ctrl+'", 'show or hide the side panel', (e) => ctrlOnly(e) && e.code === 'Quote'],
+  ['Ctrl+Space', 'put the cursor in the reply box', (e) => ctrlOnly(e) && !e.shiftKey && e.code === 'Space'],
+  ['Ctrl+Shift+L', 'put the focus on the side panel', (e) => ctrlOnly(e) && e.shiftKey && e.code === 'KeyL'],
+  ['Ctrl+Shift+↑', 'expand all projects', (e) => ctrlOnly(e) && e.shiftKey && e.key === 'ArrowUp'],
+  ['Ctrl+Shift+↓', 'collapse all projects', (e) => ctrlOnly(e) && e.shiftKey && e.key === 'ArrowDown'],
+]
+document.getElementById('platform').textContent = `navigator.platform: ${navigator.platform}. User agent: ${navigator.userAgent}`
+const body = document.getElementById('keys')
+const cells = keys.map(([name, action]) => {
+  const row = body.insertRow()
+  row.insertCell().textContent = name
+  row.insertCell().textContent = action
+  const page = row.insertCell()
+  const field = row.insertCell()
+  for (const cell of [page, field]) {
+    cell.textContent = 'not seen'
+    cell.className = 'unseen'
+  }
+  return { page, field }
+})
+const log = document.getElementById('log')
+window.addEventListener('keydown', (e) => {
+  const mods = ['ctrlKey', 'altKey', 'shiftKey', 'metaKey'].filter((m) => e[m]).map((m) => m.replace('Key', '')).join('+')
+  log.textContent = `${mods || '-'}  key=${JSON.stringify(e.key)}  code=${e.code}  target=${e.target.tagName.toLowerCase()}\n` + log.textContent
+  keys.forEach(([, , matches], i) => {
+    if (matches(e)) {
+      e.preventDefault()
+      const cell = e.target instanceof HTMLTextAreaElement ? cells[i].field : cells[i].page
+      cell.textContent = 'seen'
+      cell.className = 'seen'
+    }
+  })
+})
+</script>
+</body>
+</html>

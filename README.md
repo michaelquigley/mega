@@ -54,13 +54,16 @@ The first page says what mega found: each harness with its version, or why it ca
 
 1. **Register the project.** Press **Register a project**, the folder button at the top of the side panel, and give the checkout's absolute path.
 2. **Launch.** On the project's page, press **New conversation**, choose the harness, write the opening prompt, and launch. The model and effort start as the harness's own settings name them.
-3. **Answer.** An approval or a question docks above the reply box until you answer it. A question Codex asks in its message docks only while the turn that asked is running; once that turn ends, answer it in the reply box. Ctrl+Enter sends a reply. With the reply box empty, it allows the oldest docked approval.
-4. **Keys.** Opening a conversation puts the cursor in its reply box, which opens as you type.
-   - **Ctrl+Space** puts the cursor back in the reply box from anywhere on the page, except while a dialog is open.
+3. **Answer.** An approval or a question docks above the reply box until you answer it. A question Codex asks in its message docks only while the turn that asked is running; once that turn ends, answer it in the reply box. Ctrl+Enter (⌘↩ on a Mac) sends a reply. With the reply box empty, it allows the oldest docked approval.
+4. **Keys.** Opening a conversation puts the cursor in its reply box, which opens as you type, and keeps it there after a send. Typing anywhere else on the page goes to the box too, except in another text field. On a Mac, mega's own keys are ⌃⌘ chords, given second below; the Ctrl keys work there too.
+   - **Ctrl+Space** (⌃⌘R) puts the cursor back in the reply box from anywhere on the page, except while a dialog is open.
    - **Escape** leaves the box for the history, whose keys then scroll it.
    - **Page Up and Page Down** scroll the history from an empty reply box.
-   - **Ctrl+/** opens the next conversation waiting on you, except while a dialog is open.
-   - **Ctrl+'** shows and hides the side panel.
+   - **Ctrl+/** (⌃⌘N) opens the next conversation waiting on you, except while a dialog is open.
+   - **Ctrl+'** (⌃⌘S) shows and hides the side panel.
+   - **Ctrl+Shift+Up and Down** (⌃⌘↑ and ⌃⌘↓) expand and collapse every project in the side panel.
+   - **Ctrl+Shift+L** (⌃⌘P) puts the focus on the side panel's projects, and a click in a list puts it on that list. No row is highlighted until the first arrow key.
+   - **The arrow keys** move through the projects and the needs-you list. Right unfolds a project and Left folds it. Enter opens a row.
 
 ### pi, if you want it
 

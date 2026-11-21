@@ -141,6 +141,16 @@ export const folds = {
     viewing.delete(project.id)
     setFolds({ choices: { ...current.choices, [project.id]: choice }, viewing }, true)
   },
+  // setAll records one choice for each of these projects, as a press on each
+  // one's own control would: expand all and collapse all.
+  setAll(ids: string[], choice: FoldChoice) {
+    const choices = { ...current.choices }
+    for (const id of ids) {
+      choices[id] = choice
+    }
+    const set = new Set(ids)
+    setFolds({ choices, viewing: new Set([...current.viewing].filter((id) => !set.has(id))) }, true)
+  },
   // view unfolds a project for now, recording nothing.
   view(id: string) {
     if (!current.viewing.has(id)) {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
+import { flushSync } from 'react-dom'
 import { interruptConversation, releaseConversation, removeConversation, resumeConversation, sendPrompt, setModel, setPermissionMode, startRuntime, updateConversation } from '../api'
 import { harnessLabel, harnessOf, harnesses } from '../harnesses'
 import { place } from '../latest'
@@ -18,6 +19,7 @@ import { McpPanel } from './Mcp'
 import { mcpSummaryText, mcpTrouble, mcpTroubleText } from '../mcp'
 import { environmentReason } from '../checkout'
 import { dialogOpen } from '../modal'
+import { editing, replyFocus, sendKey } from '../keys'
 
 // drafts stay in the browser, per conversation, and never reach the service.
 // they survive collapsing the box, switching conversations and reconnects.
@@ -52,25 +54,6 @@ const clampHeight = (height: number) => Math.min(Math.max(height, minHeight), ma
 
 // settleMs is how long a docked request waits before a key can answer it.
 const settleMs = 500
-
-// replyShortcut puts the cursor in the reply box, as the box's title says.
-export const replyShortcut = 'Ctrl+Space'
-
-// isReplyFocus is ctrl+space, by physical key so it holds across layouts, from
-// anywhere on the page. some desktops keep it for switching input methods and
-// never pass it on; the operator's browser is to be confirmed by hand.
-function isReplyFocus(event: globalThis.KeyboardEvent): boolean {
-  return event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.code === 'Space'
-}
-
-// typingIn is whether focus is in a field that takes text, which opening a
-// conversation never takes the focus from.
-function typingIn(element: Element | null): boolean {
-  if (element instanceof HTMLTextAreaElement || (element instanceof HTMLElement && element.isContentEditable)) {
-    return true
-  }
-  return element instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'submit', 'reset', 'range', 'color', 'file', 'image'].includes(element.type)
-}
 
 // historyOf is the column the history scrolls in: what Escape hands the keys
 // to, and, like the page itself, somewhere focus goes nowhere in particular.
@@ -151,7 +134,7 @@ export function InputPanel(props: InputPanelProps) {
   // kept from before opens it.
   useEffect(() => {
     const box = boxRef.current
-    if (!box || dialogOpen() || typingIn(document.activeElement)) {
+    if (!box || dialogOpen() || editing(document.activeElement)) {
       return
     }
     box.focus({ preventScroll: true })
@@ -164,7 +147,7 @@ export function InputPanel(props: InputPanelProps) {
   // the focus, such as a dialog's close.
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (!isReplyFocus(event)) {
+      if (!replyFocus.matches(event)) {
         return
       }
       event.preventDefault()
@@ -173,6 +156,31 @@ export function InputPanel(props: InputPanelProps) {
         setMenu(false)
         box.focus({ preventScroll: true })
       }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // typing anywhere on the page goes to the reply box: a key that types a
+  // character, with no Ctrl, ⌘ or Alt, moves the cursor to the end of the
+  // box before the character lands, so it lands there. not from a field that
+  // takes text or a select, whose keys are their own, nor while a dialog is
+  // open or a key is mid-composition. Space is left alone, since it presses
+  // the focused button and scrolls the history; the arrows, Enter and every
+  // other named key type nothing and are left alone too.
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      const box = boxRef.current
+      const focus = document.activeElement
+      if (!box || event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) {
+        return
+      }
+      if ([...event.key].length !== 1 || event.key === ' ' || focus === box || editing(focus) || focus instanceof HTMLSelectElement || dialogOpen()) {
+        return
+      }
+      setMenu(false)
+      box.focus({ preventScroll: true })
+      box.setSelectionRange(box.value.length, box.value.length)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -213,7 +221,7 @@ export function InputPanel(props: InputPanelProps) {
   const activity = describeActivity(conversation, log, stale)
   // the placeholder says what is true: the activity line's own words while a
   // prompt cannot be sent.
-  const placeholder = blocked && activity ? activity.text : heldBy ??  'Reply (Ctrl+Enter to send)'
+  const placeholder = blocked && activity ? activity.text : heldBy ?? `Reply (${sendKey.label} to send)`
 
   // expanded, the box opens to the remembered height and grows with its
   // content to 60% of the viewport, then scrolls. collapsed, it is one line
@@ -411,13 +419,22 @@ export function InputPanel(props: InputPanelProps) {
     // a send the service refuses changes nothing: the box stays open with the
     // draft, and the error shows.
     if (await attempt(() => sendPrompt(conversation.id, text))) {
-      setDraft('')
       drafts.delete(conversation.id)
-      // sent: the box closes, focus leaves it so it stays closed, and the view
-      // goes to the newest activity, following the reply as it arrives.
+      // sent: the box closes to its one line and keeps the cursor, so the next
+      // prompt can be written while the reply arrives; focus alone never
+      // opens an empty box. the view goes to the newest activity, following
+      // the reply as it arrives.
       toLatestAfterSend.current = true
-      boxRef.current?.blur()
-      setExpanded(false)
+      // the box settles, empty, at one line and with its path list shut,
+      // before it takes the cursor: a press on Send took the focus away, and
+      // focus coming back to a box that still showed the sent draft would
+      // open it again.
+      flushSync(() => {
+        setDraft('')
+        setExpanded(false)
+        search.close()
+      })
+      boxRef.current?.focus({ preventScroll: true })
     }
   }
 
@@ -501,8 +518,8 @@ export function InputPanel(props: InputPanelProps) {
           ref={boxRef}
           rows={1}
           aria-label="Reply"
-          title={`Reply: ${replyShortcut} puts the cursor here from anywhere on the page, Escape leaves it for the history, and Ctrl+Enter sends`}
-          aria-keyshortcuts="Control+Space"
+          title={`Reply: ${replyFocus.label} puts the cursor here from anywhere on the page, Escape leaves it for the history, and ${sendKey.label} sends`}
+          aria-keyshortcuts={replyFocus.aria}
           placeholder={placeholder}
           value={draft}
           aria-autocomplete="list"
@@ -570,7 +587,7 @@ export function InputPanel(props: InputPanelProps) {
             <IconButton
               type="submit"
               icon="send"
-              label={heldBy ??  'Send (Ctrl+Enter)'}
+              label={heldBy ?? `Send (${sendKey.label})`}
               disabled={busy || blocked || draft.trim() === '' || heldBy !== null}
             />
             {canStart && (

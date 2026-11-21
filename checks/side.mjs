@@ -17,7 +17,10 @@
 // Ctrl+/ for the next waiting conversation and Ctrl+' for the panel, from
 // anywhere, and no bare n; folds, by default from the star, by choice kept in
 // the browser, and by navigation recording nothing, with the old folded list
-// carried over; the build's label and panel, with each harness's tested
+// carried over; expand all and collapse all, each recording a choice for
+// every project; the arrow keys in the tree and the needs-you list, moving
+// the focus and opening nothing, with Right and Left unfolding and folding;
+// the build's label and panel, with each harness's tested
 // range and the version found, and when the newest configuration snapshot
 // was taken and where, and a page older than the
 // service saying so without reloading; and every control named. and where
@@ -117,15 +120,19 @@ await page.keyboard.press('Control+Slash')
 await until('Ctrl+/ on unread', async () => (await heading()) === 'unread' && (await children('Delta').count()) === 1)
 check(!((Delta.id) in (await choices())), 'Ctrl+/ opens the next waiting conversation and unfolds its project, recording no choice')
 
-// a bare n does nothing now: pressed outside any field, then Ctrl+/, and
-// the selection has moved one step, not two (two would be back on unread).
+// a bare n is no longer a shortcut: pressed outside any field, it types into
+// the reply box, as any printable key does, and the selection stays. then
+// Ctrl+/ moves it one step, not two (two would be back on unread).
 await page.locator('.conversation-head h1').click()
 await page.keyboard.press('n')
+const box = page.getByRole('textbox', { name: 'Reply' })
+await until('n typed into the reply box', async () => (await box.inputValue()) === 'n')
+check((await heading()) === 'unread', 'a bare n is no longer a shortcut: it types into the reply box, and the selection stays')
+await box.fill('')
 await page.keyboard.press('Control+Slash')
 await until('Ctrl+/ back on asker', async () => (await heading()) === 'asker')
-check(true, 'a bare n is no longer a shortcut: Ctrl+/ alone moved the selection')
+check(true, 'Ctrl+/ alone moved the selection')
 // Ctrl+/ from the reply box types nothing.
-const box = page.getByRole('textbox', { name: 'Reply' })
 await box.click()
 await box.fill('a draft')
 await box.press('Control+Slash')
@@ -205,6 +212,293 @@ check(
 )
 await carried.close()
 
+// expand all and collapse all, and the arrow keys in the tree and the
+// needs-you list, on a page of their own, so no choice made here reaches the
+// main page. beta and gamma are starred, so with no choice they are unfolded
+// and the rest folded.
+const keys = await t.page()
+await keys.goto(`${url}/#/p/${roamer.id}`)
+await keys.locator('.side-foot .stream-connected').waitFor()
+const rowOn = (p, name) => p.locator('.projects .project-row', { has: p.locator('.tree-label', { hasText: new RegExp(`^${name}$`) }) })
+const childrenOn = (p, name) => rowOn(p, name).locator('xpath=..').locator('.tree-children .tree-item')
+const foldedOn = async (p, name) => (await rowOn(p, name).locator('.fold').getAttribute('aria-expanded')) === 'false' && (await childrenOn(p, name).count()) === 0
+const everyProject = ['beta', 'gamma', 'Alpha', 'alpha', 'Delta', 'roamer']
+const everyFoldedOn = async (p) => (await Promise.all(everyProject.map((name) => foldedOn(p, name)))).every(Boolean)
+const noneFoldedOn = async (p) => (await Promise.all(everyProject.map(async (name) => !(await foldedOn(p, name))))).every(Boolean)
+const keyRow = (name) => rowOn(keys, name)
+const keyChildren = (name) => childrenOn(keys, name)
+const keyFolded = (name) => foldedOn(keys, name)
+const everyFolded = () => everyFoldedOn(keys)
+const noneFolded = () => noneFoldedOn(keys)
+const every = async (choice) => {
+  const made = await choices(keys)
+  return [beta, gamma, Alpha, alpha, Delta, roamer].every((p) => made[p.id] === choice)
+}
+await until('the keys tree', async () => (await keys.locator('.projects .project-item').count()) === 6)
+const headLabels = await keys.locator('.projects .section-head button').evaluateAll((bs) => bs.map((b) => [b.getAttribute('aria-label'), b.getAttribute('aria-keyshortcuts')]))
+check(
+  JSON.stringify(headLabels) ===
+    JSON.stringify([
+      ['Expand all projects (Ctrl+Shift+Up)', 'Control+Shift+ArrowUp'],
+      ['Collapse all projects (Ctrl+Shift+Down)', 'Control+Shift+ArrowDown'],
+      ['Register a project', null],
+    ]),
+  `expand all and collapse all sit before Register, naming their keys: ${JSON.stringify(headLabels)}`,
+)
+await keys.locator('.projects').screenshot({ path: `${t.dir}/shots/projects-head.png` })
+
+await keys.getByRole('button', { name: 'Collapse all projects' }).click()
+await until('every project folded', everyFolded)
+check(await every('folded'), 'collapse all folds every project, the starred ones too, and records "folded" for each')
+await keys.getByRole('button', { name: 'Expand all projects' }).click()
+await until('every project unfolded', noneFolded)
+check(await every('unfolded'), 'expand all unfolds every project and records "unfolded" for each')
+await keys.reload()
+await keys.locator('.side-foot .stream-connected').waitFor()
+await until('the keys tree again', async () => (await keys.locator('.projects .project-item').count()) === 6)
+check(await noneFolded(), 'after a reload, every project is still unfolded by choice')
+// their keys off a Mac: Ctrl+Shift+Down and Up, from the page.
+await keys.evaluate(() => document.activeElement?.blur())
+await keys.keyboard.press('Control+Shift+ArrowDown')
+await until('every project folded by Ctrl+Shift+Down', everyFolded)
+check(await every('folded'), 'Ctrl+Shift+Down collapses all from the page')
+await keys.keyboard.press('Control+Shift+ArrowUp')
+await until('every project unfolded by Ctrl+Shift+Up', noneFolded)
+check(await every('unfolded'), 'Ctrl+Shift+Up expands all from the page')
+// collapse all folds what navigation unfolded too, the open conversation's
+// project included.
+await keys.getByRole('button', { name: 'Collapse all projects' }).click()
+await until('every project folded again', everyFolded)
+await keys.locator('.needs-you .tree-item').filter({ hasText: 'asker' }).click()
+await until('beta viewed', async () => (await keyChildren('beta').count()) === 1)
+// in a field that takes text, Ctrl+Shift+Up is the field's own, and off a
+// Mac the ⌃⌘ chords are nothing.
+const keysBox = keys.getByRole('textbox', { name: 'Reply' })
+await keysBox.press('Control+Shift+ArrowUp')
+await keysBox.press('Control+Meta+ArrowUp')
+check((await keyFolded('Delta')) && (await keysBox.evaluate((b) => b === document.activeElement)), "Ctrl+Shift+Up in the reply box is the box's own, and ⌃⌘↑ does nothing off a Mac")
+await keys.getByRole('button', { name: 'Collapse all projects' }).click()
+await until('beta folded by collapse all', async () => keyFolded('beta'))
+check(keys.url().endsWith(`#/c/${R}`), "collapse all folds the open conversation's project too, and the selection stays")
+
+// the arrows in the tree move the focus only; the selection stays put.
+await keys.goto(`${url}/#/p/${roamer.id}`)
+await until('roamer selected', async () => (await keyRow('roamer').getAttribute('class')).includes('selected'))
+const focusedIn = (p) =>
+  p.evaluate(() => {
+    const e = document.activeElement
+    if (e?.matches('.tree-item')) return e.querySelector('.tree-label')?.textContent ?? null
+    const of = e?.closest('.project-row')?.querySelector('.tree-label')?.textContent
+    return of !== undefined ? `${e.classList.contains('fold') ? 'fold' : 'other'} of ${of}` : null
+  })
+const focused = () => focusedIn(keys)
+const press = async (key, want) => {
+  await keys.keyboard.press(key)
+  await until(`${key} to ${want}`, async () => (await focused()) === want)
+}
+await keyRow('beta').locator('.project-item').focus()
+await press('ArrowDown', 'gamma')
+await press('ArrowDown', first)
+check(true, 'Down moves to the next row, from the starred group into the others')
+await press('End', 'roamer')
+await press('ArrowDown', 'roamer')
+// the needs-you list and the tree are one run of rows.
+const waitingNames = await keys.locator('.needs-you .tree-label').allTextContents()
+await press('Home', waitingNames[0])
+await press('ArrowUp', waitingNames[0])
+check(true, "Home and End go to the panel's first and last row, the first being the needs-you list's, and Up and Down stop at either end")
+await press('ArrowDown', waitingNames[1])
+await press('ArrowDown', 'beta')
+await press('ArrowUp', waitingNames[1])
+await press('ArrowDown', 'beta')
+check(true, 'Down from the last waiting conversation goes to the first project, and Up from the first project back to it')
+await keys.keyboard.press('ArrowRight')
+await until('beta unfolded by Right', async () => (await keyChildren('beta').count()) === 1)
+check((await choices(keys))[beta.id] === 'unfolded' && (await focused()) === 'beta', 'Right unfolds a folded project, records "unfolded" and keeps the focus on it')
+await press('ArrowRight', 'asker')
+await press('ArrowDown', 'gamma')
+await press('ArrowUp', 'asker')
+check(true, "Right on an unfolded project goes to its first conversation, and Up and Down walk the conversations' rows too")
+await press('ArrowLeft', 'beta')
+await keys.keyboard.press('ArrowLeft')
+await until('beta folded by Left', async () => keyFolded('beta'))
+check((await choices(keys))[beta.id] === 'folded' && (await focused()) === 'beta', 'Left goes from a conversation to its project, then folds it and records "folded"')
+await keys.keyboard.press('ArrowLeft')
+check((await keyFolded('beta')) && (await focused()) === 'beta', 'Left on a folded project does nothing')
+// from the fold control, the keys act on its row.
+await keyRow('gamma').locator('.fold').focus()
+await keys.keyboard.press('ArrowRight')
+await until('gamma unfolded from its fold', async () => (await keyChildren('gamma').count()) === 1)
+check((await focused()) === 'fold of gamma', 'Right on the fold control unfolds its project, and the focus stays')
+await press('ArrowDown', 'worker')
+check(true, 'Down from the fold control goes to the next row')
+await keys.keyboard.press('Shift+ArrowUp')
+check((await focused()) === 'worker', 'an arrow with a modifier is left alone')
+check(keys.url().endsWith(`#/p/${roamer.id}`), 'the arrows opened nothing: roamer is still selected')
+await keyRow('Delta').locator('.project-item').focus()
+await keys.keyboard.press('Enter')
+await until('Delta opened by Enter', async () => keys.url().endsWith(`#/p/${Delta.id}`))
+check(true, 'Enter on a row opens it')
+
+// the needs-you list takes Up, Down, Home and End, and Left and Right not.
+const waitingRows = await keys.locator('.needs-you .tree-label').allTextContents()
+const beforeList = keys.url()
+await keys.locator('.needs-you .tree-item').first().focus()
+await press('ArrowDown', waitingRows[1])
+await press('ArrowUp', waitingRows[0])
+await press('ArrowUp', waitingRows[0])
+await press('End', 'roamer')
+await press('Home', waitingRows[0])
+await keys.keyboard.press('ArrowLeft')
+check(waitingRows.length === 2 && (await focused()) === waitingRows[0] && keys.url() === beforeList, `the needs-you list moves the focus with Up, Down, Home and End, the first row its end, Left doing nothing, opening nothing: ${JSON.stringify(waitingRows)}`)
+
+// getting the focus into the panel. a pointer's click in a list, a row
+// included, does its work and gives the focus to the list itself, with no
+// row highlighted; the first arrow then highlights one. a click event with a
+// detail of 1 and no focus of its own stands in for Safari's and Firefox's
+// on macOS, which leave the button unfocused.
+const listIn = (p) => p.evaluate(() => (document.activeElement?.matches('section.needs-you') ? 'needs-you' : document.activeElement?.matches('section.projects') ? 'projects' : null))
+await keys.evaluate(() => document.activeElement?.blur())
+await keyRow('gamma').locator('.project-item').evaluate((b) => b.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })))
+await until('gamma opened by a click', async () => keys.url().endsWith(`#/p/${gamma.id}`))
+check((await listIn(keys)) === 'projects' && (await focused()) === null, 'a click on a project row, as on macOS, opens it and gives the focus to the tree, with no row highlighted')
+await press('ArrowDown', 'gamma')
+check(true, 'the first arrow then highlights the selected row')
+// a click by the keyboard, Enter on a focused row, leaves the focus there.
+await keys.keyboard.press('Enter')
+check((await focused()) === 'gamma', 'Enter on a focused row opens it, and the row keeps the focus')
+// Chromium's own click, which focuses the button first, ends the same.
+await keyRow('Delta').locator('.project-item').click()
+await until('Delta opened by a click', async () => keys.url().endsWith(`#/p/${Delta.id}`))
+check((await listIn(keys)) === 'projects' && (await focused()) === null, "Chromium's click on a row ends with the tree holding the focus, no row highlighted")
+// a click on a list's heading gives that list the focus, no row highlighted;
+// the first arrow highlights its selected row, else its first.
+await keys.locator('.needs-you h2').click()
+check((await listIn(keys)) === 'needs-you' && (await focused()) === null, 'a click on the Needs you heading gives that list the focus, no row highlighted')
+await press('ArrowDown', waitingRows[0])
+check(true, 'the first arrow highlights its first row, none being selected')
+await keys.locator('.projects h2').click()
+check((await listIn(keys)) === 'projects' && (await focused()) === null, 'a click on the Projects heading gives the tree the focus, no row highlighted')
+await press('ArrowUp', 'Delta')
+check(true, "the first arrow, Up as well as Down, highlights the tree's selected row")
+await keys.locator('.projects h2').click()
+await press('End', 'roamer')
+check(true, "End from the list goes to the panel's last row")
+// Ctrl+Shift+L gives the tree the focus from anywhere, named on the panel.
+await keys.evaluate(() => document.activeElement?.blur())
+await keys.keyboard.press('Control+Shift+KeyL')
+await until('Ctrl+Shift+L to the tree', async () => (await listIn(keys)) === 'projects')
+check((await focused()) === null && (await keys.locator('nav.sidebar').getAttribute('aria-keyshortcuts')) === 'Control+Shift+L', 'Ctrl+Shift+L gives the tree the focus with no row highlighted, and the panel names it')
+await press('ArrowDown', 'Delta')
+check(true, 'the first arrow then highlights the selected row')
+
+// each project row has adopt a session and new conversation before its star,
+// shown under the pointer or with focus and taking no room otherwise, and
+// opening the project page's own dialogs.
+const rowControls = await keyRow('Delta').locator('button').evaluateAll((bs) => bs.map((b) => b.getAttribute('aria-label') ?? b.querySelector('.tree-label')?.textContent))
+check(
+  JSON.stringify(rowControls.slice(1)) === JSON.stringify(['Delta', 'Adopt a session in Delta', 'New conversation in Delta', 'Star Delta']),
+  `a project row holds adopt a session and new conversation before its star: ${JSON.stringify(rowControls)}`,
+)
+const deltaAdopt = keyRow('Delta').locator('.row-action').first()
+const deltaNew = keyRow('Delta').locator('.row-action').nth(1)
+await keys.evaluate(() => document.activeElement?.blur())
+await keys.mouse.move(900, 600)
+check(!(await deltaAdopt.isVisible()) && !(await deltaNew.isVisible()), 'at rest, with no pointer and no focus on the row, they are hidden')
+await keyRow('Delta').locator('.project-item').focus()
+check((await deltaAdopt.isVisible()) && (await deltaNew.isVisible()), 'with the focus on the row they show, so the keyboard reaches them')
+await keys.evaluate(() => document.activeElement?.blur())
+await keyRow('Delta').hover()
+check((await deltaAdopt.isVisible()) && (await deltaNew.isVisible()), 'under the pointer they show')
+await keys.locator('.projects').screenshot({ path: `${t.dir}/shots/project-row-hover.png` })
+await deltaNew.click()
+await keys.locator('dialog[open] h2', { hasText: 'New conversation' }).waitFor()
+await keys.keyboard.press('Escape')
+await until('the launch dialog closed', async () => (await keys.locator('dialog[open]').count()) === 0)
+await keyRow('Delta').hover()
+await deltaAdopt.click()
+await keys.locator('dialog[open] h2', { hasText: 'Adopt a session' }).waitFor()
+await keys.keyboard.press('Escape')
+await until('the adopt dialog closed', async () => (await keys.locator('dialog[open]').count()) === 0)
+check(true, "new conversation and adopt a session open the project page's own dialogs")
+await keys.close()
+
+// on a Mac: mega's own keys are ⌃⌘ chords, every key is named with Apple's
+// symbols, and the Ctrl keys still work. a page of its own, whose
+// navigator.platform says MacIntel.
+const mac = await t.page({ platform: 'MacIntel' })
+await mac.goto(`${url}/#/p/${roamer.id}`)
+await mac.locator('.side-foot .stream-connected').waitFor()
+await until('the Mac tree', async () => (await mac.locator('.projects .project-item').count()) === 6)
+const macHint = mac.locator('.needs-you .shortcut')
+const macHead = await mac.locator('.projects .section-head button').evaluateAll((bs) => bs.map((b) => [b.getAttribute('aria-label'), b.getAttribute('aria-keyshortcuts')]))
+check(
+  (await macHint.textContent()) === '⌃⌘N' &&
+    (await macHint.getAttribute('title')) === 'Next waiting conversation: ⌃⌘N, anywhere but in a dialog' &&
+    JSON.stringify(macHead) ===
+      JSON.stringify([
+        ['Expand all projects (⌃⌘↑)', 'Control+Meta+ArrowUp'],
+        ['Collapse all projects (⌃⌘↓)', 'Control+Meta+ArrowDown'],
+        ['Register a project', null],
+      ]) &&
+    (await mac.getByRole('button', { name: /^Collapse the side panel/ }).getAttribute('title')) === 'Collapse the side panel (⌃⌘S)',
+  `on a Mac, the hint and the titles name the ⌃⌘ keys: ${JSON.stringify(macHead)}`,
+)
+await mac.keyboard.press('Control+Meta+ArrowDown')
+await until('every project folded by ⌃⌘↓', () => everyFoldedOn(mac))
+await mac.keyboard.press('Control+Meta+ArrowUp')
+await until('every project unfolded by ⌃⌘↑', () => noneFoldedOn(mac))
+check(true, '⌃⌘↓ collapses all and ⌃⌘↑ expands all')
+// ⌃⌘N opens the next waiting conversation, and Ctrl+/ still does.
+const macHeading = () => mac.locator('.conversation-head h1').textContent()
+const macWaiting = await mac.locator('.needs-you .tree-label').allTextContents()
+await mac.keyboard.press('Control+Meta+KeyN')
+await until('⌃⌘N to the first waiting', async () => (await macHeading()) === macWaiting[0])
+await mac.keyboard.press('Control+Slash')
+await until('Ctrl+/ to the next waiting', async () => (await macHeading()) === macWaiting[1])
+check(true, '⌃⌘N opens the next waiting conversation, and Ctrl+/ still does')
+// the keyed approval's Allow names ⌘↩.
+const macAllow = mac.locator('[data-request] button[data-answer="allow"]').first()
+check((await macAllow.getAttribute('title')) === 'Allow (⌘↩)' && (await macAllow.getAttribute('aria-keyshortcuts')) === 'Meta+Enter', `the keyed Allow names ⌘↩: "${await macAllow.getAttribute('title')}"`)
+// ⌃⌘R puts the cursor in the reply box, and its title names it.
+const macBox = mac.getByRole('textbox', { name: 'Reply' })
+await mac.locator('.conversation-head h1').click()
+await mac.keyboard.press('Control+Meta+KeyR')
+await until('⌃⌘R in the reply box', () => macBox.evaluate((b) => b === document.activeElement))
+check(
+  (await macBox.getAttribute('aria-keyshortcuts')) === 'Control+Meta+R' &&
+    (await macBox.getAttribute('title')) === 'Reply: ⌃⌘R puts the cursor here from anywhere on the page, Escape leaves it for the history, and ⌘↩ sends',
+  `⌃⌘R puts the cursor in the reply box, whose title names it: "${await macBox.getAttribute('title')}"`,
+)
+// ⌃⌘S hides the panel, from the reply box too, and Ctrl+' still shows it.
+await mac.keyboard.press('Control+Meta+KeyS')
+await mac.locator('nav.rail').waitFor()
+check((await mac.getByRole('button', { name: /^Expand the side panel/ }).getAttribute('title')) === 'Expand the side panel (⌃⌘S)', '⌃⌘S collapses the panel to the rail, and the expand control names it')
+await mac.keyboard.press('Control+Quote')
+await until('the Mac panel back', async () => (await mac.locator('nav.rail').count()) === 0 && (await mac.locator('nav.sidebar').count()) === 1)
+check(true, "Ctrl+' still shows the panel on a Mac")
+// ⌃⌘P gives the tree the focus, with no row highlighted, from the reply box,
+// and from the rail, opening the panel first; the first arrow then
+// highlights the open conversation's row.
+await macBox.focus()
+await mac.keyboard.press('Control+Meta+KeyP')
+await until('⌃⌘P to the tree', async () => (await listIn(mac)) === 'projects')
+check((await focusedIn(mac)) === null && (await mac.locator('nav.sidebar').getAttribute('aria-keyshortcuts')) === 'Control+Meta+P', '⌃⌘P from the reply box gives the tree the focus with no row highlighted, and the panel names it')
+await mac.keyboard.press('ArrowDown')
+await until('the open conversation highlighted', async () => (await focusedIn(mac)) === macWaiting[1])
+check(true, "the first arrow highlights the open conversation's row")
+await mac.keyboard.press('Control+Meta+KeyS')
+await mac.locator('nav.rail').waitFor()
+await mac.keyboard.press('Control+Meta+KeyP')
+await until('⌃⌘P from the rail', async () => (await mac.locator('nav.sidebar').count()) === 1 && (await listIn(mac)) === 'projects')
+check(true, '⌃⌘P from the rail opens the panel and gives the tree the focus')
+// an idle conversation's placeholder and Send name ⌘↩.
+await mac.goto(`${url}/#/c/${I}`)
+await until('idler open on the Mac page', async () => (await macHeading()) === 'idler')
+const macSend = mac.getByRole('button', { name: /^Send/ })
+check((await macBox.getAttribute('placeholder')) === 'Reply (⌘↩ to send)' && (await macSend.getAttribute('title')) === 'Send (⌘↩)', `the placeholder and Send name ⌘↩: "${await macBox.getAttribute('placeholder')}", "${await macSend.getAttribute('title')}"`)
+await mac.close()
+
 // the panel's width: resized from its handle within 200 to 480, and kept.
 const side = page.locator('.side')
 const width = async () => Math.round((await side.boundingBox()).width)
@@ -252,6 +546,10 @@ const missing = `The checkout is missing: '${roamerPath}' (does not exist)`
 const treeMissing = row('roamer').locator('.checkout-missing-mark')
 await until('the tree mark', async () => (await treeMissing.count()) === 1)
 check((await treeMissing.getAttribute('title')) === missing, `the tree marks the project: "${await treeMissing.getAttribute('title')}"`)
+// the row's new work is held as the project page's is, the reason its title.
+await row('roamer').hover()
+const roamerActions = await row('roamer').locator('.row-action').evaluateAll((bs) => bs.map((b) => [b.disabled, b.getAttribute('title')]))
+check(JSON.stringify(roamerActions) === JSON.stringify([[true, missing], [true, missing]]), `a missing checkout holds the row's adopt a session and new conversation, with the reason: ${JSON.stringify(roamerActions)}`)
 await page.getByRole('button', { name: /^Collapse the side panel/ }).click()
 const railMissing = rail.locator('.rail-mark.checkout-missing')
 await railMissing.waitFor()

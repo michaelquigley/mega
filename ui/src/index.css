@@ -591,8 +591,9 @@ pre {
   background: var(--selected);
 }
 
-/* a project row: its fold control, the project, and its star. project names
-   are always at 600; conversations below keep the body weight. */
+/* a project row: its fold control, the project, adopt a session and new
+   conversation, and its star. project names are always at 600;
+   conversations below keep the body weight. */
 .project-row {
   align-items: center;
   border-radius: 4px;
@@ -635,6 +636,26 @@ pre {
 
 .project-row .star.starred {
   color: var(--notice-line);
+}
+
+/* a row's adopt a session and new conversation show on the row under the
+   pointer or with focus, and take no room otherwise, so a name at rest has
+   the whole row. */
+.project-row .row-action {
+  display: none;
+}
+
+.project-row:hover .row-action,
+.project-row:focus-within .row-action {
+  display: inline-flex;
+}
+
+/* the side panel's two lists take the focus, from a click in them or the
+   panel's key, and show none: the first row key highlights a row, which
+   does. */
+.sidebar .needs-you:focus,
+.sidebar .projects:focus {
+  outline: none;
 }
 
 .starred-group {

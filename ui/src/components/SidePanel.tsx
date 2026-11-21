@@ -1,5 +1,8 @@
-import { useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react'
-import { clampWidth, readCollapsed, readWidth, saveCollapsed, saveWidth } from '../prefs'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { clampWidth, folds, readCollapsed, readWidth, saveCollapsed, saveWidth } from '../prefs'
+import { collapseAll, expandAll, panelFocus, panelToggle } from '../keys'
+import { dialogOpen } from '../modal'
+import { focusPanel } from '../panel'
 import type { Selection } from '../selection'
 import type { Knowledge, StreamState } from '../stream'
 import type { About, Conversation, HarnessStatus, Project, ShutdownGate } from '../types'
@@ -20,6 +23,11 @@ interface SidePanelProps {
   // what the page is waiting for while it has no connection or no workspace.
   waiting: Waiting | null
   onRegister: () => void
+  // a project row's adopt a session and new conversation, opening the
+  // project page's own dialogs, and what holds them, as it holds the page's.
+  onLaunch: (projectId: string) => void
+  onAdopt: (projectId: string) => void
+  heldBy: string | null
   // the shutdown gate, the page's own shutdown, and the gate's controls.
   gate: ShutdownGate | undefined
   shutDownAt: Date | null
@@ -37,21 +45,10 @@ interface SidePanelProps {
   harnesses: HarnessStatus[] | undefined
 }
 
-// panelShortcut shows and hides the side panel, as its controls' titles say.
-export const panelShortcut = "Ctrl+'"
-
-// isPanelToggle is ctrl+', by physical key so it holds across layouts, from
-// anywhere, the reply box included. it needs ctrl, so it never takes a
-// keystroke that would type; alt chords are not used, since the operator's
-// browser takes them before the page sees them.
-function isPanelToggle(event: globalThis.KeyboardEvent): boolean {
-  return event.ctrlKey && !event.altKey && !event.metaKey && event.code === 'Quote'
-}
-
 // SidePanel is the side panel at the width this browser remembers, resized by
 // a handle on its right edge, or collapsed to the rail, by its controls or
-// ctrl+'. width and collapse are preferences of this browser, not workspace
-// state.
+// its key (keys.ts), from anywhere, the reply box included. width and
+// collapse are preferences of this browser, not workspace state.
 export function SidePanel(props: SidePanelProps) {
   const [width, setWidth] = useState(readWidth)
   const [collapsed, setCollapsed] = useState(readCollapsed)
@@ -65,7 +62,7 @@ export function SidePanel(props: SidePanelProps) {
 
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (!isPanelToggle(event)) {
+      if (!panelToggle.matches(event)) {
         return
       }
       event.preventDefault()
@@ -75,6 +72,54 @@ export function SidePanel(props: SidePanelProps) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [collapsed])
+
+  // the panel's focus key puts the focus on its projects, from anywhere but
+  // a dialog, first opening the panel from the rail. the focus moves once
+  // the panel is shown, which a count of presses asks for.
+  const [focusWanted, setFocusWanted] = useState(0)
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (!panelFocus.matches(event)) {
+        return
+      }
+      event.preventDefault()
+      if (dialogOpen()) {
+        return
+      }
+      if (collapsed) {
+        setCollapsed(false)
+        saveCollapsed(false)
+      }
+      setFocusWanted((count) => count + 1)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [collapsed])
+  useEffect(() => {
+    if (focusWanted > 0) {
+      focusPanel()
+    }
+  }, [focusWanted])
+
+  // expand all and collapse all by their keys, from anywhere, the rail
+  // included: a choice for every project, as the controls in the projects'
+  // heading make.
+  const projectsRef = useRef(props.projects)
+  useEffect(() => {
+    projectsRef.current = props.projects
+  })
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      const choice = expandAll.matches(event) ? 'unfolded' : collapseAll.matches(event) ? 'folded' : null
+      if (!choice) {
+        return
+      }
+      event.preventDefault()
+      folds.setAll(projectsRef.current.map((project) => project.id), choice)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const onDragStart = (event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault()

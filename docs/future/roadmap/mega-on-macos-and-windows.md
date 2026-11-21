@@ -103,3 +103,16 @@ The rehearsal had its own card. It did what it was for and is closed:
 - **A second machine.** Michael installed mega on his laptop, another Ubuntu 24 system, from the rewritten README, and it is in daily use there. External operators have built it from source since.
 
 What it never reached is the pass under a fresh WSL2 on Michael's Windows machine, with real logins through to a working conversation. That is the Windows half of this card, and it is still to do.
+
+## the side checks on a Mac, 2026-11-20
+
+The first run of a browser suite on a Mac: `make checks SUITE=side`, on Jens's darwin/arm64 machine, with Playwright 1.65's Chromium. It ran all 91 steps green, but only with two temporary edits to `checks/lib/mega.mjs`, reverted afterwards:
+
+- **`claude.executable: /bin/false`.** macOS has no `/bin/false`, only `/usr/bin/false`, so every launch was refused with `executable_missing`.
+- **`environment.shell: /bin/bash`.** macOS's `/bin/bash` is 3.2. As a login and interactive shell (`-l -i`), with the start-up files of that machine, it closes fd 3 before the script runs, so the resolver's `env -0 >&3` fails ("bash: 3: Bad file descriptor") and every launch is refused with `environment_failed`. With `--norc --noprofile` it keeps fd 3. Homebrew's bash 5.3 and the default zsh keep it. The cause inside the start-up files was not found.
+
+The run pointed the shell at `/opt/homebrew/bin/bash` and the stand-in Claude at `/usr/bin/false`. For the suites to run on a Mac as committed, the library could take both from the `PATH`, as pull request 2 did for `/bin/true`.
+
+For the product, this matters only to an operator whose environment shell is `/bin/bash` on a Mac. The default, zsh, keeps fd 3.
+
+The same day, with the same two edits, `side`, `requests` and `conversation` passed, and `panel` failed one step of 137: "with a draft, Page Up is the box's: its caret moved up, from 410 to 410". The step expects Page Up to move the caret in a text field, as it does on Linux. On macOS, Page Up scrolls a text field and leaves the caret, and Chromium follows the machine it runs on. That reading is not proven: the step was not run against the tree without that day's changes, which do not touch Page Up. The checks set `navigator.platform` to Linux on every page since that day, but that does not change how Chromium edits text.

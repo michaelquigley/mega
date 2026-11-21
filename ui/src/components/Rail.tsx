@@ -6,7 +6,7 @@ import { RailGate } from './Gate'
 import { ProjectMark } from './AttentionMark'
 import { missingReason } from '../checkout'
 import { IconButton } from './Icon'
-import { panelShortcut } from './SidePanel'
+import { panelToggle } from '../keys'
 import { aboutTitle, newerLabel } from '../build'
 import { shutDownFooter } from '../gate'
 
@@ -50,7 +50,7 @@ export function Rail({ projects, conversations, needsYou, streamState, stale, lo
   const connection = down ? shutDownFooter(shutDownHeard) : showNewer ? newerLabel : connectionLabel(knowledge, streamState)
   return (
     <nav className="rail" aria-label="Side panel, collapsed">
-      <IconButton icon="keyboard_double_arrow_right" label={`Expand the side panel (${panelShortcut})`} onClick={onExpand} />
+      <IconButton icon="keyboard_double_arrow_right" label={`Expand the side panel (${panelToggle.label})`} onClick={onExpand} />
       <span
         className={`rail-count${!loaded ? ' unknown' : waiting > 0 ? ' waiting' : ''}${loaded && stale ? ' stale' : ''}`}
         title={loaded && stale ? `Last known: ${count.toLowerCase()}` : count}

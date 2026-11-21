@@ -21,6 +21,7 @@ import { showTab, tabState } from './favicon'
 import { productName } from './brand'
 import { waitingLabel, type Waiting } from './waiting'
 import { dialogOpen, useDialogOpen } from './modal'
+import { nextWaiting } from './keys'
 
 // how many turns a conversation opens with, and how many more Show earlier adds.
 const TURNS = 10
@@ -378,8 +379,8 @@ export function App() {
   const needsYou = workspace?.needs_you ?? []
 
   // next-waiting walks the needs-you list from the selected conversation; it
-  // only moves the selection, so a reply in progress keeps its place. ctrl+/
-  // works anywhere but in a dialog, opening nothing behind one; the key is
+  // only moves the selection, so a reply in progress keeps its place. its key
+  // (keys.ts) works anywhere but in a dialog, opening nothing behind one; the key is
   // taken either way.
   const needsYouRef = useRef(needsYou)
   useEffect(() => {
@@ -387,7 +388,7 @@ export function App() {
   })
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (!isNextWaiting(event)) {
+      if (!nextWaiting.matches(event)) {
         return
       }
       event.preventDefault()
@@ -545,6 +546,9 @@ export function App() {
         knowledge={knowledge}
         waiting={streamWaiting ?? workspaceWaiting}
         onRegister={() => setRegistering(true)}
+        onLaunch={setLaunching}
+        onAdopt={setAdopting}
+        heldBy={heldBy}
         gate={gate}
         shutDownAt={shutDownAt}
         shutDownHeard={shutDownHeard}
@@ -614,12 +618,6 @@ export function App() {
   )
 }
 
-// the next-waiting shortcut: ctrl+/, by physical key so it holds across
-// layouts, from anywhere, the reply box included. it needs ctrl, so it never
-// takes a keystroke that would type.
-function isNextWaiting(event: KeyboardEvent): boolean {
-  return event.ctrlKey && event.code === 'Slash'
-}
 
 // Unknown is the main column before the page has read the workspace once: it
 // says the page is connecting, that the service is unreachable, or that the

@@ -172,7 +172,7 @@ const widths = [
 for (const [label, width] of widths) {
   const p = await t.page({ width, height: 900 })
   await p.goto(`${url}/#/p/${P.id}`)
-  await p.getByRole('button', { name: /Adopt a session/ }).click()
+  await p.locator('article.detail').getByRole('button', { name: /Adopt a session/ }).click()
   const d = p.locator('dialog[open].adopt-dialog')
   await d.waitFor()
   const choice = (h) => d.locator('.harness-choice', { hasText: h })
@@ -246,7 +246,7 @@ for (const [label, width] of widths) {
 // adopting: the picked session becomes a conversation.
 const ap = await t.page({ width: 1280, height: 900 })
 await ap.goto(`${url}/#/p/${P.id}`)
-await ap.getByRole('button', { name: /Adopt a session/ }).click()
+await ap.locator('article.detail').getByRole('button', { name: /Adopt a session/ }).click()
 const ad = ap.locator('dialog[open].adopt-dialog')
 await until('the sessions to adopt', async () => (await ad.locator('label.session-row').count()) === 3)
 await ad.locator('label.session-row', { hasText: 'short one' }).click()

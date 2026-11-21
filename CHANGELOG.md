@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+FEATURE: **Expand all, collapse all, and the arrow keys in the side panel.** (2026-11-20) Two controls beside Register unfold or fold every project at once, and the browser keeps that as your choice for each one. In the projects tree, Up and Down move between rows, Home and End go to the first and the last, Right unfolds a project or goes into it, and Left folds it or goes back to it. The needs-you list takes Up, Down, Home and End, and the two are one list: Up from the first project goes into Needs you. The keys only move the focus; Enter or Space opens a row, as before. Ctrl+Shift+Up expands all and Ctrl+Shift+Down collapses all, from anywhere but a text field. To reach the lists, click anywhere in one, or press Ctrl+Shift+L, which also opens the panel from the rail. The list then holds the focus with no row highlighted, and the first arrow key highlights the selected row. This works in Safari and Firefox on macOS too, which leave a clicked button unfocused.
+
+CHANGE: **The reply box keeps the cursor after a send.** (2026-11-20) Ctrl+Enter (⌘↩ on a Mac) still sends, empties the box and closes it to one line, but the cursor now stays in it, so you can write the next prompt while the reply arrives without clicking back in.
+
+FEATURE: **Type anywhere to reply.** (2026-11-20) With a conversation open, typing a character anywhere on the page, outside another text field, goes to the reply box, the first character included. Space, the arrows and Enter keep their own jobs, and nothing is taken while a dialog is open.
+
+FEATURE: **Adopt a session and new conversation on each project row.** (2026-11-20) Under the pointer, a project row in the side panel shows the project page's two controls before its star, and each opens the same dialog for that project, so new work no longer needs the project page. They are held as the page's are, saying why.
+
+FEATURE: **Mac keys.** (2026-11-20) On a Mac, mega's own keys are ⌃⌘ chords: ⌃⌘N for the next waiting conversation, ⌃⌘S for the side panel, ⌃⌘P to focus it, ⌃⌘R for the reply box, and ⌃⌘↑ and ⌃⌘↓ to expand and collapse every project. The page names every key with Apple's symbols there, ⌘↩ to send and allow among them. The Ctrl keys still work on a Mac, and nothing changes anywhere else. Ctrl+Space may never have reached the page on a Mac, since macOS keeps it for switching input sources; ⌃⌘R does the same job.
+
 CHANGE: **mega's default port is now 6342.** (2026-11-18) The old default, 8470, is registered with IANA to another protocol and is also used by NetFoundry's Agora. 6342 is unassigned. Nothing else about the listener changes: it is loopback only, and `listen` in the config or `--listen` still names another port. What an operator has to do:
 - **With no `listen` in your config,** mega moves to `http://127.0.0.1:6342` at its next start.
 - **Bookmarks, shares and tunnels that name 8470** need changing to 6342. Or keep the old port by putting `listen: 127.0.0.1:8470` in `~/.config/mega/mega.yaml`; a config that names a port keeps it.

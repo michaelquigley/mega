@@ -2,6 +2,7 @@ import { createContext, useContext, useState, type FormEvent } from 'react'
 import { answerRequest, type Answer } from '../api'
 import type { FormField, PendingRequest, Question, RequestPayload } from '../types'
 import { IconButton } from './Icon'
+import { allowSessionKey, sendKey } from '../keys'
 
 interface RequestCardProps {
   conversationId: string
@@ -23,8 +24,8 @@ interface RequestCardProps {
 // empty reply box or the page itself, as its buttons do: Allow, and "Allow
 // this tool for the session" where the harness offers it. a question, a pi
 // dialog among them, has no key.
-const allowKeys = { allow: 'Ctrl+Enter', allow_session: 'Ctrl+Shift+Enter' }
-const ariaKeys = { allow: 'Control+Enter', allow_session: 'Control+Shift+Enter' }
+const allowKeys = { allow: sendKey.label, allow_session: allowSessionKey.label }
+const ariaKeys = { allow: sendKey.aria, allow_session: allowSessionKey.aria }
 
 // AllowButton is an Allow button; keyed, its title names its key. the key
 // presses this same button (InputPanel), so the answer goes the one way.
