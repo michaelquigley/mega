@@ -413,8 +413,7 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		return err
 	}
 	s.mu.Unlock()
-	k := &sink{s: s, l: l, inc: inc}
-	rt, err := h.Launch(spec, k)
+	rt, err := h.Launch(spec, &sink{s: s, l: l, inc: inc})
 	var nativeID string
 	if err == nil && spec.NativeID == "" {
 		nativeID = rt.NativeID()
@@ -427,31 +426,6 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 	l.busy = false
 	refused := l.refused
 	l.refused = nil
-	held, earlyExit := inc.early, inc.earlyExit
-	inc.early, inc.earlyExit = nil, nil
-	// a new session belongs to this conversation from the moment it exists:
-	// hold it until the registry does, so no later launch starts another.
-	bindErr := error(nil)
-	if err == nil && held != nil {
-		refused = k.confirmFirstStart(nativeID, held)
-		if refused == nil && nativeID != "" {
-			bindErr = s.updateConversation(conversationID, func(c *model.Conversation) { c.NativeID = nativeID })
-			if bindErr == nil {
-				l.session, l.sessionRecorded = "", false
-			} else {
-				dl.Errorf("recording the session of '%s'; holding it for the next launch: %v", conversationID, bindErr)
-			}
-		}
-	}
-	if earlyExit != nil {
-		// record the refusal separately from the exit the adapter observed.
-		if refused != nil && k.current() {
-			if err := s.transition(l, refused, l.state, nil); err != nil {
-				dl.Errorf("recording the first launch refusal for '%s': %v", conversationID, err)
-			}
-		}
-		earlyExit()
-	}
 	if err != nil {
 		if l.inc == inc {
 			l.inc = nil
@@ -467,6 +441,18 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 			}
 		}
 		return fmt.Errorf("starting runtime for '%s': %w", conversationID, err)
+	}
+	// a new session belongs to this conversation from the moment it exists:
+	// hold it until the registry does, so no later launch starts another.
+	bindErr := error(nil)
+	if nativeID != "" {
+		l.session = nativeID
+		bindErr = s.updateConversation(conversationID, func(c *model.Conversation) { c.NativeID = nativeID })
+		if bindErr == nil {
+			l.session, l.sessionRecorded = "", false
+		} else {
+			dl.Errorf("recording the session of '%s'; holding it for the next launch: %v", conversationID, bindErr)
+		}
 	}
 	if l.inc != inc {
 		if refused != nil {
@@ -529,9 +515,6 @@ func (s *Service) prepareLaunchLocked(conv model.Conversation, l *live, env *mod
 	}
 	l.session, l.sessionRecorded = "", false
 	inc := &incarnation{exited: make(chan struct{}), launched: make(chan struct{})}
-	if session == "" {
-		inc.early = []launchCallback{}
-	}
 	l.inc = inc
 	// the recorded request goes with every launch, so a release and a resume
 	// keep it; a terminal visit never changes it.
@@ -632,6 +615,12 @@ func (s *Service) Answer(conversationID, requestID string, answer harness.Answer
 		s.mu.Unlock()
 		return newError(CodeNotPending, fmt.Sprintf("request '%s' was settled, but that could not be recorded, so it is shown as last recorded and takes no further answer", requestID))
 	}
+	if l.runtime == nil {
+		// raised while its runtime is still launching: nothing can carry an
+		// answer yet, and the harness still waits, so it stays pending.
+		s.mu.Unlock()
+		return newError(CodeConflict, "the runtime is starting")
+	}
 	if err := validateAnswer(req, &answer); err != nil {
 		s.mu.Unlock()
 		return err
@@ -649,10 +638,7 @@ func (s *Service) Answer(conversationID, requestID string, answer harness.Answer
 	rt := l.runtime
 	s.mu.Unlock()
 
-	err := harness.ErrNotPending
-	if rt != nil {
-		err = rt.Answer(requestID, answer)
-	}
+	err := rt.Answer(requestID, answer)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

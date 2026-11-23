@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+FIX: **An answer given while a conversation is starting no longer throws the request away.** (2026-11-23) A pi extension can ask before its runtime has finished launching. An answer given then was recorded as aborted, although pi never received it and was still waiting. It is now refused with "the runtime is starting". The card stays, and answers once the launch is done.
+
 CHANGE: **Resume no longer imports native history.** Adoption starts with one snapshot. After a terminal handoff or loss of supervision, the timeline marks where mega stopped watching. **View native transcript** opens the exact session’s prompts and replies. Resume acknowledges lost supervision and launches nothing. The next Start or prompt uses the bound session.
 
 FIX: **Pi records replies as they arrive and reports the harness’s turn outcome.** Live replies can appear as soon as pi sends them, including when no file entries have been written yet.

@@ -197,176 +197,39 @@ func TestWrongSessionReportedDuringLaunchIsStopped(t *testing.T) {
 	}
 }
 
-func TestFirstLaunchRejectsAnEarlyReportOfAnotherSession(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		earlyExit  bool
-		exitErr    error
-		exitStatus string
-		exitText   string
-	}{
-		{name: "exit after Launch returns", exitStatus: model.StatusStopped},
-		{name: "exit before Launch returns", earlyExit: true, exitStatus: model.StatusStopped},
-		{
-			name: "early exit with surviving processes", earlyExit: true,
-			exitErr: fmt.Errorf("%w: child 42", harness.ErrLeftRunning), exitStatus: model.StatusError, exitText: "child 42",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r := newRig(t)
-			const disputed = "another-session"
-			const reply = "reply from the disputed session"
-			sub := r.svc.Subscribe()
-			defer sub.Close()
-			r.fake.DuringLaunch(func(rt *harnesstest.Runtime) {
-				rt.HoldOnClose()
-				startedWith := &model.Event{
-					Kind: model.EventRuntime, Status: model.StatusStarted,
-					Facts: &model.RuntimeFacts{Session: disputed},
-				}
-				rt.Emit(startedWith)
-				rt.Emit(&model.Event{Kind: model.EventAssistant, Text: reply, NativeID: "disputed-reply"})
-				rt.Delta(reply)
-				if id := rt.Ask(model.RequestQuestion, nil); id == "" {
-					t.Error("the request callback returned no id")
-				}
-				// Claude can then report ready without naming a session.
-				rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted})
-				r.svc.mu.Lock()
-				early := r.svc.viewLocked(r.svc.reg.Snapshot().Conversations[0])
-				r.svc.mu.Unlock()
-				if early.NativeID != "" || early.State != StateStarting || len(early.Pending) != 0 {
-					t.Errorf("before Launch returned, view exposed id %q in state %q with %d requests", early.NativeID, early.State, len(early.Pending))
-				}
-				if tc.earlyExit {
-					rt.Exit(tc.exitErr)
-				}
-			})
-			conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "mismatched launch", "opening prompt", LaunchChoice{})
-			rt := r.fake.Last()
-			if ErrorCode(err) != CodeConflict {
-				rt.Exit(nil)
-				t.Fatalf("first launch returned %v with binding %q and %d prompts", err, conv.NativeID, len(rt.Prompts()))
-			}
-			defer rt.Exit(nil)
-			if !tc.earlyExit {
-				waitFor(t, "the mismatched runtime to be closed", rt.Closed)
-				rt.Exit(tc.exitErr)
-			}
-			if !rt.Exited() {
-				t.Fatal("the exit did not settle")
-			}
-			if len(rt.Prompts()) != 0 {
-				t.Errorf("the mismatched runtime received %d prompts", len(rt.Prompts()))
-			}
-
-			for range len(sub.Updates()) {
-				update := <-sub.Updates()
-				if update.Delta == reply || (update.Event != nil && (update.Event.Text == reply || update.Event.Kind == model.EventRequest)) {
-					t.Error("the disputed runtime's callback reached the live stream")
-				}
-			}
-
-			for _, phase := range []string{"after stop", "after restart"} {
-				if phase == "after restart" {
-					r.restart()
-				}
-				if view := r.view(conv.ID); view.NativeID != "" {
-					t.Errorf("%s: visible binding = %q", phase, view.NativeID)
-				}
-				if got := r.svc.reg.Snapshot().Conversations[0].NativeID; got != "" {
-					t.Errorf("%s: registry binding = %q", phase, got)
-				}
-				events := r.events(conv.ID)
-				refusals := 0
-				for i, ev := range events {
-					if ev.Kind == model.EventUser || ev.Kind == model.EventRequest || ev.Text == reply || ev.Status == model.StatusStarted {
-						t.Errorf("%s: unexpected event %s %s", phase, ev.Kind, ev.Status)
-					}
-					if ev.Kind == model.EventRuntime && ev.Status == model.StatusError &&
-						strings.Contains(ev.Text, disputed) && strings.Contains(ev.Text, rt.NativeID()) {
-						refusals++
-						if i == len(events)-1 {
-							t.Errorf("%s: refusal replaced the exit record", phase)
-						}
-					}
-				}
-				if refusals != 1 {
-					t.Errorf("%s: %d runtime errors explain the refused binding, want one", phase, refusals)
-				}
-				if last := events[len(events)-1]; last.Kind != model.EventRuntime || last.Status != tc.exitStatus || !strings.Contains(last.Text, tc.exitText) {
-					t.Errorf("%s: exit record is %s %s %q, want %s containing %q", phase, last.Kind, last.Status, last.Text, tc.exitStatus, tc.exitText)
-				}
-				_, err := r.svc.NativeTranscript(conv.ID)
-				wantCode(t, err, CodeConflict)
-				wantCode(t, r.svc.Start(conv.ID), CodeConflict)
-				wantCode(t, r.svc.Prompt(conv.ID, "retry"), CodeConflict)
-				if reads, launches := r.fake.Reads(), len(r.fake.Runtimes()); len(reads) != 0 || launches != 1 {
-					t.Fatalf("%s: transcript reads = %v, launches = %d", phase, reads, launches)
-				}
-			}
-		})
+// an answer to a request raised while its runtime is still launching is
+// refused, and the request stays pending until the launch has returned and
+// the answer can reach the harness.
+func TestAnAnswerDuringALaunchIsRefusedAndTheRequestStaysPending(t *testing.T) {
+	r := newRig(t)
+	var id string
+	r.fake.DuringLaunch(func(rt *harnesstest.Runtime) {
+		id = rt.Ask(model.RequestPermission, map[string]any{"tool": "Bash"})
+		conv := r.svc.reg.Snapshot().Conversations[0]
+		wantCode(t, r.svc.Answer(conv.ID, id, harness.Answer{Decision: harness.DecisionDeny}), CodeConflict)
+		if pending := r.view(conv.ID).Pending; len(pending) != 1 || pending[0].ID != id {
+			t.Errorf("during the launch, pending = %+v", pending)
+		}
+		if len(rt.Deliveries()) != 0 {
+			t.Errorf("the refused answer reached the runtime: %+v", rt.Deliveries())
+		}
+	})
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "asks while launching", "opening prompt", LaunchChoice{})
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestFirstLaunchDeliversMatchingCallbacksInOrder(t *testing.T) {
-	for _, earlyExit := range []bool{false, true} {
-		t.Run(fmt.Sprintf("early-exit=%t", earlyExit), func(t *testing.T) {
-			r := newRig(t)
-			sub := r.svc.Subscribe()
-			defer sub.Close()
-			const reply = "early reply from the matching session"
-			var requestID string
-			r.fake.DuringLaunch(func(rt *harnesstest.Runtime) {
-				started(rt)
-				rt.Emit(&model.Event{Kind: model.EventAssistant, Text: reply, NativeID: "matched-reply"})
-				requestID = rt.Ask(model.RequestQuestion, nil)
-				if requestID == "" {
-					t.Error("the request callback returned no id")
-				}
-				r.svc.mu.Lock()
-				early := r.svc.viewLocked(r.svc.reg.Snapshot().Conversations[0])
-				r.svc.mu.Unlock()
-				if early.TurnActive || len(early.Pending) != 0 {
-					t.Error("unconfirmed output or request reached the view")
-				}
-				rt.Settle(requestID, model.OutcomeAborted)
-				if earlyExit {
-					rt.Exit(nil)
-				}
-			})
-			conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "matching launch", "opening prompt", LaunchChoice{})
-			if earlyExit {
-				if err == nil || r.svc.view(conv.ID).State != model.RuntimeNone || len(r.fake.Last().Prompts()) != 0 {
-					t.Fatalf("early exit did not settle: %v", err)
-				}
-			} else if err != nil {
-				t.Fatal(err)
-			}
-			if len(r.svc.view(conv.ID).Pending) != 0 {
-				t.Fatal("the settled early request is still pending")
-			}
-			want := []string{"runtime:starting", "runtime:started", "assistant", "request", "request_resolved:aborted"}
-			if earlyExit {
-				want = append(want, "runtime:error")
-			} else {
-				want = append(want, "user")
-			}
-			var streamed []*model.Event
-			for range len(sub.Updates()) {
-				if update := <-sub.Updates(); update.Event != nil {
-					streamed = append(streamed, update.Event)
-				}
-			}
-			for _, events := range [][]*model.Event{r.events(conv.ID), streamed} {
-				if got := kinds(events); !slices.Equal(got, want) {
-					t.Fatalf("events = %v, want %v", got, want)
-				}
-				if events[2].Text != reply || events[3].Req.ID != requestID || events[4].Req.ID != requestID {
-					t.Fatal("the reply or request identity changed in delivery")
-				}
-			}
-		})
+	rt := r.fake.Last()
+	if pending := r.view(conv.ID).Pending; len(pending) != 1 || pending[0].ID != id {
+		t.Fatalf("after the launch, pending = %+v", pending)
+	}
+	if err := r.svc.Answer(conv.ID, id, harness.Answer{Decision: harness.DecisionDeny}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.Deliveries(); len(got) != 1 || got[0].Answer.Decision != harness.DecisionDeny {
+		t.Errorf("deliveries = %+v", got)
+	}
+	if pending := r.view(conv.ID).Pending; len(pending) != 0 {
+		t.Errorf("the answered request is still pending: %+v", pending)
 	}
 }
 

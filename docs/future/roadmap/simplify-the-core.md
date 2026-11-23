@@ -42,6 +42,12 @@ One card each, in this order. Each names the failure it makes impossible.
 
 Then the full-tree review resumes on `harden-requests-stops-and-restarts`, and its count per pass is compared with five.
 
+## removals from the review of 2026-11-23
+
+Two pieces in, `internal/service` was the size it started at, and Michael asked for a review of the model, of what had landed, and of this plan. Its rulings are in `docs/future/simplify-the-core-inventory.md`. A removal it finds is a card of its own, built before the next numbered piece:
+
+- **`a-first-launch-holds-nothing-back`.** A callback can no longer be held, reordered or dropped by a launch in progress.
+
 ## how each piece is run
 
 - **Spec first, where a promise changes.** The section "A simpler core" in `docs/future/mega.md` holds the target. A piece that changes what mega promises brings that section in step before it is built.

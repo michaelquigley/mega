@@ -167,19 +167,10 @@ type incarnation struct {
 	// version is what the harness's --version printed just before the
 	// launch, used when its started report names none.
 	version string
-	// A non-nil early holds callbacks until the first launch supplies its
-	// native id. An exit is always last and settles even on refusal.
-	early     []launchCallback
-	earlyExit func()
 	// wrong latches a report of another session than the one bound: from
 	// then on nothing this runtime reports is recorded or offered, only its
 	// exit and its settlements.
 	wrong bool
-}
-
-type launchCallback struct {
-	reportedSession string
-	deliver         func()
 }
 
 // liveLocked returns the conversation's live state, opening its log on first
@@ -589,15 +580,6 @@ func (k *sink) relays() bool {
 	return k.current() && !k.inc.wrong
 }
 
-// report delivers a callback or holds it until a fresh launch is verified.
-func (k *sink) report(session string, deliver func()) {
-	if k.inc.early != nil {
-		k.inc.early = append(k.inc.early, launchCallback{reportedSession: session, deliver: deliver})
-	} else {
-		deliver()
-	}
-}
-
 // Event records what the runtime reported. a transition the browser sees (a
 // turn starting or ending, the runtime's facts) takes effect only once its
 // event is recorded, so a log that cannot confirm it leaves the last confirmed
@@ -609,18 +591,7 @@ func (k *sink) Event(ev *model.Event) {
 	if !k.relays() {
 		return
 	}
-	var session string
-	if k.inc.early != nil {
-		ev = ev.Clone()
-		if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarted && ev.Facts != nil {
-			session = ev.Facts.Session
-		}
-	}
-	k.report(session, func() { k.event(ev) })
-}
-
-func (k *sink) event(ev *model.Event) {
-	s, l := k.s, k.l
+	l := k.l
 	if l.hasRecorded(ev) {
 		return
 	}
@@ -708,31 +679,6 @@ func (s *Service) endTurnLocked(l *live) {
 	}
 }
 
-func wrongSession(want, reported string) *model.Event {
-	return &model.Event{
-		Status: model.StatusError,
-		Text:   fmt.Sprintf("the runtime reported session '%s', but the launch expected '%s'", reported, want),
-	}
-}
-
-// confirmFirstStart checks every early start report before delivering any
-// held callback. The runtime's own id supplies the binding. Callers hold s.mu.
-func (k *sink) confirmFirstStart(nativeID string, held []launchCallback) *model.Event {
-	for _, callback := range held {
-		if reported := callback.reportedSession; reported != "" && reported != nativeID {
-			k.inc.wrong = true
-			return wrongSession(nativeID, reported)
-		}
-	}
-	k.l.session = nativeID
-	if k.current() {
-		for _, callback := range held {
-			callback.deliver()
-		}
-	}
-	return nil
-}
-
 // started shows the runtime running once it reports the session it holds, and
 // stops a runtime bound to a different session than the conversation's:
 // resuming anything but the exact identity is never acceptable. callers hold
@@ -746,7 +692,10 @@ func (k *sink) started(ev *model.Event) {
 	bound := l.sessionOf(conv)
 	if ev.Facts != nil && ev.Facts.Session != "" && bound != "" && ev.Facts.Session != bound {
 		k.inc.wrong = true
-		refusal := wrongSession(bound, ev.Facts.Session)
+		refusal := &model.Event{
+			Status: model.StatusError,
+			Text:   fmt.Sprintf("the runtime reported session '%s', but the launch expected '%s'", ev.Facts.Session, bound),
+		}
 		if l.runtime == nil {
 			// still launching (an adapter may report before Launch returns):
 			// held until the runtime is in hand, never dropped.
@@ -806,16 +755,11 @@ func (k *sink) MCPServers(servers []model.MCPServer) {
 	if !k.relays() {
 		return
 	}
-	if k.inc.early != nil {
-		servers = cloneMCP(servers)
+	if k.l.mcpReported && slices.EqualFunc(k.l.mcp, servers, sameMCPServer) {
+		return
 	}
-	k.report("", func() {
-		if k.l.mcpReported && slices.EqualFunc(k.l.mcp, servers, sameMCPServer) {
-			return
-		}
-		k.l.mcp, k.l.mcpReported = cloneMCP(servers), true
-		s.changed()
-	})
+	k.l.mcp, k.l.mcpReported = cloneMCP(servers), true
+	s.changed()
 }
 
 func sameMCPServer(a, b model.MCPServer) bool {
@@ -846,11 +790,8 @@ func (k *sink) Background(jobs []model.BackgroundJob) {
 	if !k.relays() {
 		return
 	}
-	jobs = slices.Clone(jobs)
-	k.report("", func() {
-		k.l.background = jobs
-		s.changed()
-	})
+	k.l.background = slices.Clone(jobs)
+	s.changed()
 }
 
 func (k *sink) Delta(text string) {
@@ -858,7 +799,7 @@ func (k *sink) Delta(text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if k.relays() {
-		k.report("", func() { s.publish(Update{ConversationID: k.l.id, Delta: text}) })
+		s.publish(Update{ConversationID: k.l.id, Delta: text})
 	}
 }
 
@@ -871,41 +812,31 @@ func (k *sink) Request(kind string, payload any) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	req := &model.Request{ID: registry.NewID(), Kind: kind, Payload: payload}
-	if k.relays() {
-		if k.inc.early != nil {
-			held := req.Clone()
-			req = &held
-		}
-		k.report("", func() { k.request(req) })
+	if !k.relays() {
+		return req.ID
 	}
-	return req.ID
-}
-
-func (k *sink) request(req *model.Request) {
-	s, l := k.s, k.l
+	l := k.l
 	// the event, which every subscriber receives, carries its own copy; the
 	// pending set keeps the service's.
 	published := req.Clone()
-	recorded := &model.Event{Kind: model.EventRequest, Origin: model.OriginManaged, Text: req.Kind, Req: &published}
+	recorded := &model.Event{Kind: model.EventRequest, Origin: model.OriginManaged, Text: kind, Req: &published}
 	if err := s.record(l, recorded); err != nil {
 		dl.Errorf("request '%s' for '%s' could not be recorded and is not answerable: %v", req.ID, l.id, err)
-		return
+		return req.ID
 	}
 	l.pending = append(l.pending, req)
 	l.pendingAt[req.ID] = recorded.At
 	s.changed()
+	return req.ID
 }
 
 func (k *sink) Resolved(requestID, outcome string) {
 	s := k.s
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if k.current() {
-		k.report("", func() { k.resolved(requestID, outcome) })
+	if !k.current() {
+		return
 	}
-}
-
-func (k *sink) resolved(requestID, outcome string) {
 	// the resolution leaves the pending set only once it is recorded. one that
 	// cannot be recorded stays listed, and an answer to it reaches the runtime,
 	// which refuses it as no longer pending.
@@ -914,7 +845,7 @@ func (k *sink) resolved(requestID, outcome string) {
 	if i < 0 {
 		return
 	}
-	if err := k.s.settleLocked(l, l.pending[i], outcome); err != nil {
+	if err := s.settleLocked(l, l.pending[i], outcome); err != nil {
 		dl.Errorf("%v", err)
 	}
 }
@@ -937,18 +868,10 @@ func (k *sink) Exited(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	defer close(k.inc.exited)
-	if k.inc.early != nil && k.current() {
-		k.inc.earlyExit = func() { k.exited(err) }
-		return
-	}
-	k.exited(err)
-}
-
-func (k *sink) exited(err error) {
 	if !k.current() {
 		return
 	}
-	s, l := k.s, k.l
+	l := k.l
 	released, handoff := l.releasing, l.handoff
 	l.runtime, l.inc, l.releasing, l.handoff = nil, nil, false, false
 	confirmed := s.retireRequestsLocked(l)
