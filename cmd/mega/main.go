@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+
 	"github.com/michaelquigley/df/dl"
 	"github.com/spf13/cobra"
 )
@@ -41,6 +43,7 @@ func init() {
 		default:
 			initLogging(false)
 		}
+		setDefaultLang()
 	}
 }
 
@@ -49,6 +52,12 @@ func init() {
 }
 
 func main() {
+	args, asApp := launchArgs(os.Args[1:], os.Getenv)
+	rootCmd.SetArgs(args)
+	launchedAsApp = asApp
+	// the marker is for this launch alone; the window and anything else mega
+	// starts never sees it.
+	_ = os.Unsetenv(appLaunchEnv)
 	if err := rootCmd.Execute(); err != nil {
 		dl.Fatalf("%v", err)
 	}

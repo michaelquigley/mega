@@ -12,13 +12,16 @@ func browserArgv(goos, url string) ([]string, error) {
 	switch goos {
 	case "linux":
 		return []string{"xdg-open", url}, nil
+	case "darwin":
+		return []string{"open", url}, nil
 	default:
 		return nil, fmt.Errorf("no browser opener for '%s'; browse to '%s' by hand", goos, url)
 	}
 }
 
 // openBrowser points the operator's default browser at url and gets out of
-// the way: the browser is mega's window, and it does the rest.
+// the way: the browser is mega's window, or on macOS its second one, and it
+// does the rest.
 func openBrowser(url string) error {
 	argv, err := browserArgv(runtime.GOOS, url)
 	if err != nil {

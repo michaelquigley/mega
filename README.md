@@ -86,7 +86,7 @@ Install pi as [pi.dev](https://pi.dev) says, and set up its model in pi itself. 
 ## Platforms
 
 - **Linux** is what mega is built and used on, on amd64.
-- **macOS** builds, on arm64, thanks to a contributed change. Its tests do not all pass there yet, and it has not been used for real work. One known gap: on a Mac, mega cannot yet see a process that outlives its runtime, so a release there says it could not check.
+- **macOS** builds and runs on arm64, and has an application of its own, with a window ([the macOS application](#the-macos-application)). Its tests do not all pass there yet, and its use for real work began on 2026-11-20. One known gap: on a Mac, mega cannot yet see a process that outlives its runtime, so a release there says it could not check.
 - **Windows** is expected to work under WSL2, following the Linux steps inside it, and has not been tried. Native Windows is not supported.
 
 There are no prebuilt binaries yet: you build mega from a clone, as above.
@@ -161,7 +161,24 @@ mega desktop integrate   # installs a desktop launcher and its icons under ~/.lo
 mega desktop remove      # removes exactly those files
 ```
 
-The launcher runs `mega daemon` through your interactive shell, from wherever the binary was when you ran `integrate`; run it again if you move the binary. Nothing starts at login. Launching the daemon while mega is already running opens the running mega's page and exits.
+The launcher runs `mega daemon` through your interactive shell, from wherever the binary was when you ran `integrate`; run it again if you move the binary. Nothing starts at login. Launching the daemon while mega is already running opens the running mega's page and exits. The desktop launcher is for Linux; on a Mac, use the application.
+
+### The macOS application
+
+On a Mac, mega is also an application: the daemon in the menu bar, and the page in a window of its own.
+
+```bash
+make app                          # builds build/mega.app, with the Claude bridge inside it
+cp -R build/mega.app /Applications/
+```
+
+- **Opening it** from Finder, Spotlight or Launchpad starts the daemon and opens the window. Opening it again while it runs opens another window.
+- **The menu bar icon** has "open mega", for the window, "open in browser", "shut down when idle", and Quit, which goes through the same gate. The window has its own Dock icon while it is open. Closing it, or Cmd+Q in it, leaves mega running.
+- **It does not need your clone** once it is built, since the Claude bridge is inside it. It still needs `node`, and the harnesses, from your shell: each project's tools come from your login shell, as everywhere.
+- **macOS may ask you something the first time** a new build starts. If your shell's start-up files touch protected data, such as `ssh-add` with the keychain, macOS asks on mega's behalf, and the shell waits for you. Answer, and it is quick from then on. A rebuild asks again. If the first page says no harness can run, look for a dialog, then restart mega.
+- **It is signed only for your machine.** A copy built elsewhere and downloaded is refused by macOS: there is no notarized build yet.
+
+It shares the workspace, config and log with a `mega` started from a terminal. If one is already running, opening the application opens a window on it instead.
 
 ## More
 

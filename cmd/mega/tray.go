@@ -20,10 +20,12 @@ var trayIconPNG []byte
 var trayIconNeedsYouPNG []byte
 
 // the daemon's own tray items, by index in DaemonApp.TrayItems. dfw adds
-// Quit after them.
+// Quit after them. itemBrowser is there only where mega has a window of its
+// own (browserItems is 1): "open mega" opens the window, and it the browser.
 const (
-	itemOpen = iota
-	itemGate
+	itemOpen    = 0
+	itemBrowser = 1
+	itemGate    = 1 + browserItems
 )
 
 const (

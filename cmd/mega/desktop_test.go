@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -56,6 +57,11 @@ func TestDesktopEntry(t *testing.T) {
 // complaint, and nothing else; each says what it did. no autostart entry is
 // ever written.
 func TestIntegrateAndRemoveTwice(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		// integrate refuses anywhere else, by design; macOS has the
+		// application instead.
+		t.Skipf("desktop integration is linux only (this is %s)", runtime.GOOS)
+	}
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dataHome, "config"))

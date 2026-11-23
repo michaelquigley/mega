@@ -16,6 +16,55 @@ func isolate(t *testing.T) string {
 	return root
 }
 
+func TestTheShimInAnApplicationBundle(t *testing.T) {
+	root := t.TempDir()
+	app := filepath.Join(root, "mega.app", "Contents")
+	binary := filepath.Join(app, "MacOS", "mega")
+	shim := filepath.Join(app, "Resources", "shim", "claude")
+	for _, dir := range []string{filepath.Dir(binary), shim} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(binary, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe := func(path string) func() (string, error) { return func() (string, error) { return path, nil } }
+
+	if got := claudeShim("", exe(binary)); got != "" {
+		t.Errorf("a bundle with no shim in it: claudeShim = %q, want none", got)
+	}
+	if err := os.WriteFile(filepath.Join(shim, "shim.mjs"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolvedShim, err := filepath.EvalSymlinks(shim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := claudeShim("", exe(binary)); got != resolvedShim {
+		t.Errorf("the bundle's binary: claudeShim = %q, want %q", got, resolvedShim)
+	}
+	link := filepath.Join(root, "bin", "mega")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(binary, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := claudeShim("", exe(link)); got != resolvedShim {
+		t.Errorf("a link to the bundle's binary: claudeShim = %q, want %q", got, resolvedShim)
+	}
+	if got := claudeShim("/checkout/shim/claude", exe(binary)); got != "/checkout/shim/claude" {
+		t.Errorf("a stamped build: claudeShim = %q, want the stamp", got)
+	}
+	if got := claudeShim("", exe(filepath.Join(root, "bin", "elsewhere"))); got != "" {
+		t.Errorf("a binary outside a bundle: claudeShim = %q, want none", got)
+	}
+	if got := claudeShim("", func() (string, error) { return "", errors.New("no executable") }); got != "" {
+		t.Errorf("no executable: claudeShim = %q, want none", got)
+	}
+}
+
 func TestDefaultsFollowXDG(t *testing.T) {
 	root := isolate(t)
 	cfg, err := Load("", "", "")

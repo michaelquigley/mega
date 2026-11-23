@@ -4,3 +4,4 @@ node_modules
 ui/dist
 /.mega/environment.yaml
 e2e.local.mk
+/build/

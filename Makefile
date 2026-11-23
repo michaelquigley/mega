@@ -10,7 +10,10 @@ endif
 SHIM_DIR := $(CURDIR)/shim/claude
 LDFLAGS := -X github.com/michaelquigley/mega/internal/config.defaultClaudeShim=$(SHIM_DIR)
 
-.PHONY: build test e2e checks checks-deps checks-browser clean frontend frontend-test shim readme-image
+.PHONY: build test e2e checks checks-deps checks-browser clean frontend frontend-test shim readme-image app
+
+# the macOS application, built by cmd/mega/macos/app.sh.
+APP ?= build/mega.app
 
 # browser checks keep their binary, data, logs and screenshots here.
 CHECKS_DIR ?= $(or $(TMPDIR),/tmp)/mega-checks
@@ -30,6 +33,12 @@ shim:
 # depends on frontend so go:embed all:dist always has content.
 build: frontend shim
 	go install -ldflags "$(LDFLAGS)" ./...
+
+# the macOS application: a menu bar app that runs the daemon, with its own
+# window and the claude shim inside it. macOS only; copy it to /Applications
+# or ~/Applications to install it.
+app: frontend
+	sh cmd/mega/macos/app.sh "$(APP)"
 
 # the full gate includes the frontend because the shipped Go build embeds it.
 test: frontend-test shim
@@ -78,4 +87,5 @@ checks-browser: checks-deps
 clean:
 	go clean ./...
 	rm -f "$(GOBIN)/mega"
+	rm -rf build
 	rm -rf ui/dist ui/node_modules shim/claude/node_modules checks/node_modules

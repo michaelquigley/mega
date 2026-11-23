@@ -103,3 +103,40 @@ The rehearsal had its own card. It did what it was for and is closed:
 - **A second machine.** Michael installed mega on his laptop, another Ubuntu 24 system, from the rewritten README, and it is in daily use there. External operators have built it from source since.
 
 What it never reached is the pass under a fresh WSL2 on Michael's Windows machine, with real logins through to a working conversation. That is the Windows half of this card, and it is still to do.
+
+## the application, 2026-11-20
+
+The local macOS user this card waited for came: Jens, on macOS 26.6, arm64, who asked for mega as a standalone Mac application built with `dfw`. It is built, and `docs/current/mega.md` describes it ("The macOS application"): `make app` makes `build/mega.app`, a menu bar daemon with the Claude shim inside it and a window of its own, dfw's WKWebView. The spec gained a paragraph, "The window", that says so. On macOS this is what the inbox card `dfw-window-mode` asks for: mega in a dfw window. That card stays open for Linux.
+
+**dfw changed for it,** in `michaelquigley/dfw` pull request 1, from Jens's fork, released in dfw v0.1.7. Its journal of the same day has the why:
+
+- A window process is a regular application, with the standard menus, so Copy and Paste reach the page.
+- It takes the focus when it opens, once more if the tray's menu hands it back as it closes.
+- It holds its own UI delegate, because webview_go's was freed at once. That brought back the file chooser and new-window links.
+- The tray shows no title beside its icon.
+- `DaemonApp.OnReopen` answers the application being opened again.
+- Mega requires v0.1.7. The release passes `OnReopen` the daemon's address.
+
+**Two things only a Mac showed:**
+
+- A shell script as the bundle's executable leaves the menu bar item unshown. So the application runs no shell first, unlike the Linux launcher, and relies on project environments.
+- A shell start-up file that reaches protected data asks the operator on the application's behalf, once per build, and holds the shell meanwhile: about 30 seconds the first time on Jens's machine, past the 10-second default.
+
+**The work list above, as `go test ./...` found it on Jens's Mac the same day.** Every failure below also fails at the commit before the application, so none comes from it:
+
+- `internal/environ` does not build.
+- `internal/harness` `TestReadVersion`.
+- `internal/harness/claude` `TestAShimThatLeavesAChildRunningSaysSo`.
+- `internal/harness/codex` `TestDescendantsOutlivingTheirParentAreReported` and `TestAMissingHelperIsNamed`.
+- `internal/service` `TestATimedOutActivationRefusesTheLaunch` (40 seconds) and `TestAnActivationCannotChooseMegasPrograms`.
+
+`TestIntegrateAndRemoveTwice` now skips off Linux. Four of the failures were not on the list before; why they fail was not looked at.
+
+**Still to do on macOS,** beyond the work list above, which this did not touch:
+
+- Signing and notarization, so a copy can be handed to someone else: `macos-application-signing-and-notarization`.
+- Whether the page's notifications work in the window.
+- The window keeping its position, which is dfw's (its card `macos-window-position`).
+- Ctrl+Space, which macOS keeps for switching input sources unless the operator changes it, and which the page uses to reach the reply box.
+- A real conversation through the application with each harness.
+- A logout, or `quit app "mega"`, ends the daemon without the orderly stop. It waits on dfw's card `macos-daemon-quit-apple-event`. Then mega decides whether Quit's gate may decline a logout, since declining cancels it.

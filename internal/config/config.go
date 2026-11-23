@@ -34,8 +34,47 @@ const (
 
 // defaultClaudeShim is the shim directory, stamped at build time by the
 // Makefile (-ldflags -X) because the shim and its node_modules live in the
-// checkout, not in the binary.
+// checkout, not in the binary. the macOS application is built unstamped and
+// carries the shim itself (bundledClaudeShim).
 var defaultClaudeShim string
+
+// bundledClaudeShim is where the macOS application carries the shim, for
+// the binary at executable: mega.app/Contents/MacOS/mega has it in
+// mega.app/Contents/Resources/shim/claude. empty for a binary that is not
+// in an application bundle.
+func bundledClaudeShim(executable string) string {
+	macOS := filepath.Dir(executable)
+	contents := filepath.Dir(macOS)
+	if filepath.Base(macOS) != "MacOS" || filepath.Base(contents) != "Contents" {
+		return ""
+	}
+	return filepath.Join(contents, "Resources", "shim", "claude")
+}
+
+// claudeShim is the shim directory mega runs by default: the one stamped at
+// build time, else the one in the application bundle around the binary when
+// it holds the shim, else none, which the adapter reports.
+func claudeShim(stamped string, executable func() (string, error)) string {
+	if stamped != "" {
+		return stamped
+	}
+	exe, err := executable()
+	if err != nil {
+		return ""
+	}
+	// a link to the binary, put on the PATH, still finds the bundle.
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	dir := bundledClaudeShim(exe)
+	if dir == "" {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(dir, "shim.mjs")); err != nil {
+		return ""
+	}
+	return dir
+}
 
 // Config is the environment service's configuration.
 type Config struct {
@@ -127,7 +166,7 @@ type Claude struct {
 func Load(configPath, dataOverride, listenOverride string) (*Config, error) {
 	cfg := &Config{
 		Listen:    defaultListen,
-		Claude:    Claude{Node: "node", Shim: defaultClaudeShim, Executable: DefaultClaudeExecutable},
+		Claude:    Claude{Node: "node", Shim: claudeShim(defaultClaudeShim, os.Executable), Executable: DefaultClaudeExecutable},
 		Codex:     Codex{Binary: "codex"},
 		Pi:        Pi{Binary: "pi"},
 		Snapshots: Snapshots{Keep: defaultSnapshotKeep, KeepAtVersion: defaultSnapshotKeepAtVersion},

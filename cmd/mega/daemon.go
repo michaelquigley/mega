@@ -70,7 +70,7 @@ func runDaemon(_ *cobra.Command, _ []string) error {
 	}
 	inst, err := start(cfg)
 	if err != nil {
-		if handOver(err, func(url string) error { return openBrowserAndWait(url, handOverWait) }) {
+		if handOver(err, openRunning) {
 			return nil
 		}
 		return err
@@ -79,9 +79,18 @@ func runDaemon(_ *cobra.Command, _ []string) error {
 
 	control := tray.NewControl()
 	ui := controlUI{control: control}
-	open := func() {
+	browse := func() {
 		if err := openBrowser(inst.url); err != nil {
 			dl.Errorf("opening the page: %v", err)
+		}
+	}
+	open := browse
+	if nativeWindow {
+		addr := inst.listener.Addr().String()
+		open = func() {
+			if err := openWindow(addr); err != nil {
+				dl.Errorf("opening mega's window: %v", err)
+			}
 		}
 	}
 	actions := trayActions{gate: inst.svc, open: open}
@@ -109,6 +118,12 @@ func runDaemon(_ *cobra.Command, _ []string) error {
 	go follower.follow(inst.svc, ending)
 
 	dl.Infof("daemon serving at '%s'", inst.url)
+	if launchedAsApp && nativeWindow {
+		// the listener is bound, so the window's first request waits in its
+		// backlog until dfw starts serving.
+		dl.Infof("launched as the application, so opening mega's window")
+		open()
+	}
 	err = tray.Daemon(tray.DaemonApp{
 		AppID:   appID,
 		Title:   trayTitle,
@@ -116,12 +131,13 @@ func runDaemon(_ *cobra.Command, _ []string) error {
 		Listen: func() (*http.Server, net.Listener, error) {
 			return inst.server, inst.listener, nil
 		},
-		TrayItems: []tray.TrayMenuItem{
-			itemOpen: {Label: "open mega", Tooltip: "open mega in your browser", OnClick: open},
-			itemGate: {Label: gateArmLabel, Tooltip: "stop once every agent is idle", OnClick: actions.onGateItem},
-		},
-		OnQuit:  actions.onQuit,
-		Control: control,
+		TrayItems: trayItems(open, browse, actions.onGateItem),
+		OnQuit:    actions.onQuit,
+		// macOS only: the application opened again while it runs, from
+		// Finder, the Dock, Spotlight or open, opens another window. dfw
+		// passes the daemon's address, which open already has.
+		OnReopen: func(string) { open() },
+		Control:  control,
 	})
 	// the tray is gone: by the orderly stop, or because it failed. either way
 	// nothing exits before the stop has run.
@@ -131,4 +147,32 @@ func runDaemon(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("tray: %w", err)
 	}
 	return nil
+}
+
+// trayItems are the daemon's own items, at their indices: "open mega", which
+// opens mega's window where it has one and the browser otherwise; "open in
+// browser" beside a window of its own; and the gate.
+func trayItems(open, browse, onGate func()) []tray.TrayMenuItem {
+	items := make([]tray.TrayMenuItem, itemGate+1)
+	items[itemOpen] = tray.TrayMenuItem{Label: "open mega", Tooltip: "open mega in your browser", OnClick: open}
+	if nativeWindow {
+		items[itemOpen].Tooltip = "open mega in its window"
+		items[itemBrowser] = tray.TrayMenuItem{Label: "open in browser", Tooltip: "open mega in your browser", OnClick: browse}
+	}
+	items[itemGate] = tray.TrayMenuItem{Label: gateArmLabel, Tooltip: "stop once every agent is idle", OnClick: onGate}
+	return items
+}
+
+// openRunning opens a mega already running at url, for a launch that hands
+// over to it: in a window where mega has one of its own, in the browser
+// otherwise.
+func openRunning(url string) error {
+	if !nativeWindow {
+		return openBrowserAndWait(url, handOverWait)
+	}
+	addr, err := hostOf(url)
+	if err != nil {
+		return err
+	}
+	return openWindow(addr)
 }

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+FEATURE: **mega is a macOS application, with a window of its own.** (2026-11-20) On a Mac, `make app` builds `build/mega.app`, which you copy to `/Applications`. Opening it runs the daemon in the menu bar and opens mega in its own window, the same page in WebKit, through `dfw`. The browser stays open to it from the tray's "open in browser".
+- **Opening it again** while it runs opens another window. Closing a window, or Cmd+Q in it, leaves mega running; Quit in the menu bar goes through the shutdown gate as before.
+- **The Claude bridge is inside the application,** so it does not need the clone it was built from. `node` and the harnesses still come from your login shell, which each project resolves as before.
+- **With no `LANG`,** as an application started from Finder has none, mega sets it from the macOS locale, so the tools your agents run get a UTF-8 locale.
+- **The first start of each build may wait on a macOS dialog** if your shell's start-up files reach protected data, such as `ssh-add` with the keychain. Answer it and restart mega if the first page found no harness.
+- **It is signed only for the machine that built it.** There is no notarized build to download yet.
+- **A logout ends it at once, without the orderly stop,** as a script's `quit app "mega"` does. The next start picks up what was running, as after a crash. Quit from the menu bar icon before you log out.
+- Linux is unchanged: the browser is mega's window there, and the build stays cgo-free.
+
+FIX: **The tray's "open mega" works on macOS.** (2026-11-20) It opened nothing there, for want of a browser opener; it now uses `open`. A daemon started while another mega runs opens that mega on a Mac too.
+
 CHANGE: **mega's default port is now 6342.** (2026-11-18) The old default, 8470, is registered with IANA to another protocol and is also used by NetFoundry's Agora. 6342 is unassigned. Nothing else about the listener changes: it is loopback only, and `listen` in the config or `--listen` still names another port. What an operator has to do:
 - **With no `listen` in your config,** mega moves to `http://127.0.0.1:6342` at its next start.
 - **Bookmarks, shares and tunnels that name 8470** need changing to 6342. Or keep the old port by putting `listen: 127.0.0.1:8470` in `~/.config/mega/mega.yaml`; a config that names a port keeps it.
