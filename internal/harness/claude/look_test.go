@@ -112,38 +112,10 @@ func historyFrom(t *testing.T, file string) harness.History {
 	return history
 }
 
-// a session read back whose last turn has no end says so: its events are
-// open, so a resume after an unclean restart never counts a turn the lost
-// process may still be working on as finished. the open turn is the start of
-// a recorded one (the claude-rt1 fixture, claude code 2.1.319): a prompt, a
-// tool call with stop_reason tool_use, and its result. the whole session,
-// which ends with end_turn, has nothing open.
-func TestHistorySaysWhenTheLastTurnHasNoEnd(t *testing.T) {
-	open := historyFrom(t, "open-turn-history.jsonl")
-	var output []string
-	for _, ev := range open.Events {
-		switch ev.Kind {
-		case model.EventAssistant, model.EventToolUse, model.EventToolResult:
-			output = append(output, ev.NativeID)
-		}
-	}
-	if len(output) == 0 {
-		t.Fatalf("no output in %+v", open.Events)
-	}
-	for _, id := range output {
-		if !open.Open[id] {
-			t.Errorf("output %s of the unfinished turn is not open: %v", id, open.Open)
-		}
-	}
-	if closed := historyFrom(t, "interrupted-history.jsonl"); len(closed.Open) != 0 {
-		t.Errorf("a session ending with end_turn has open events: %v", closed.Open)
-	}
-	// a turn that ended, then a wake with no prompt of its own, as for a
-	// background job, cut off at a tool call: only the wake is open, never the
-	// turn that ended before it. reordered from the same recording.
-	wake := historyFrom(t, "open-wake-history.jsonl")
-	if !wake.Open["a5e29c09-ef44-4bf0-9fe6-35ff990f3a1c"] || wake.Open["e220e245-0e75-4b21-aceb-52eb3a614836"] || wake.Open["6d3ab919-51d5-4033-8f32-cca7d6982164"] {
-		t.Errorf("a wake with no prompt after an ended turn opens %v", wake.Open)
+func TestHistoryIncludesTextFromAPromptWithAnAttachment(t *testing.T) {
+	history := historyFrom(t, "attachment-history.jsonl")
+	if len(history.Events) != 2 || history.Events[0].Kind != model.EventUser || history.Events[0].Text != "Look at this attachment." || history.Events[1].Kind != model.EventNative {
+		t.Fatalf("events = %+v", history.Events)
 	}
 }
 

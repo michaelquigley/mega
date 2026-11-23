@@ -7,9 +7,9 @@
 //   MEGA_PROBE_URL=http://127.0.0.1:PORT MEGA_E2E_CLAUDE_FIXTURE=... node driver.mjs [--setup-only]
 //
 // run it through claude.sh, which starts and stops the scratch mega. it
-// answers exactly two approvals, each for Bash `sleep 3`, each asserted to be
-// that before Allow; the interrupted one is never answered. --setup-only
-// stops after the environment guard, before anything runs Claude Code.
+// allows only Bash `sleep 3` after checking the request. A second request for
+// that command is interrupted without an answer. --setup-only stops after
+// the environment guard, before anything runs Claude Code.
 import { cannotRun, flag, probe, sleep } from './lib.mjs'
 
 const markerPrompt = 'Reply with the project instruction marker token from your project instructions, followed by the word ALPHA-1a2b. Nothing else.'
@@ -126,24 +126,27 @@ await p.run(async () => {
   await p.turnEnd(id, seq, 'the resumed turn')
   await p.expectReply(id, 'ROUNDHOUSE-MARKER-7f3a', 'ALPHA-1a2b', 'DELTA-7a8b', 'SDK-RETURN-c3d4')
   await p.sameSession(id, session, 'the exact-id resume')
-  // after the interrupt, claude writes "No response requested." to its
-  // transcript when the next prompt reaches a resumed run, and the live
-  // stream never delivers it, so this resume imports it at every build seen.
-  // mega maps it as a native event, "assistant/synthetic", never a reply
-  // (capability report, 2026-11-15): anything but native events here is a
-  // finding.
   const resumeImports = await p.imports(id, seq)
-  check(
-    resumeImports.every((e) => e.kind === 'native'),
-    `the exact-id resume imported only native events, no reply: ${resumeImports.length}${resumeImports.length ? `: ${resumeImports.map((e) => `${e.kind} "${e.text}"`).join('; ')}` : ''}`,
-  )
+  check(resumeImports.length === 0, `the exact-id resume imported ${resumeImports.length} events, want zero`)
   summary.imports.resume = resumeImports
+
+  // Release so the transcript includes the completed exchange and the
+  // bookkeeping Claude wrote for the interrupt and model switch.
+  await p.release(id)
+  const transcript = await p.api('GET', `/api/conversations/${id}/native-transcript`)
+  must(transcript.status === 200 && Array.isArray(transcript.body?.messages), 'the exact session’s native transcript answered with messages')
+  const { messages } = transcript.body
+  const knownReply = messages.some(({ speaker, text }) => speaker === 'assistant' && text.includes('DELTA-7a8b'))
+  const syntheticSpeech = messages.some(({ text }) => text.includes('No response requested.') || text === 'assistant/synthetic')
+  const localCommandSpeech = messages.some(({ text }) => /<local-command-|<command-name>\/model<\/command-name>|user\/local-command|^Set model to\b/m.test(text))
+  check(knownReply, 'the native transcript contains the known assistant reply DELTA-7a8b')
+  check(!syntheticSpeech, 'the native transcript omits Claude’s synthetic interruption from speech')
+  check(!localCommandSpeech, 'the native transcript omits Claude’s local model command from speech')
+  summary.transcript = { messages: messages.length, known_reply: knownReply, synthetic_speech: syntheticSpeech, local_command_speech: localCommandSpeech }
 
   // every turn's line.
   summary.turns = await p.turns(id)
   summary.versions = await p.started(id)
   summary.version = summary.versions.length === 1 ? summary.versions[0] : summary.versions
   check(summary.versions.length === 1, `every start reported one version: ${summary.versions.join(', ')}`)
-
-  await p.release(id)
 })

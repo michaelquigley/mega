@@ -160,7 +160,7 @@ func TestHistoryChecksTheThreadsOwnID(t *testing.T) {
 	}
 }
 
-func TestHistoryReportsItemsOfATurnInProgressAsOpen(t *testing.T) {
+func TestHistoryIncludesSpeechAndOmitsCommandsStillRunning(t *testing.T) {
 	h := fakeHarness(t, "history")
 	history, err := h.History(t.Context(), harness.Place{Cwd: t.TempDir(), Env: os.Environ(), Find: os.Environ()}, "t-1")
 	if err != nil {
@@ -176,8 +176,10 @@ func TestHistoryReportsItemsOfATurnInProgressAsOpen(t *testing.T) {
 	if len(history.Events) != 3 {
 		t.Fatalf("events = %d", len(history.Events))
 	}
-	if history.Open["a-1"] || !history.Open["u-2"] || !history.Open["a-2"] {
-		t.Errorf("open = %v", history.Open)
+	for i, id := range []string{"a-1", "u-2", "a-2"} {
+		if got := history.Events[i].NativeID; got != id {
+			t.Errorf("event %d = %q, want %q", i, got, id)
+		}
 	}
 }
 

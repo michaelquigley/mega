@@ -104,8 +104,27 @@ type entry struct {
 // readFile reads a session file; a test may stand in for it.
 var readFile = os.ReadFile
 
-// readSession reads a session file: its header and its entries, in order.
-// a line that is not an entry is passed over.
+func checkSessionHeader(path, want string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	line, err := bufio.NewReader(file).ReadBytes('\n')
+	if err != nil {
+		return err
+	}
+	var header entry
+	if err := dd.BindJSON(&header, bytes.TrimSpace(line)); err != nil {
+		return err
+	}
+	if header.Type != "session" {
+		return fmt.Errorf("'%s' is not a pi session file", path)
+	}
+	return harness.SameSession(fmt.Sprintf("the session file '%s'", path), want, header.ID)
+}
+
+// readSession reads the header and entries in order. It skips non-entry lines.
 func readSession(path string) (*entry, []*entry, error) {
 	data, err := readFile(path)
 	if err != nil {
@@ -170,8 +189,7 @@ func conversation(entries []*entry) []*entry {
 // session file alike (pi 1.5.2, docs/message-types.md).
 type message struct {
 	Role         string
-	Content      any `dd:",+opaque,+nullable"`
-	Timestamp    int64
+	Content      any    `dd:",+opaque,+nullable"`
 	StopReason   string `dd:"stopReason"`
 	ErrorMessage string `dd:"errorMessage"`
 	ToolCallID   string `dd:"toolCallId"`
@@ -193,11 +211,7 @@ func bindMessage(raw map[string]any) (*message, bool) {
 	return m, true
 }
 
-// mapMessage turns one message into the events to record, under id, its
-// session entry's id. the live stream and an import share it, so a message
-// seen live and later imported yields events with the same NativeIDs. a
-// system message (the prompt and tools pi declares, written before a user
-// message) is pi's own, and yields none.
+// mapMessage gives stored events their entry id. Live frames carry no entry id.
 func mapMessage(m *message, raw map[string]any, id string) []*model.Event {
 	switch m.Role {
 	case "system":
@@ -207,7 +221,10 @@ func mapMessage(m *message, raw map[string]any, id string) []*model.Event {
 	case "assistant":
 		var evs []*model.Event
 		for i, block := range blocks(m.Content) {
-			bid := fmt.Sprintf("%s/%d", id, i)
+			var bid string
+			if id != "" {
+				bid = fmt.Sprintf("%s/%d", id, i)
+			}
 			switch block["type"] {
 			case "text":
 				text, _ := block["text"].(string)
@@ -230,7 +247,10 @@ func mapMessage(m *message, raw map[string]any, id string) []*model.Event {
 		if m.StopReason == "error" && m.ErrorMessage != "" {
 			// pi persists a failed response as an assistant message with its
 			// error, which is not speech: kept under the native toggle.
-			evs = append(evs, &model.Event{Kind: model.EventNative, Text: "error: " + m.ErrorMessage, NativeID: id + "/error", Raw: raw})
+			if id != "" {
+				id += "/error"
+			}
+			evs = append(evs, &model.Event{Kind: model.EventNative, Text: "error: " + m.ErrorMessage, NativeID: id, Raw: raw})
 		}
 		return evs
 	case "toolResult":
@@ -304,56 +324,24 @@ func toolTitle(name string, args map[string]any) string {
 
 // history is a session's conversation as events, from its file.
 func history(path string) ([]*model.Event, error) {
-	evs, _, err := historyTurns(path)
-	return evs, err
-}
-
-// historyTurns reads a session file's conversation, as history does, and
-// follows its turns (harness.TurnTail). pi's file carries no turn status,
-// but every assistant message carries its stopReason: toolUse leaves the turn
-// open, as a tool's result and a prompt with no reply do; stop, length,
-// error and aborted end it, as does none at all (the pi-rt1 fixture's 43
-// sessions, pi 1.5.2: every assistant message has one).
-func historyTurns(path string) ([]*model.Event, *harness.TurnTail, error) {
 	_, entries, err := readSession(path)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	evs, turn := turnsOf(entries)
-	return evs, turn, nil
+	return eventsOf(entries), nil
 }
 
-// turnsOf maps a session's entries, as read, to events and follows their
-// turns, as historyTurns does.
-func turnsOf(entries []*entry) ([]*model.Event, *harness.TurnTail) {
-	turn := &harness.TurnTail{}
+func eventsOf(entries []*entry) []*model.Event {
 	var evs []*model.Event
 	for _, e := range conversation(entries) {
 		if e.Type != "message" {
-			// model and thinking changes, labels, compactions and the like
-			// are pi's bookkeeping: the live stream reports none of them.
 			continue
 		}
-		m, ok := bindMessage(e.Message)
-		if !ok {
-			continue
+		if m, ok := bindMessage(e.Message); ok {
+			evs = append(evs, mapMessage(m, e.Message, e.ID)...)
 		}
-		mapped := mapMessage(m, e.Message, e.ID)
-		switch m.Role {
-		case "user":
-			turn.Prompt(len(evs))
-		case "assistant":
-			if m.StopReason == "toolUse" {
-				turn.Working()
-			} else {
-				turn.Ended(len(evs) + len(mapped))
-			}
-		case "toolResult":
-			turn.Working()
-		}
-		evs = append(evs, mapped...)
 	}
-	return evs, turn
+	return evs
 }
 
 // discover lists the sessions stored for a checkout, newest first, with the

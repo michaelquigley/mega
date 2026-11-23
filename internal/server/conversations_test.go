@@ -180,7 +180,7 @@ func TestDiscoverAndAdopt(t *testing.T) {
 		t.Fatalf("create project: %d %v", status, project)
 	}
 	f.fake.SetSessions([]harness.Session{{NativeID: "terminal-1", Preview: "From the terminal", UpdatedAt: time.Unix(1794000000, 0).UTC()}})
-	f.fake.SetHistory("terminal-1", []*model.Event{{Kind: model.EventUser, Text: "From the terminal", NativeID: "t-1"}})
+	f.fake.SetHistory("terminal-1", []*model.Event{{Kind: model.EventUser, Text: "From the terminal", NativeID: "t-1", Raw: map[string]any{"attachment": "metadata"}}})
 	base := fmt.Sprintf("/api/projects/%s", project["id"])
 
 	status, body := f.do(t, http.MethodGet, base+"/discover?harness=claude", "")
@@ -199,8 +199,21 @@ func TestDiscoverAndAdopt(t *testing.T) {
 	if status, body := f.do(t, http.MethodPost, base+"/adopt", jsonBody(map[string]string{"harness": "claude", "native_id": "terminal-1"})); status != http.StatusBadRequest {
 		t.Errorf("second adoption: %d %v", status, body)
 	}
-	if evs := f.events(t, conv["id"].(string), 0); len(evs) != 3 || evs[1]["origin"] != "native" {
+	if evs := f.events(t, conv["id"].(string), 0); len(evs) != 1 || evs[0]["origin"] != "native" {
 		t.Errorf("events = %v", evs)
+	}
+	status, body = f.do(t, http.MethodGet, fmt.Sprintf("/api/conversations/%s/native-transcript", conv["id"]), "")
+	messages, _ := body["messages"].([]any)
+	if status != http.StatusOK || len(messages) != 1 {
+		t.Fatalf("transcript: %d %v", status, body)
+	}
+	if speech, ok := messages[0].(map[string]any); !ok || len(speech) != 2 || speech["speaker"] != "user" || speech["text"] != "From the terminal" {
+		t.Fatalf("transcript speech = %v", messages[0])
+	}
+	f.fake.SetHistory("terminal-1", nil)
+	status, body = f.do(t, http.MethodGet, fmt.Sprintf("/api/conversations/%s/native-transcript", conv["id"]), "")
+	if messages, ok := body["messages"].([]any); status != http.StatusOK || !ok || len(messages) != 0 {
+		t.Errorf("empty transcript: %d %v", status, body)
 	}
 }
 

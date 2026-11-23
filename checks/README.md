@@ -16,7 +16,7 @@ Playwright is a pinned development dependency in `checks/package.json`; `make ch
 
 Where things go:
 
-- The scratch root is `$TMPDIR/mega-checks` (`/tmp/mega-checks` without `TMPDIR`). Set `CHECKS_DIR` to put it elsewhere.
+- The scratch root is `$TMPDIR/mega-checks` (`/tmp/mega-checks` without `TMPDIR`). Set `CHECKS_DIR` to put it elsewhere. Set `MEGA_CHECK_DISABLE_SNAPSHOTS=1` to run scratch services with `snapshots.keep: 0`.
 - Each suite gets `<root>/<suite>/`, emptied when the suite starts and left afterwards. It holds the suite's service log, `service.log`, its screenshots under `shots/`, its checkouts and data.
 - Each suite's printed output is also kept in `<root>/<suite>.out`.
 - The port is 18470, or `MEGA_CHECK_PORT`. A suite refuses 6342, the operator's default, and 8470, the default before 2026-11-18, which a mega not yet restarted may still serve. It refuses to start while something else answers on its port. The firstrun suite also starts megas on the four ports above its own, and refuses those the same way, before anything starts (`requireScratchPort`).
@@ -34,6 +34,8 @@ Where things go:
   - a held, then failed, opening read naming the request, its time, the attempt and the error;
   - the connecting view naming a failing workspace read;
   - the 960px column centred in its pane, with the panel open and collapsed to the rail, light and dark; the header, history, input panel, show-earlier bar, newer-activity control and shutdown banner sharing it; the project page and the connecting view centred the same way;
+  - a handoff gap that survives reload, exact native transcript access from the gap and More, and the empty and unavailable notices from Claude;
+  - acknowledging a loss with an unknown session, and paging and timing across an older Unsupervised row;
   - no label on the operator's own prompts, "outside mega" on a prompt from outside, and "From outside mega" on its reply;
   - each turn's line saying what it ran with, when its prompt was sent and how long it took:
     - on turns recorded before mega kept what they ran with, their time alone, from another day with its date;

@@ -68,6 +68,7 @@ func (s *Server) api() http.Handler {
 	mux.HandleFunc("PATCH /api/conversations/{id}", s.updateConversation)
 	mux.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)
 	mux.HandleFunc("GET /api/conversations/{id}/events", s.getEvents)
+	mux.HandleFunc("GET /api/conversations/{id}/native-transcript", s.nativeTranscript)
 	mux.HandleFunc("GET /api/conversations/{id}/events/{seq}/invocation", s.getInvocation)
 	mux.HandleFunc("GET /api/conversations/{id}/mcp", s.getMCP)
 	mux.HandleFunc("POST /api/conversations/{id}/prompt", s.prompt)

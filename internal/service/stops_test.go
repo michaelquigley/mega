@@ -52,53 +52,6 @@ func TestAFailedRuntimesOutputIsCountedAtItsExit(t *testing.T) {
 // after an unclean restart, a resume counts what it brings in and what the
 // lost runtime had produced, never output an earlier adoption brought in,
 // which stays read.
-func TestAResumeCountsOnlyWhatItBringsIn(t *testing.T) {
-	r := newRig(t)
-	r.fake.SetSessions([]harness.Session{{NativeID: "terminal-1", Preview: "from the terminal"}})
-	history := []*model.Event{
-		{Kind: model.EventUser, Text: "from the terminal", NativeID: "t-1"},
-		{Kind: model.EventAssistant, Text: "reply in the terminal", NativeID: "t-2"},
-	}
-	r.fake.SetHistory("terminal-1", history)
-	conv, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "adopted")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := r.attention(conv.ID); got != model.AttentionIdle {
-		t.Fatalf("adopted: %q", got)
-	}
-	if err := r.svc.Start(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	started(r.fake.Last())
-	r.restart()
-	if view := r.view(conv.ID); view.Runtime != model.RuntimeUnsupervised {
-		t.Fatalf("after the restart: %q", view.Runtime)
-	}
-	if err := r.svc.Resume(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	if got := r.attention(conv.ID); got != model.AttentionIdle {
-		t.Errorf("resuming with nothing new made the adopted history %q", got)
-	}
-
-	// what the lost runtime produced is counted, though its turn never ended.
-	lost := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "said before the crash", NativeID: "l-1"})
-	r.restart()
-	if err := r.svc.Resume(lost.ID); err != nil {
-		t.Fatal(err)
-	}
-	if view := r.view(lost.ID); view.OutputSeq != seqOf(r.events(lost.ID), "l-1") || view.Attention != model.AttentionUnread {
-		t.Errorf("the lost runtime's output: output seq %d, attention %q", view.OutputSeq, view.Attention)
-	}
-}
-
-// the boundary is the launch itself, recorded before the runtime runs: a
-// crash after the registry records it running but before it reports started
-// leaves an adopted history read too.
 func TestAResumeAfterACrashBeforeStartedCountsNothingOld(t *testing.T) {
 	r := newRig(t)
 	r.fake.SetSessions([]harness.Session{{NativeID: "terminal-2", Preview: "from the terminal"}})

@@ -139,19 +139,16 @@ func TestCodexRoundTrip(t *testing.T) {
 		t.Errorf("release ended with %s %q", last.Status, last.Text)
 	}
 
-	// X4: import after a release with no terminal visit adds nothing; every
-	// managed message, including the prompts the service minted, matches.
-	if err := svc.Resume(s.id); err != nil {
+	// X4: the transcript is a read, and the timeline ends at the release gap.
+	if _, err := svc.NativeTranscript(s.id); err != nil {
 		t.Fatal(err)
 	}
 	after, err := svc.Events(s.id, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, ev := range after[len(evs):] {
-		if ev.Kind != model.EventRuntime {
-			t.Errorf("import added a managed message again: %s %s %q", ev.Kind, ev.NativeID, ev.Text)
-		}
+	if len(after) != len(evs) || !after[len(after)-1].Gap {
+		t.Fatal("the transcript read changed the timeline or release left no gap")
 	}
 	recorded := make(map[string]bool)
 	for _, ev := range after {

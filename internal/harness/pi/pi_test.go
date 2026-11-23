@@ -157,11 +157,7 @@ func prompt(t *testing.T, rt harness.Runtime, s *sink, text string, turns int) {
 	s.until(t, "the turn of "+text, func() bool { return len(s.turns()) >= turns })
 }
 
-// a launch reports its start with the session, the model as provider/id and
-// the thinking level it was given; a turn's reply arrives and ends success;
-// the prompt is recorded under pi's own identity, so an import of the
-// session afterwards brings in nothing the live stream recorded.
-func TestALaunchRunsATurnAndAnImportAddsNothing(t *testing.T) {
+func TestALaunchRunsATurnAndTheSessionCanBeRead(t *testing.T) {
 	h := New(Config{Binary: fake(t)})
 	p := place(t)
 	rt, s := launch(t, h, p, "")
@@ -178,27 +174,14 @@ func TestALaunchRunsATurnAndAnImportAddsNothing(t *testing.T) {
 	if got := s.turns(); got[0] != model.TurnSuccess {
 		t.Errorf("turn = %v", got)
 	}
-	live := map[string]bool{}
-	s.mu.Lock()
-	for _, ev := range s.events {
-		if ev.NativeID != "" {
-			live[ev.NativeID] = true
-		}
-	}
-	s.mu.Unlock()
 	_ = rt.Close()
 	<-s.done
-	hist, err := h.History(context.Background(), p, rt.NativeID())
+	hist, err := h.History(t.Context(), p, rt.NativeID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hist.Events) != 2 {
-		t.Errorf("history = %d events", len(hist.Events))
-	}
-	for _, ev := range hist.Events {
-		if !live[ev.NativeID] {
-			t.Errorf("an import would add %s %q again", ev.NativeID, ev.Text)
-		}
+	if len(hist.Events) != 2 || hist.Events[0].Kind != model.EventUser || hist.Events[1].Text != "hello" || hist.Events[1].NativeID == "" {
+		t.Errorf("history = %+v", hist.Events)
 	}
 }
 
@@ -602,51 +585,6 @@ func TestTheConfigurationIncludeList(t *testing.T) {
 	}
 }
 
-// recorded pi 1.5.2 sessions from the pi-rt1 fixture (2026-11-16, system
-// prompts and usage dropped): the probe's P1 to P4, and P7, a file two
-// processes wrote at once. the conversation is the chain from the last
-// entry back, as pi reopens it; system messages yield nothing, and every
-// event carries the identity the live stream gives it.
-// a session read back whose last turn has no end says so, as the session of
-// a pi that was lost mid-turn does: cut from the recorded p1 and p4 session
-// at a tool's result, after a call pi made with stopReason toolUse. the turn
-// before it, ended with stop, is not open; the whole session is not.
-func TestHistorySaysWhenTheLastTurnHasNoEnd(t *testing.T) {
-	open, err := historyOf(filepath.Join("testdata", "open-turn.jsonl"), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var unfinished, finished []string
-	for _, ev := range open.Events {
-		switch {
-		case strings.HasPrefix(ev.NativeID, "26df6a94") || ev.NativeID == "e3e76658" || ev.NativeID == "1795b865":
-			unfinished = append(unfinished, ev.NativeID)
-		case strings.HasPrefix(ev.NativeID, "97782afa") || ev.NativeID == "d8a83bc4":
-			finished = append(finished, ev.NativeID)
-		}
-	}
-	if len(unfinished) == 0 || len(finished) == 0 {
-		t.Fatalf("events %+v", open.Events)
-	}
-	for _, id := range unfinished {
-		if !open.Open[id] {
-			t.Errorf("%s of the unfinished turn is not open: %v", id, open.Open)
-		}
-	}
-	for _, id := range finished {
-		if open.Open[id] {
-			t.Errorf("%s of the turn that ended is open", id)
-		}
-	}
-	closed, err := historyOf(filepath.Join("testdata", "p1-and-p4.jsonl"), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(closed.Open) != 0 {
-		t.Errorf("a session that ends with stop has open events: %v", closed.Open)
-	}
-}
-
 // History reads only the session it was asked for: a file whose name ends
 // with the id but whose header names another session is refused, before
 // anything is imported.
@@ -664,9 +602,13 @@ func TestHistoryChecksTheSessionsOwnID(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(checkoutDir(env, checkout), "2026-11-19T00-00-00-000Z_not-this-one.jsonl"), recorded, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h := New(Config{Binary: "pi"})
+	h := New(Config{Binary: "/nonexistent/pi"})
 	if history, err := h.History(t.Context(), harness.Place{Cwd: checkout, Env: env, Find: env}, "not-this-one"); !errors.Is(err, harness.ErrWrongSession) {
 		t.Errorf("a file holding another session was imported: %d events (%v)", len(history.Events), err)
+	}
+	rt, err := h.Launch(harness.Spec{Cwd: checkout, Env: env, Find: env, NativeID: "not-this-one"}, newSink())
+	if rt != nil || !errors.Is(err, harness.ErrWrongSession) || !errors.Is(err, harness.ErrNotStarted) {
+		t.Errorf("launch reached an executable with a mismatched header: runtime %v, error %v", rt, err)
 	}
 }
 
@@ -764,62 +706,6 @@ func TestToolResultsInOneMillisecondKeepTheirIdentities(t *testing.T) {
 	}
 }
 
-// two messages of one role can share a millisecond: each is identified by
-// its own session entry, live and on import, so neither is dropped.
-func TestTwoMessagesInOneMillisecondAreBothKept(t *testing.T) {
-	h := New(Config{Binary: fake(t)})
-	p := place(t)
-	rt, s := launch(t, h, p, "")
-	prompt(t, rt, s, "twins", 1)
-	if got := s.replies(); strings.Join(got, ",") != "first,second" {
-		t.Fatalf("replies = %v", got)
-	}
-	live := map[string]bool{}
-	s.mu.Lock()
-	for _, ev := range s.events {
-		if ev.NativeID != "" {
-			if live[ev.NativeID] {
-				t.Errorf("two events share %q", ev.NativeID)
-			}
-			live[ev.NativeID] = true
-		}
-	}
-	s.mu.Unlock()
-	_ = rt.Close()
-	<-s.done
-	hist, err := h.History(context.Background(), p, rt.NativeID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, ev := range hist.Events {
-		if !live[ev.NativeID] {
-			t.Errorf("an import would add %s %q again", ev.NativeID, ev.Text)
-		}
-	}
-}
-
-// once pi can no longer be asked (its input closed for a release), a message
-// it reported is identified by its entry in the session file, the id an
-// import reads, never by an id of the adapter's own.
-func TestAnEntryIDComesFromTheFileWhenPiCannotBeAsked(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "s.jsonl")
-	write(t, path, `{"type":"session","version":3,"id":"s","cwd":"/c"}
-{"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":"go","timestamp":1794841243300}}
-{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant","content":[{"type":"text","text":"one"}],"timestamp":1794841243345}}
-{"type":"message","id":"a2","parentId":"a1","message":{"role":"assistant","content":[{"type":"text","text":"two"}],"timestamp":1794841243345}}
-`)
-	r := newRuntime(newSink())
-	r.conn = &conn{inClose: true, calls: map[string]chan reply{}, done: make(chan struct{})}
-	r.sessionID, r.sessionFile, r.cursor = "s", path, "u1"
-	first := &message{Role: "assistant", Timestamp: 1794841243345}
-	if id := r.entryID(first); id != "a1" {
-		t.Errorf("the first reply is %q", id)
-	}
-	if id := r.entryID(first); id != "a2" {
-		t.Errorf("the second, in the same millisecond, is %q", id)
-	}
-}
-
 // a dialog's timeout runs from when pi sent it: one that waited past its
 // deadline before it was handled is settled as expired at once, and an
 // answer to it is refused, since pi no longer reads one.
@@ -831,28 +717,6 @@ func TestADialogsDeadlineRunsFromItsArrival(t *testing.T) {
 	s.until(t, "the expiry", func() bool { return slices.Contains(s.resolved, "svc-a:"+model.OutcomeExpired) })
 	if err := r.Answer("svc-a", harness.Answer{Decision: harness.DecisionDismiss}); err != harness.ErrNotPending {
 		t.Errorf("an answer past the deadline: %v", err)
-	}
-}
-
-// a message whose session entry cannot be found, from pi or its file, waits
-// with what follows it, and is looked for again as the run settles; still
-// unfound, it is shown and counted as output with no identity, and the turn
-// ends in error saying an import may bring it in again.
-func TestAMessageWithNoEntryIsShownAndTheTurnSaysSo(t *testing.T) {
-	s := newSink()
-	r := newRuntime(s)
-	r.conn = &conn{inClose: true, calls: map[string]chan reply{}, done: make(chan struct{})}
-	r.sessionFile = filepath.Join(t.TempDir(), "missing.jsonl")
-	r.handle(map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "hi"}}, "timestamp": float64(1794841243345), "stopReason": "stop"}}, time.Now())
-	if len(s.events) != 0 {
-		t.Fatalf("recorded before the run settled: %+v", s.events)
-	}
-	r.handle(map[string]any{"type": "agent_settled", "aborted": false}, time.Now())
-	if len(s.events) != 2 || s.events[0].Kind != model.EventAssistant || s.events[0].Text != "hi" || s.events[0].NativeID != "" {
-		t.Fatalf("events = %+v", s.events)
-	}
-	if end := s.events[1]; end.Kind != model.EventTurnEnd || end.Status != model.TurnError || !strings.Contains(end.Text, "may bring them in again") {
-		t.Errorf("turn end = %+v", end)
 	}
 }
 
@@ -886,21 +750,6 @@ func TestHistoryMapsTheReadItChecked(t *testing.T) {
 		if ev.Text != "mine" {
 			t.Errorf("an import of session a mapped %s %q", ev.NativeID, ev.Text)
 		}
-	}
-}
-
-// the runtime's own read of its session file, once pi can no longer be
-// asked, checks the file is its session's, as an import does.
-func TestTheRuntimesFileReadChecksItsSession(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "s.jsonl")
-	write(t, path, `{"type":"session","version":3,"id":"another","cwd":"/c"}
-{"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":"go","timestamp":1794841243300}}
-`)
-	r := newRuntime(newSink())
-	r.conn = &conn{inClose: true, calls: map[string]chan reply{}, done: make(chan struct{})}
-	r.sessionID, r.sessionFile = "s", path
-	if entries, err := r.entriesAfter(); !errors.Is(err, harness.ErrWrongSession) {
-		t.Errorf("another session's file gave %d entries (%v)", len(entries), err)
 	}
 }
 

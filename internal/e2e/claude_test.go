@@ -282,27 +282,20 @@ func TestClaudeRoundTrip(t *testing.T) {
 	}
 	s.waitFor("the runtime to exit", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
 
-	// import after a release with no terminal visit adds nothing: every managed
-	// message, including the prompts the service minted, matches by identity.
+	// A transcript read after release leaves the timeline as recorded.
 	before, err := svc.Events(s.id, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Resume(s.id); err != nil {
+	if _, err := svc.NativeTranscript(s.id); err != nil {
 		t.Fatal(err)
 	}
 	after, err := svc.Events(s.id, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, ev := range after[len(before):] {
-		if ev.Kind == model.EventRuntime {
-			continue
-		}
-		t.Errorf("import added a managed message again: %s %s %q", ev.Kind, ev.NativeID, ev.Text)
-	}
-	if last := after[len(after)-1]; last.Status != model.StatusResumed || last.Text != "0 messages added from native history" {
-		t.Errorf("resume ended with %s %q", last.Status, last.Text)
+	if len(after) != len(before) || !after[len(after)-1].Gap {
+		t.Fatal("the transcript read changed the timeline or release left no gap")
 	}
 	recorded := make(map[string]bool)
 	for _, ev := range after {
@@ -337,13 +330,13 @@ func TestClaudeRoundTrip(t *testing.T) {
 	t.Logf("session %s", conv.NativeID)
 }
 
-// TestClaudeInterruptedTurnImportsNoReply interrupts a turn with an approval
+// TestClaudeInterruptedTurnRemainsUnchangedOnTranscriptRead interrupts a turn with an approval
 // pending, which is never answered, then releases, prompts a resumed run and
 // releases again. claude writes "No response requested." to its transcript
 // for the interrupted turn in that resumed run, and the live stream never
-// delivers it, so the next resume's import meets it: it must come in as a
-// native event, not a reply, and raise no unread output.
-func TestClaudeInterruptedTurnImportsNoReply(t *testing.T) {
+// delivers it. The transcript view shows the known replies as assistant
+// speech. Opening it leaves the timeline and attention as they stood.
+func TestClaudeInterruptedTurnRemainsUnchangedOnTranscriptRead(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	h := newClaudeHarness(t)
 	svc := newE2EService(t, h)
@@ -386,37 +379,32 @@ func TestClaudeInterruptedTurnImportsNoReply(t *testing.T) {
 	}
 	s.waitFor("the runtime to exit again", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
 
-	// read to here, so any unread output is the import's.
-	before, err := svc.Events(s.id, 0)
+	before := s.view()
+	messages, err := svc.NativeTranscript(s.id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Read(s.id, before[len(before)-1].Seq); err != nil {
-		t.Fatal(err)
-	}
-	outputBefore := s.view().OutputSeq
-	if err := svc.Resume(s.id); err != nil {
-		t.Fatal(err)
-	}
-	after, err := svc.Events(s.id, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	synthetic := 0
-	for _, ev := range after[len(before):] {
-		t.Logf("imported: %s %s %q", ev.Kind, ev.NativeID, ev.Text)
-		switch {
-		case ev.Kind == model.EventAssistant:
-			t.Errorf("the import brought in a reply: %s %q", ev.NativeID, ev.Text)
-		case ev.Kind == model.EventNative && ev.Text == "assistant/synthetic":
-			synthetic++
+	var speech strings.Builder
+	for _, ev := range messages {
+		if ev.Kind != model.EventUser && ev.Kind != model.EventAssistant {
+			t.Errorf("transcript showed bookkeeping: %s", ev.Kind)
+		}
+		if strings.Contains(ev.Text, "No response requested.") {
+			t.Error("transcript showed Claude's synthetic interruption message")
+		}
+		if ev.Kind == model.EventAssistant {
+			speech.WriteString(ev.Text)
+			speech.WriteByte('\n')
 		}
 	}
-	if synthetic != 1 {
-		t.Errorf("the import brought in %d synthetic events, want claude's one for the interrupted turn", synthetic)
+	for _, marker := range []string{"ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b", "BETA-START-9e1f"} {
+		if !strings.Contains(speech.String(), marker) {
+			t.Errorf("transcript assistant speech lacks %q", marker)
+		}
 	}
-	if v := s.view(); v.OutputSeq != outputBefore {
-		t.Errorf("the import raised unread output: %d, was %d", v.OutputSeq, outputBefore)
+	after := s.view()
+	if before.LastSeq != after.LastSeq || before.OutputSeq != after.OutputSeq || before.ReadSeq != after.ReadSeq || before.Attention != after.Attention {
+		t.Fatal("reading the transcript changed the timeline or attention")
 	}
 	shutdown(t, svc, s)
 }

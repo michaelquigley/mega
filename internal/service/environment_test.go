@@ -306,7 +306,8 @@ func TestAnUnapprovedFileIsNeverRun(t *testing.T) {
 	}
 	wantCode(t, r.svc.Start(conv.ID), CodeEnvironmentChanged)
 	wantCode(t, r.svc.Prompt(conv.ID, "more"), CodeEnvironmentChanged)
-	wantCode(t, r.svc.Resume(conv.ID), CodeEnvironmentChanged)
+	_, err = r.svc.NativeTranscript(conv.ID)
+	wantCode(t, err, CodeEnvironmentChanged)
 
 	// approving the new version lifts it.
 	r.approve(r.project.ID)

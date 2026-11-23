@@ -99,6 +99,7 @@ interface InputPanelProps {
   showNative: boolean
   onShowNative: (show: boolean) => void
   onRemoved: () => void
+  onTranscript?: () => void
   newer: boolean
   onLatest: () => void
   // dock is the panel's own element, which the conversation watches for size;
@@ -120,7 +121,7 @@ type Open = 'release' | 'rename' | 'remove' | 'mcp' | null
 // is one line at rest, takes the focus when the conversation is opened, and
 // opens once it holds a draft and focus is anywhere in the cluster.
 export function InputPanel(props: InputPanelProps) {
-  const { conversation, project, log, stale, busy, error, attempt, showNative, onShowNative, onRemoved, newer, onLatest, heldBy, dock, isFollowing } = props
+  const { conversation, project, log, stale, busy, error, attempt, showNative, onShowNative, onRemoved, onTranscript, newer, onLatest, heldBy, dock, isFollowing } = props
   const [draft, setDraft] = useState(() => drafts.get(conversation.id) ?? '')
   const [expanded, setExpanded] = useState(false)
   const [height, setHeight] = useState(readHeight)
@@ -209,7 +210,7 @@ export function InputPanel(props: InputPanelProps) {
   // a stop under way: an interrupt not yet answered by the turn's end, or a
   // release.
   const stopping = state === 'stopping' || !!conversation.interrupting
-  const blocked = state === 'unsupervised' || state === 'starting' || state === 'stopping' || state === 'resuming' || active
+  const blocked = state === 'unsupervised' || state === 'starting' || state === 'stopping' || active
   const activity = describeActivity(conversation, log, stale)
   // the placeholder says what is true: the activity line's own words while a
   // prompt cannot be sent.
@@ -443,8 +444,8 @@ export function InputPanel(props: InputPanelProps) {
       }
     })
 
-  const settling = state === 'starting' || state === 'stopping' || state === 'resuming'
-  const canResume = (state === 'none' || state === 'unsupervised') && !!conversation.native_id
+  const settling = state === 'starting' || state === 'stopping'
+  const canResume = state === 'unsupervised'
   // start: a stopped conversation with a session to resume, sending nothing.
   // never while unsupervised, which Resume settles first, and never on its
   // own: only this gesture starts a runtime without a prompt.
@@ -625,6 +626,9 @@ export function InputPanel(props: InputPanelProps) {
                 <div className="menu" role="menu">
                   {harness?.listsMcp && <MenuItem icon="extension" word={mcpSummaryText(conversation)} onClick={() => choose('mcp')} />}
                   <MenuItem icon="logout" word="Release" disabled={busy || state !== 'running'} onClick={() => choose('release')} />
+                  {onTranscript && (
+                    <MenuItem icon="notes" word="View native transcript" onClick={() => { choose(null); onTranscript() }} />
+                  )}
                   {canResume && (
                     <MenuItem
                       icon="play_arrow"
@@ -704,11 +708,11 @@ export function InputPanel(props: InputPanelProps) {
           )}
           {conversation.harness === 'pi' ? (
             <p>
-              Close the terminal before you resume or prompt here again. pi has no lock, so a terminal still open on the session and mega
+              Close the terminal before you start or send a prompt here again. pi has no lock, so a terminal still open on the session and mega
               would both write to its file, and mega cannot tell that one is open.
             </p>
           ) : (
-            <p>Close the terminal before you resume or prompt here again; an idle terminal still holds the session.</p>
+            <p>Close the terminal before you start or send a prompt here again; an idle terminal still holds the session.</p>
           )}
           <div className="actions">
             <IconButton
@@ -767,7 +771,7 @@ export function InputPanel(props: InputPanelProps) {
   )
 }
 
-function MenuItem({ icon, word, disabled, onClick }: { icon: 'logout' | 'play_arrow' | 'edit' | 'delete' | 'extension'; word: string; disabled?: boolean; onClick: () => void }) {
+function MenuItem({ icon, word, disabled, onClick }: { icon: 'logout' | 'play_arrow' | 'edit' | 'delete' | 'extension' | 'notes'; word: string; disabled?: boolean; onClick: () => void }) {
   return (
     <button type="button" role="menuitem" className="menu-item" title={word} aria-label={word} disabled={disabled} onClick={onClick}>
       <Icon name={icon} />

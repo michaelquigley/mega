@@ -12,10 +12,10 @@ import (
 	"github.com/michaelquigley/mega/internal/model"
 )
 
-// a start after a terminal visit imports first, then resumes the exact session
+// a start after a terminal visit resumes the exact session
 // with no prompt, recorded starting then started, and leaves the conversation
 // idle with a runtime the next prompt goes to.
-func TestStartImportsThenResumesTheExactSessionIdle(t *testing.T) {
+func TestStartResumesTheExactSessionIdleWithoutReadingHistory(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()
@@ -30,16 +30,13 @@ func TestStartImportsThenResumesTheExactSessionIdle(t *testing.T) {
 	waitFor(t, "the runtime to exit", rt.Exited)
 
 	r.fake.SetHistory(conv.NativeID, []*model.Event{{Kind: model.EventUser, Text: "from the terminal", NativeID: "t-1"}})
-	read, readAtLaunch := false, false
-	r.fake.OnHistory(func() { read = true })
-	r.fake.OnLaunch(func() { readAtLaunch = read })
 	before := len(r.events(conv.ID))
 	if err := r.svc.Start(conv.ID); err != nil {
 		t.Fatal(err)
 	}
 	next := r.fake.Last()
-	if next == rt || !readAtLaunch {
-		t.Fatalf("launched a new runtime: %v; history read before the launch: %v", next != rt, readAtLaunch)
+	if next == rt || len(r.fake.Reads()) != 0 {
+		t.Fatalf("new runtime: %v; history reads: %v", next != rt, r.fake.Reads())
 	}
 	if next.Spec.NativeID != conv.NativeID || !next.Spec.Idle {
 		t.Errorf("spec = %+v, want the exact session %q, idle", next.Spec, conv.NativeID)
@@ -52,11 +49,8 @@ func TestStartImportsThenResumesTheExactSessionIdle(t *testing.T) {
 	}
 	next.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: conv.NativeID, Model: "m", Version: "v", PermissionMode: "default"}})
 	tail := r.events(conv.ID)[before:]
-	if got := kinds(tail); !slices.Equal(got, []string{"runtime:starting", "user", "runtime:started"}) {
+	if got := kinds(tail); !slices.Equal(got, []string{"runtime:starting", "runtime:started"}) {
 		t.Errorf("events = %v", got)
-	}
-	if tail[1].Origin != model.OriginNative || tail[1].Text != "from the terminal" {
-		t.Errorf("imported = %+v", tail[1])
 	}
 	view := r.view(conv.ID)
 	if view.State != StateRunning || view.TurnActive || view.Attention != model.AttentionIdle || view.Facts == nil || view.Facts.PermissionMode != "default" {
@@ -200,6 +194,255 @@ func TestWrongSessionReportedDuringLaunchIsStopped(t *testing.T) {
 		}
 		next.Exit(nil)
 		waitFor(t, "the stop to settle", func() bool { return r.view(conv.ID).State == model.RuntimeNone })
+	}
+}
+
+func TestFirstLaunchRejectsAnEarlyReportOfAnotherSession(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		earlyExit  bool
+		exitErr    error
+		exitStatus string
+		exitText   string
+	}{
+		{name: "exit after Launch returns", exitStatus: model.StatusStopped},
+		{name: "exit before Launch returns", earlyExit: true, exitStatus: model.StatusStopped},
+		{
+			name: "early exit with surviving processes", earlyExit: true,
+			exitErr: fmt.Errorf("%w: child 42", harness.ErrLeftRunning), exitStatus: model.StatusError, exitText: "child 42",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t)
+			const disputed = "another-session"
+			const reply = "reply from the disputed session"
+			sub := r.svc.Subscribe()
+			defer sub.Close()
+			r.fake.DuringLaunch(func(rt *harnesstest.Runtime) {
+				rt.HoldOnClose()
+				startedWith := &model.Event{
+					Kind: model.EventRuntime, Status: model.StatusStarted,
+					Facts: &model.RuntimeFacts{Session: disputed},
+				}
+				rt.Emit(startedWith)
+				rt.Emit(&model.Event{Kind: model.EventAssistant, Text: reply, NativeID: "disputed-reply"})
+				rt.Delta(reply)
+				if id := rt.Ask(model.RequestQuestion, nil); id == "" {
+					t.Error("the request callback returned no id")
+				}
+				// Claude can then report ready without naming a session.
+				rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted})
+				r.svc.mu.Lock()
+				early := r.svc.viewLocked(r.svc.reg.Snapshot().Conversations[0])
+				r.svc.mu.Unlock()
+				if early.NativeID != "" || early.State != StateStarting || len(early.Pending) != 0 {
+					t.Errorf("before Launch returned, view exposed id %q in state %q with %d requests", early.NativeID, early.State, len(early.Pending))
+				}
+				if tc.earlyExit {
+					rt.Exit(tc.exitErr)
+				}
+			})
+			conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "mismatched launch", "opening prompt", LaunchChoice{})
+			rt := r.fake.Last()
+			if ErrorCode(err) != CodeConflict {
+				rt.Exit(nil)
+				t.Fatalf("first launch returned %v with binding %q and %d prompts", err, conv.NativeID, len(rt.Prompts()))
+			}
+			defer rt.Exit(nil)
+			if !tc.earlyExit {
+				waitFor(t, "the mismatched runtime to be closed", rt.Closed)
+				rt.Exit(tc.exitErr)
+			}
+			if !rt.Exited() {
+				t.Fatal("the exit did not settle")
+			}
+			if len(rt.Prompts()) != 0 {
+				t.Errorf("the mismatched runtime received %d prompts", len(rt.Prompts()))
+			}
+
+			for range len(sub.Updates()) {
+				update := <-sub.Updates()
+				if update.Delta == reply || (update.Event != nil && (update.Event.Text == reply || update.Event.Kind == model.EventRequest)) {
+					t.Error("the disputed runtime's callback reached the live stream")
+				}
+			}
+
+			for _, phase := range []string{"after stop", "after restart"} {
+				if phase == "after restart" {
+					r.restart()
+				}
+				if view := r.view(conv.ID); view.NativeID != "" {
+					t.Errorf("%s: visible binding = %q", phase, view.NativeID)
+				}
+				if got := r.svc.reg.Snapshot().Conversations[0].NativeID; got != "" {
+					t.Errorf("%s: registry binding = %q", phase, got)
+				}
+				events := r.events(conv.ID)
+				refusals := 0
+				for i, ev := range events {
+					if ev.Kind == model.EventUser || ev.Kind == model.EventRequest || ev.Text == reply || ev.Status == model.StatusStarted {
+						t.Errorf("%s: unexpected event %s %s", phase, ev.Kind, ev.Status)
+					}
+					if ev.Kind == model.EventRuntime && ev.Status == model.StatusError &&
+						strings.Contains(ev.Text, disputed) && strings.Contains(ev.Text, rt.NativeID()) {
+						refusals++
+						if i == len(events)-1 {
+							t.Errorf("%s: refusal replaced the exit record", phase)
+						}
+					}
+				}
+				if refusals != 1 {
+					t.Errorf("%s: %d runtime errors explain the refused binding, want one", phase, refusals)
+				}
+				if last := events[len(events)-1]; last.Kind != model.EventRuntime || last.Status != tc.exitStatus || !strings.Contains(last.Text, tc.exitText) {
+					t.Errorf("%s: exit record is %s %s %q, want %s containing %q", phase, last.Kind, last.Status, last.Text, tc.exitStatus, tc.exitText)
+				}
+				_, err := r.svc.NativeTranscript(conv.ID)
+				wantCode(t, err, CodeConflict)
+				wantCode(t, r.svc.Start(conv.ID), CodeConflict)
+				wantCode(t, r.svc.Prompt(conv.ID, "retry"), CodeConflict)
+				if reads, launches := r.fake.Reads(), len(r.fake.Runtimes()); len(reads) != 0 || launches != 1 {
+					t.Fatalf("%s: transcript reads = %v, launches = %d", phase, reads, launches)
+				}
+			}
+		})
+	}
+}
+
+func TestFirstLaunchDeliversMatchingCallbacksInOrder(t *testing.T) {
+	for _, earlyExit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("early-exit=%t", earlyExit), func(t *testing.T) {
+			r := newRig(t)
+			sub := r.svc.Subscribe()
+			defer sub.Close()
+			const reply = "early reply from the matching session"
+			var requestID string
+			r.fake.DuringLaunch(func(rt *harnesstest.Runtime) {
+				started(rt)
+				rt.Emit(&model.Event{Kind: model.EventAssistant, Text: reply, NativeID: "matched-reply"})
+				requestID = rt.Ask(model.RequestQuestion, nil)
+				if requestID == "" {
+					t.Error("the request callback returned no id")
+				}
+				r.svc.mu.Lock()
+				early := r.svc.viewLocked(r.svc.reg.Snapshot().Conversations[0])
+				r.svc.mu.Unlock()
+				if early.TurnActive || len(early.Pending) != 0 {
+					t.Error("unconfirmed output or request reached the view")
+				}
+				rt.Settle(requestID, model.OutcomeAborted)
+				if earlyExit {
+					rt.Exit(nil)
+				}
+			})
+			conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "matching launch", "opening prompt", LaunchChoice{})
+			if earlyExit {
+				if err == nil || r.svc.view(conv.ID).State != model.RuntimeNone || len(r.fake.Last().Prompts()) != 0 {
+					t.Fatalf("early exit did not settle: %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if len(r.svc.view(conv.ID).Pending) != 0 {
+				t.Fatal("the settled early request is still pending")
+			}
+			want := []string{"runtime:starting", "runtime:started", "assistant", "request", "request_resolved:aborted"}
+			if earlyExit {
+				want = append(want, "runtime:error")
+			} else {
+				want = append(want, "user")
+			}
+			var streamed []*model.Event
+			for range len(sub.Updates()) {
+				if update := <-sub.Updates(); update.Event != nil {
+					streamed = append(streamed, update.Event)
+				}
+			}
+			for _, events := range [][]*model.Event{r.events(conv.ID), streamed} {
+				if got := kinds(events); !slices.Equal(got, want) {
+					t.Fatalf("events = %v, want %v", got, want)
+				}
+				if events[2].Text != reply || events[3].Req.ID != requestID || events[4].Req.ID != requestID {
+					t.Fatal("the reply or request identity changed in delivery")
+				}
+			}
+		})
+	}
+}
+
+func TestSendRefusesAStoppingOrMismatchedRuntimeBeforeRecording(t *testing.T) {
+	for _, mismatch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wrong-session=%t", mismatch), func(t *testing.T) {
+			r := adoptionRig(t)
+			conv, err := r.adoptTerminal()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := r.svc.Start(conv.ID); err != nil {
+				t.Fatal(err)
+			}
+			rt := r.fake.Last()
+			started(rt)
+			rt.HoldOnClose()
+			defer rt.Exit(nil)
+			if mismatch {
+				rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: "another"}})
+			} else if err := r.svc.Release(conv.ID); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, "the runtime to begin stopping", rt.Closed)
+			before := r.view(conv.ID).LastSeq
+			// This is the interval after the caller's launch or prompt check
+			// and before it records and hands the prompt to the runtime.
+			wantCode(t, r.svc.send(conv.ID, "opening prompt"), CodeConflict)
+			if after := r.view(conv.ID); after.LastSeq != before || after.TurnActive || len(rt.Prompts()) != 0 {
+				t.Errorf("refused send changed the log or started a turn: seq %d → %d, active %t, prompts %d",
+					before, after.LastSeq, after.TurnActive, len(rt.Prompts()))
+			}
+		})
+	}
+}
+
+type promptHookRuntime struct {
+	harness.Runtime
+	beforePrompt func()
+}
+
+func (rt promptHookRuntime) Prompt(uuid, text string) error {
+	rt.beforePrompt()
+	return rt.Runtime.Prompt(uuid, text)
+}
+
+func TestSendSettlesAPromptRefusedAfterItWasRecorded(t *testing.T) {
+	r := adoptionRig(t)
+	conv, err := r.adoptTerminal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.svc.Start(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	rt := r.fake.Last()
+	started(rt)
+	r.svc.mu.Lock()
+	r.svc.live[conv.ID].runtime = promptHookRuntime{Runtime: rt, beforePrompt: func() {
+		events := r.events(conv.ID)
+		if last := events[len(events)-1]; last.Kind != model.EventUser || last.Text != "opening prompt" || !r.view(conv.ID).TurnActive {
+			t.Errorf("the prompt had not been recorded when the runtime refused it: %+v", last)
+		}
+		rt.RefusePrompts(fmt.Errorf("%w: %w", harness.ErrPromptRefused, harness.ErrWrongSession))
+	}}
+	r.svc.mu.Unlock()
+
+	before := len(r.events(conv.ID))
+	if err := r.svc.Prompt(conv.ID, "opening prompt"); !errors.Is(err, harness.ErrPromptRefused) {
+		t.Errorf("send returned %v", err)
+	}
+	if got := kinds(r.events(conv.ID)[before:]); !slices.Equal(got, []string{"user", "turn_end:error"}) {
+		t.Errorf("prompt refusal rows = %v", got)
+	}
+	if r.view(conv.ID).TurnActive || len(rt.Prompts()) != 0 {
+		t.Error("the refusal left an active turn or delivered a prompt")
 	}
 }
 

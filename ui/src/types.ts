@@ -61,7 +61,7 @@ export interface RuntimeEnvironment {
 export type Attention = 'request' | 'unsupervised' | 'running' | 'error' | 'unread' | 'idle'
 
 // the runtime as the service sees it now.
-export type ConversationState = 'none' | 'starting' | 'running' | 'stopping' | 'resuming' | 'unsupervised'
+export type ConversationState = 'none' | 'starting' | 'running' | 'stopping' | 'unsupervised'
 
 export interface PendingRequest {
   id: string
@@ -315,7 +315,7 @@ export interface Blocker {
   turn: boolean
   requests: number
   background: number
-  // settling: a runtime starting, or a conversation resuming.
+  // settling: a runtime starting.
   settling?: string
 }
 
@@ -369,6 +369,7 @@ export interface ConversationEvent {
   origin: 'managed' | 'native' | 'service'
   text?: string
   native_id?: string
+  gap?: boolean
   status?: string
   tool?: string
   tool_use_id?: string

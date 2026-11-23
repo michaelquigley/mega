@@ -146,7 +146,7 @@ const persist = (entry) => {
 // message timestamps are milliseconds, unique within the session.
 let lastStamp = 0
 const stamp = () => (lastStamp = Math.max(Date.now(), lastStamp + 1))
-const message = (msg) => {
+const message = (msg, stored = true) => {
   out({ type: 'message_start', message: msg })
   if (msg.role === 'assistant') {
     msg.content.forEach((block, contentIndex) => {
@@ -154,7 +154,7 @@ const message = (msg) => {
     })
   }
   out({ type: 'message_end', message: msg })
-  persist({ type: 'message', message: msg })
+  if (stored) persist({ type: 'message', message: msg })
 }
 const assistant = (content, extra = {}) => ({ role: 'assistant', content, api: current.api, provider: current.provider, model: current.id, usage: {}, stopReason: 'stop', timestamp: stamp(), ...extra })
 const reply = (text) => message(assistant([{ type: 'text', text }]))
@@ -272,8 +272,8 @@ const run = async (text) => {
       break
     case 'twins': {
       const at = stamp()
-      message(assistant([{ type: 'text', text: 'first' }], { timestamp: at }))
-      message(assistant([{ type: 'text', text: 'second' }], { timestamp: at }))
+      message(assistant([{ type: 'text', text: 'first' }], { timestamp: at }), false)
+      message(assistant([{ type: 'text', text: 'second' }], { timestamp: at }), false)
       break
     }
     case 'echo':

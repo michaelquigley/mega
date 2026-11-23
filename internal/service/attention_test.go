@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -150,6 +152,49 @@ func TestAnErrorStaysAnErrorAfterClose(t *testing.T) {
 	}
 }
 
+func TestLegacyImportFailureDoesNotChangeRuntimeAttention(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		exitError error
+		want      string
+	}{
+		{"failed import alone", nil, model.AttentionIdle},
+		{"failed import after runtime failure", errors.New("the process died"), model.AttentionError},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			conv := r.start("one")
+			rt := r.fake.Last()
+			started(rt)
+			finishTurn(rt, "a-1", "done")
+			r.readAll(conv.ID)
+			rt.Exit(c.exitError)
+			if got := r.attention(conv.ID); got != c.want {
+				t.Fatalf("before importing: attention = %q, want %q", got, c.want)
+			}
+
+			// Append the rows the old service wrote for a failed import.
+			r.svc.mu.Lock()
+			l := r.svc.live[conv.ID]
+			startErr := l.log.Append(&model.Event{Kind: model.EventRuntime, Origin: model.OriginService, Status: model.StatusResuming})
+			failErr := l.log.Append(&model.Event{Kind: model.EventRuntime, Origin: model.OriginService, Status: model.StatusError, Text: "native history could not be read: session missing"})
+			r.svc.mu.Unlock()
+			if err := errors.Join(startErr, failErr); err != nil {
+				t.Fatal(err)
+			}
+			before := r.events(conv.ID)
+
+			r.restart()
+			if got := r.attention(conv.ID); got != c.want {
+				t.Errorf("after replay: attention = %q, want %q", got, c.want)
+			}
+			if after := r.events(conv.ID); !reflect.DeepEqual(before, after) {
+				t.Errorf("replay changed the history: got %v, want %v", kinds(after), kinds(before))
+			}
+		})
+	}
+}
+
 // once Close has closed the logs, a history read or a read acknowledgment is
 // refused rather than opening a log again from disk.
 func TestNoLogIsReopenedAfterClose(t *testing.T) {
@@ -213,7 +258,7 @@ func TestUnsupervisedIsItsOwnState(t *testing.T) {
 	}
 }
 
-func TestImportFromOutsideMegaIsNotUnread(t *testing.T) {
+func TestViewingOutputFromOutsideMegaIsNotUnread(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()
@@ -227,11 +272,11 @@ func TestImportFromOutsideMegaIsNotUnread(t *testing.T) {
 		{Kind: model.EventUser, Text: "from the terminal", NativeID: "t-1"},
 		{Kind: model.EventAssistant, Text: "terminal reply", NativeID: "t-2"},
 	})
-	if err := r.svc.Resume(conv.ID); err != nil {
+	if _, err := r.svc.NativeTranscript(conv.ID); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.attention(conv.ID); got != model.AttentionIdle {
-		t.Errorf("after importing a terminal visit: %q", got)
+		t.Errorf("after viewing a terminal visit: %q", got)
 	}
 }
 
@@ -309,31 +354,22 @@ func TestNeedsYouListsRequestsFirstThenOldestFirst(t *testing.T) {
 	}
 }
 
-// after an unclean restart the orphaned runtime may have kept working where
-// nobody saw it: what resume imports is unread and lands in needs-you.
-func TestResumeAfterUnsupervisedMarksImportedOutputUnread(t *testing.T) {
+func TestUnwitnessedOutputDoesNotBecomeUnreadWhenSupervisionIsAcknowledged(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	finishTurn(r.fake.Last(), "a-1", "done")
 	r.readAll(conv.ID)
 	r.restart()
-	r.fake.SetHistory(conv.NativeID, []*model.Event{
-		{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"},
-		{Kind: model.EventAssistant, Text: "finished unobserved", NativeID: "o-1"},
-	})
+	r.fake.SetHistory(conv.NativeID, []*model.Event{{Kind: model.EventAssistant, Text: "finished unobserved", NativeID: "o-1"}})
 	if err := r.svc.Resume(conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	view := r.view(conv.ID)
-	if view.Attention != model.AttentionUnread {
-		t.Fatalf("after resuming an unsupervised conversation: %q", view.Attention)
+	if got := r.attention(conv.ID); got != model.AttentionIdle || len(r.fake.Reads()) != 0 {
+		t.Fatalf("attention = %q, history reads = %v", got, r.fake.Reads())
 	}
-	if needs := r.svc.Workspace().NeedsYou; !slices.Equal(needs, []string{conv.ID}) {
-		t.Errorf("needs you = %v", needs)
-	}
-	r.readAll(conv.ID)
-	if got := r.attention(conv.ID); got != model.AttentionIdle {
-		t.Errorf("after reading: %q", got)
+	transcript, err := r.svc.NativeTranscript(conv.ID)
+	if err != nil || len(transcript) != 1 || transcript[0].Text != "finished unobserved" {
+		t.Fatalf("transcript = %+v, %v", transcript, err)
 	}
 }
 
@@ -381,10 +417,13 @@ func crashUnfinished(t *testing.T, readAfter bool) (*rig, string) {
 	return r, conv.ID
 }
 
-func TestCachedOutputOfTheUnfinishedTurnIsUnreadAfterResume(t *testing.T) {
+func TestCachedOutputOfTheUnfinishedTurnStaysInHistoryWithoutNewUnread(t *testing.T) {
 	r, id := crashUnfinished(t, false)
-	if got := r.attention(id); got != model.AttentionUnread {
-		t.Errorf("cached output the turn never finished, not read: %q", got)
+	if got := r.attention(id); got != model.AttentionIdle {
+		t.Errorf("cached output of an unfinished turn changed attention: %q", got)
+	}
+	if !slices.ContainsFunc(r.events(id), func(ev *model.Event) bool { return ev.Text == "unfinished" }) {
+		t.Error("the recorded reply disappeared")
 	}
 }
 
@@ -392,26 +431,6 @@ func TestCachedOutputAlreadyReadStaysReadAfterResume(t *testing.T) {
 	r, id := crashUnfinished(t, true)
 	if got := r.attention(id); got != model.AttentionIdle {
 		t.Errorf("cached output already read: %q", got)
-	}
-}
-
-func TestOutputOfATurnStillInProgressDoesNotCount(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	finishTurn(r.fake.Last(), "a-1", "done")
-	r.readAll(conv.ID)
-	r.restart()
-	r.fake.SetHistory(conv.NativeID, []*model.Event{
-		{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"},
-		{Kind: model.EventUser, Text: "next", NativeID: "u-2"},
-		{Kind: model.EventAssistant, Text: "still going", NativeID: "o-1"},
-	})
-	r.fake.SetOpen(conv.NativeID, "u-2", "o-1")
-	if err := r.svc.Resume(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	if got := r.attention(conv.ID); got != model.AttentionIdle {
-		t.Errorf("output of an in-progress native turn counted: %q", got)
 	}
 }
 
@@ -453,41 +472,5 @@ func TestNativeEventsNeverCountAsOutput(t *testing.T) {
 	}
 	if view := r.view(conv.ID); view.OutputSeq != replySeq || view.Attention != model.AttentionUnread {
 		t.Errorf("a turn with one assistant event: output seq %d (want %d), attention %q", view.OutputSeq, replySeq, view.Attention)
-	}
-}
-
-// after an unsupervised resume the marker is the newest assistant or tool
-// event, never a native one recorded after it.
-func TestResumeMarkerIgnoresNativeEvents(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	finishTurn(r.fake.Last(), "a-1", "done")
-	r.readAll(conv.ID)
-	r.restart()
-	r.fake.SetHistory(conv.NativeID, []*model.Event{
-		{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"},
-		{Kind: model.EventToolUse, Text: "Bash ls", Tool: "Bash", ToolUseID: "tu-1", NativeID: "u-1"},
-		{Kind: model.EventToolResult, Text: "file", ToolUseID: "tu-1", NativeID: "r-1"},
-		{Kind: model.EventNative, Text: "system/init", NativeID: "n-1"},
-		{Kind: model.EventNative, Text: "system/status", NativeID: "n-2"},
-	})
-	if err := r.svc.Resume(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	var resultSeq, nativeSeq int64
-	for _, ev := range r.events(conv.ID) {
-		switch ev.NativeID {
-		case "r-1":
-			resultSeq = ev.Seq
-		case "n-2":
-			nativeSeq = ev.Seq
-		}
-	}
-	view := r.view(conv.ID)
-	if view.OutputSeq != resultSeq || nativeSeq <= resultSeq {
-		t.Errorf("marker = %d, want the tool result's %d (newest native at %d)", view.OutputSeq, resultSeq, nativeSeq)
-	}
-	if view.Attention != model.AttentionUnread {
-		t.Errorf("attention = %q", view.Attention)
 	}
 }

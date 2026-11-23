@@ -88,6 +88,27 @@ func summary(evs []*model.Event) []string {
 	return out
 }
 
+func TestPromptRefusesAKnownWrongSessionBeforeWriting(t *testing.T) {
+	r, _, stdin := testRuntime()
+	if !r.sameSession(r.NativeID()) {
+		t.Fatal("the matching session was refused")
+	}
+	if err := r.Prompt("matching-id", "matching prompt"); err != nil || !strings.Contains(stdin.String(), "matching prompt") {
+		t.Fatalf("matching prompt did not reach the shim: %v", err)
+	}
+
+	stdin.Reset()
+	if r.sameSession("another-session") {
+		t.Fatal("the reported session should have tripped the latch")
+	}
+	if err := r.Prompt("disputed-id", "disputed prompt"); !errors.Is(err, harness.ErrPromptRefused) {
+		t.Errorf("mismatched prompt returned %v", err)
+	}
+	if stdin.Len() != 0 {
+		t.Error("the mismatched prompt reached the shim")
+	}
+}
+
 func TestStreamMapping(t *testing.T) {
 	r, sink, _ := testRuntime()
 	feed(t, r, "testdata/stream.jsonl")

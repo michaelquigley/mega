@@ -73,11 +73,14 @@ type Event struct {
 	Text   string `dd:",+omitempty"`
 
 	// NativeID is the harness's own identity for the message this event came
-	// from. native history import matches on it, never on text.
+	// from. a live echo of a recorded message keeps the same identity.
 	NativeID string `dd:",+omitempty"`
 
 	// Status is the state of a runtime event or the outcome of a turn_end.
 	Status string `dd:",+omitempty"`
+
+	// Gap marks the point where mega stopped witnessing a native session.
+	Gap bool `dd:",+omitempty"`
 
 	// Tool and ToolUseID name a tool_use and tie its tool_result to it.
 	Tool      string `dd:",+omitempty"`
@@ -190,4 +193,10 @@ type TurnRecord struct {
 	Asked   TurnSettings
 	Ran     TurnSettings
 	Differs []string `dd:",+omitempty"`
+}
+
+// HistoryBoundary reports where the next observed turn starts afresh.
+// older logs recorded supervision loss without a gap flag.
+func (e *Event) HistoryBoundary() bool {
+	return e.Kind == EventRuntime && (e.Gap || e.Status == StatusUnsupervised)
 }

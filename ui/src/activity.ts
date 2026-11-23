@@ -4,7 +4,6 @@ import type { Conversation } from './types'
 export const transitions: Partial<Record<Conversation['state'], string>> = {
   starting: 'Starting',
   stopping: 'Stopping',
-  resuming: 'Resuming',
 }
 
 export interface Activity {

@@ -203,6 +203,7 @@ export async function suite(name, { bare = false, tz, searchDirs = [], megaName 
   }
 
   const config = join(dir, 'mega.yaml')
+  const snapshots = process.env.MEGA_CHECK_DISABLE_SNAPSHOTS === '1' ? ['snapshots:', '  keep: 0'] : []
   let servicePath = process.env.PATH
   if (bare) {
     // node alone, in a directory of its own: the one node is installed in
@@ -215,7 +216,7 @@ export async function suite(name, { bare = false, tz, searchDirs = [], megaName 
     writeFileSync(join(dir, 'home/.profile'), `export PATH="${join(dir, 'bin')}:$PATH"\n`)
     writeFileSync(
       config,
-      [`listen: 127.0.0.1:${port}`, `data: ${join(dir, 'data')}`, ...(megaName ? [`name: ${megaName}`] : []), 'claude:', `  shim: ${join(repo, 'shim/claude')}`, 'environment:', '  shell: /bin/bash', ''].join('\n'),
+      [`listen: 127.0.0.1:${port}`, `data: ${join(dir, 'data')}`, ...(megaName ? [`name: ${megaName}`] : []), ...snapshots, 'claude:', `  shim: ${join(repo, 'shim/claude')}`, 'environment:', '  shell: /bin/bash', ''].join('\n'),
     )
   } else {
     // the fake claude shim, beside the real shim's dependencies, since mega's
@@ -241,7 +242,7 @@ export async function suite(name, { bare = false, tz, searchDirs = [], megaName 
       [
         `listen: 127.0.0.1:${port}`,
         `data: ${join(dir, 'data')}`,
-        ...(megaName ? [`name: ${megaName}`] : []),
+        ...(megaName ? [`name: ${megaName}`] : []), ...snapshots,
         'claude:',
         '  node: node',
         `  shim: ${join(dir, 'fakeshim')}`,

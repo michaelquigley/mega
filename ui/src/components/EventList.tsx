@@ -22,6 +22,7 @@ interface EventListProps {
   projectId: string
   conversationId: string
   harness: string
+  onTranscript?: () => void
   // what the turn in flight asked for and ran with, once it has run.
   inFlight?: TurnRecord
 }
@@ -49,10 +50,14 @@ interface Began {
   imported: boolean
 }
 
+function historyBoundary(event: ConversationEvent): boolean {
+  return event.kind === 'runtime' && (event.gap === true || event.status === 'unsupervised')
+}
+
 // EventList renders recorded history. requests appear here only as history;
 // whether one is answerable comes from the service's pending set, never from
 // the log.
-export function EventList({ events, pending, turnActive, stale, showNative, delta, projectId, conversationId, harness, inFlight }: EventListProps) {
+export function EventList({ events, pending, turnActive, stale, showNative, delta, projectId, conversationId, harness, inFlight, onTranscript }: EventListProps) {
   const { models } = useModels(projectId, harness)
   const results = new Map<string, ConversationEvent>()
   const outcomes = new Map<string, string>()
@@ -93,6 +98,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
       continue
     }
     if (event.kind === 'runtime') {
+      if (historyBoundary(event)) open = undefined
       continue
     }
     const at = parse(event.at)
@@ -260,6 +266,14 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
               {event.facts?.version && ` · v${event.facts.version}`}
               {outside && ` · older than the ${event.facts?.tested} mega was tested with`}
               {event.text && `: ${event.text}`}
+              {event.gap && (
+                <span className="history-gap">
+                  History may have a gap.{' '}
+                  {onTranscript
+                    ? <button type="button" onClick={onTranscript}>View native transcript</button>
+                    : 'Use Adopt a session to recover the native session.'}
+                </span>
+              )}
             </p>
           )
         }
@@ -330,6 +344,9 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
     const node = render(event, index)
     if (node === null) {
       return
+    }
+    if (historyBoundary(event) && turnFrom !== null) {
+      closeTurn(`turn-${turnFrom}`)
     }
     if (turnFrom === null) {
       turnFrom = event.seq

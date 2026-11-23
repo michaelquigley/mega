@@ -89,17 +89,17 @@ func TestAMissingExecutableWhileReadingHistoryIsNamed(t *testing.T) {
 
 	r.fake.FailHistory(&exec.Error{Name: "node", Err: exec.ErrNotFound})
 	r.fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "node", Reason: "'node' was not found on the project's PATH"})
-	err := r.svc.Resume(conv.ID)
+	_, err := r.svc.NativeTranscript(conv.ID)
 	wantCode(t, err, CodeExecutableMissing)
 	if err == nil || !strings.Contains(err.Error(), "node") {
-		t.Errorf("resume: %v", err)
+		t.Errorf("transcript: %v", err)
 	}
 
 	// a history failure that is not a missing executable passes through as
 	// it was.
 	r.fake.SetMissing(nil)
 	r.fake.FailHistory(errors.New("the transcript is unreadable"))
-	if err := r.svc.Resume(conv.ID); err == nil || ErrorCode(err) == CodeExecutableMissing {
+	if _, err := r.svc.NativeTranscript(conv.ID); err == nil || ErrorCode(err) == CodeExecutableMissing {
 		t.Errorf("another failure: %v", err)
 	}
 }

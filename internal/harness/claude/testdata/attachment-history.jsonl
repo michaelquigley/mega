@@ -1,0 +1,1 @@
+{"type":"user","session_id":"test-attachment","uuid":"user-1","message":{"role":"user","content":[{"type":"text","text":"Look at this attachment."},{"type":"image","source":{"type":"base64","media_type":"image/png","data":""}}]}}

@@ -19,7 +19,6 @@ const (
 	StateStarting = "starting"
 	StateRunning  = model.RuntimeRunning
 	StateStopping = "stopping"
-	StateResuming = "resuming"
 )
 
 // ConversationView is a conversation as the service currently knows it: the
@@ -28,7 +27,7 @@ type ConversationView struct {
 	model.Conversation
 
 	// State is the runtime as the service sees it now: none, starting, running,
-	// stopping, resuming, or unsupervised.
+	// stopping, or unsupervised.
 	State      string
 	TurnActive bool
 	// Interrupting says an interrupt has begun and the turn has not yet
@@ -91,21 +90,21 @@ type live struct {
 	seen      map[string]bool // native ids already in the log
 	runtime   harness.Runtime
 	inc       *incarnation // the current runtime's identity; nil when none
-	busy      bool         // a start or a resume is under way
+	busy      bool         // a start is under way
 	releasing bool         // the current runtime has been asked to stop
+	handoff   bool         // the stop was requested for a terminal handoff
 	// refused is a wrong-session report that arrived while the runtime was
 	// still launching, with no runtime yet to stop; the launch applies it as
 	// soon as Launch returns, before any prompt.
 	refused   *model.Event
 	switching bool // a permission mode or model change is waiting on the runtime
 
-	// session is a native session this conversation created that the registry
-	// does not hold yet: one a runtime reported, or the last one the log shows
-	// started. the next launch binds it and resumes it; a fresh session starts
-	// only when neither the registry nor this knows one.
-	session    string
-	state      string // displayed: "", starting, running, stopping or resuming
-	turnActive bool
+	// session holds the exact id until the registry does. A recorded start
+	// also makes it available for transcript reads and conversation views.
+	session         string
+	sessionRecorded bool
+	state           string // displayed: "", starting, running, or stopping
+	turnActive      bool
 	// turnStartedAt is when the turn in flight began; zero when none is. it
 	// lives only here, beside turnActive, and is never stored.
 	turnStartedAt time.Time
@@ -127,11 +126,8 @@ type live struct {
 	reserved     map[string]string    // listed requests no answer may reach: answerInFlight, or a settled outcome not yet recorded
 	interrupting bool                 // an interrupt has begun, and a turn or a request is still outstanding
 
-	// fault is whether the last runtime ended badly (an error, an exit during
-	// a turn, or a launch that did not start: runFault), or the last history
-	// read failed (readFault), as noteRuntime follows them. reading is a
-	// resume or an adoption under way, whose error is the read's.
-	fault, runFault, readFault, reading bool
+	// fault follows whether the last runtime ended badly or failed to launch.
+	fault bool
 
 	// turnOutput is the newest agent output recorded in the turn in flight. it
 	// becomes the conversation's OutputSeq only when the turn ends, so output
@@ -171,10 +167,19 @@ type incarnation struct {
 	// version is what the harness's --version printed just before the
 	// launch, used when its started report names none.
 	version string
+	// A non-nil early holds callbacks until the first launch supplies its
+	// native id. An exit is always last and settles even on refusal.
+	early     []launchCallback
+	earlyExit func()
 	// wrong latches a report of another session than the one bound: from
 	// then on nothing this runtime reports is recorded or offered, only its
 	// exit and its settlements.
 	wrong bool
+}
+
+type launchCallback struct {
+	reportedSession string
+	deliver         func()
 }
 
 // liveLocked returns the conversation's live state, opening its log on first
@@ -203,15 +208,13 @@ func (s *Service) liveLocked(conversationID string) (*live, error) {
 	if conv, err := s.conversationLocked(conversationID); err == nil {
 		outputSeq = conv.OutputSeq
 	}
+	var legacyImport bool
 	for _, ev := range evs {
 		if ev.NativeID != "" {
 			l.seen[ev.NativeID] = true
 		}
 		if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarted && ev.Facts != nil && ev.Facts.Session != "" {
-			l.session = ev.Facts.Session
-		}
-		if ev.Kind == model.EventRuntime {
-			l.noteRuntime(ev.Status)
+			l.session, l.sessionRecorded = ev.Facts.Session, true
 		}
 		if ev.Seq == outputSeq {
 			l.outputAt = ev.At
@@ -219,39 +222,64 @@ func (s *Service) liveLocked(conversationID string) (*live, error) {
 		if instructs(ev) {
 			l.instructedAt = ev.At
 		}
+		if ev.Kind != model.EventRuntime {
+			continue
+		}
+		// Old imports wrote resuming before their result. A failed import
+		// stays in the timeline and leaves the runtime fault alone.
+		switch ev.Status {
+		case model.StatusResuming:
+			legacyImport = true
+		case model.StatusError:
+			if legacyImport {
+				legacyImport = false
+				continue
+			}
+		case model.StatusResumed, model.StatusStarting, model.StatusStarted,
+			model.StatusNotStarted, model.StatusStopped, model.StatusUnsupervised:
+			legacyImport = false
+		}
+		l.noteRuntime(ev.Status)
 	}
 	s.live[conversationID] = l
 	return l, nil
 }
 
+func (l *live) hasRecorded(ev *model.Event) bool {
+	return ev.NativeID != "" && l.seen[ev.NativeID]
+}
+
 // record appends an event and announces it. an event whose native identity is
-// already in the log is skipped, so a message is never recorded twice whether
-// it arrives live, echoed, or through an import. callers hold s.mu.
+// already in the log is skipped, including an echo of a snapshot message. callers hold s.mu.
 func (s *Service) record(l *live, ev *model.Event) error {
-	if ev.NativeID != "" && l.seen[ev.NativeID] {
+	if l.hasRecorded(ev) {
 		return nil
 	}
 	if ev.Origin == "" {
 		ev.Origin = model.OriginService
 	}
-	if s.failRecord != nil {
-		if err := s.failRecord(ev); err != nil {
-			return fmt.Errorf("recording event for '%s': %w", l.id, err)
-		}
-	}
-	if err := l.log.Append(ev); err != nil {
-		if errors.Is(err, events.ErrUncertain) {
-			return newError(CodeUnavailable, err.Error())
-		}
-		return fmt.Errorf("recording event for '%s': %w", l.id, err)
+	if err := s.appendEvent(l.id, l.log, ev); err != nil {
+		return err
 	}
 	if ev.NativeID != "" {
 		l.seen[ev.NativeID] = true
 	}
-	// publish gives every subscriber its own copy, never the event the caller
-	// goes on to read: what the service does next follows only what was
-	// recorded.
 	s.publish(Update{ConversationID: l.id, Event: ev})
+	return nil
+}
+
+func (s *Service) appendEvent(id string, log *events.Log, ev *model.Event) error {
+	if s.failRecord != nil {
+		if err := s.failRecord(ev); err != nil {
+			return fmt.Errorf("recording event for '%s': %w", id, err)
+		}
+	}
+	if err := log.Append(ev); err != nil {
+		if errors.Is(err, events.ErrUncertain) {
+			return newError(CodeUnavailable, err.Error())
+		}
+		return fmt.Errorf("recording event for '%s': %w", id, err)
+	}
 	return nil
 }
 
@@ -281,32 +309,14 @@ func (s *Service) transition(l *live, ev *model.Event, state string, apply func(
 	return nil
 }
 
-// noteRuntime follows how the last runtime ended, and whether the last
-// history read failed, for the error attention, from the runtime events in
-// the order recorded: live, and as the log is read back. an error recorded
-// while a resume or an adoption reads history is the read's, and a read that
-// succeeds clears it (resumed); any other error or a launch that did not
-// start is the runtime's, cleared only by a runtime that starts or stops
-// cleanly, which also means history was read.
+// noteRuntime follows the runtime fault for attention, in recording order.
 func (l *live) noteRuntime(status string) {
 	switch status {
-	case model.StatusResuming:
-		l.reading = true
-	case model.StatusResumed:
-		l.reading, l.readFault = false, false
 	case model.StatusStarted, model.StatusStopped:
-		l.reading, l.runFault, l.readFault = false, false, false
+		l.fault = false
 	case model.StatusError, model.StatusNotStarted:
-		if l.reading {
-			l.readFault = true
-		} else {
-			l.runFault = true
-		}
-		l.reading = false
-	case model.StatusUnsupervised, model.StatusStarting:
-		l.reading = false
+		l.fault = true
 	}
-	l.fault = l.runFault || l.readFault
 }
 
 // failedLaunch records a launch that failed. only a failure proven to come
@@ -360,6 +370,9 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 		// the registry says, so a page never holds a conversation without one.
 		view.Attention = recordedAttention(conv)
 		return view
+	}
+	if l.sessionRecorded {
+		view.NativeID = l.sessionOf(conv)
 	}
 	view.LastSeq = l.log.LastSeq()
 	if l.state != "" {
@@ -576,6 +589,15 @@ func (k *sink) relays() bool {
 	return k.current() && !k.inc.wrong
 }
 
+// report delivers a callback or holds it until a fresh launch is verified.
+func (k *sink) report(session string, deliver func()) {
+	if k.inc.early != nil {
+		k.inc.early = append(k.inc.early, launchCallback{reportedSession: session, deliver: deliver})
+	} else {
+		deliver()
+	}
+}
+
 // Event records what the runtime reported. a transition the browser sees (a
 // turn starting or ending, the runtime's facts) takes effect only once its
 // event is recorded, so a log that cannot confirm it leaves the last confirmed
@@ -587,7 +609,21 @@ func (k *sink) Event(ev *model.Event) {
 	if !k.relays() {
 		return
 	}
-	l := k.l
+	var session string
+	if k.inc.early != nil {
+		ev = ev.Clone()
+		if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarted && ev.Facts != nil {
+			session = ev.Facts.Session
+		}
+	}
+	k.report(session, func() { k.event(ev) })
+}
+
+func (k *sink) event(ev *model.Event) {
+	s, l := k.s, k.l
+	if l.hasRecorded(ev) {
+		return
+	}
 	if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarted {
 		k.started(ev)
 		return
@@ -672,6 +708,31 @@ func (s *Service) endTurnLocked(l *live) {
 	}
 }
 
+func wrongSession(want, reported string) *model.Event {
+	return &model.Event{
+		Status: model.StatusError,
+		Text:   fmt.Sprintf("the runtime reported session '%s', but the launch expected '%s'", reported, want),
+	}
+}
+
+// confirmFirstStart checks every early start report before delivering any
+// held callback. The runtime's own id supplies the binding. Callers hold s.mu.
+func (k *sink) confirmFirstStart(nativeID string, held []launchCallback) *model.Event {
+	for _, callback := range held {
+		if reported := callback.reportedSession; reported != "" && reported != nativeID {
+			k.inc.wrong = true
+			return wrongSession(nativeID, reported)
+		}
+	}
+	k.l.session = nativeID
+	if k.current() {
+		for _, callback := range held {
+			callback.deliver()
+		}
+	}
+	return nil
+}
+
 // started shows the runtime running once it reports the session it holds, and
 // stops a runtime bound to a different session than the conversation's:
 // resuming anything but the exact identity is never acceptable. callers hold
@@ -685,10 +746,7 @@ func (k *sink) started(ev *model.Event) {
 	bound := l.sessionOf(conv)
 	if ev.Facts != nil && ev.Facts.Session != "" && bound != "" && ev.Facts.Session != bound {
 		k.inc.wrong = true
-		refusal := &model.Event{
-			Status: model.StatusError,
-			Text:   fmt.Sprintf("the runtime reported session '%s', but this conversation is bound to '%s'; stopping it", ev.Facts.Session, bound),
-		}
+		refusal := wrongSession(bound, ev.Facts.Session)
 		if l.runtime == nil {
 			// still launching (an adapter may report before Launch returns):
 			// held until the runtime is in hand, never dropped.
@@ -726,7 +784,12 @@ func (k *sink) started(ev *model.Event) {
 	if l.releasing || l.refused != nil {
 		state = l.state
 	}
-	if err := s.transition(l, ev, state, func() { l.facts = facts }); err != nil {
+	if err := s.transition(l, ev, state, func() {
+		l.facts = facts
+		if conv.NativeID == "" && facts.Session != "" {
+			l.session, l.sessionRecorded = facts.Session, true
+		}
+	}); err != nil {
 		dl.Errorf("%v", err)
 	}
 }
@@ -743,11 +806,16 @@ func (k *sink) MCPServers(servers []model.MCPServer) {
 	if !k.relays() {
 		return
 	}
-	if k.l.mcpReported && slices.EqualFunc(k.l.mcp, servers, sameMCPServer) {
-		return
+	if k.inc.early != nil {
+		servers = cloneMCP(servers)
 	}
-	k.l.mcp, k.l.mcpReported = cloneMCP(servers), true
-	s.changed()
+	k.report("", func() {
+		if k.l.mcpReported && slices.EqualFunc(k.l.mcp, servers, sameMCPServer) {
+			return
+		}
+		k.l.mcp, k.l.mcpReported = cloneMCP(servers), true
+		s.changed()
+	})
 }
 
 func sameMCPServer(a, b model.MCPServer) bool {
@@ -778,8 +846,11 @@ func (k *sink) Background(jobs []model.BackgroundJob) {
 	if !k.relays() {
 		return
 	}
-	k.l.background = slices.Clone(jobs)
-	s.changed()
+	jobs = slices.Clone(jobs)
+	k.report("", func() {
+		k.l.background = jobs
+		s.changed()
+	})
 }
 
 func (k *sink) Delta(text string) {
@@ -787,7 +858,7 @@ func (k *sink) Delta(text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if k.relays() {
-		s.publish(Update{ConversationID: k.l.id, Delta: text})
+		k.report("", func() { s.publish(Update{ConversationID: k.l.id, Delta: text}) })
 	}
 }
 
@@ -800,31 +871,41 @@ func (k *sink) Request(kind string, payload any) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	req := &model.Request{ID: registry.NewID(), Kind: kind, Payload: payload}
-	if !k.relays() {
-		return req.ID
+	if k.relays() {
+		if k.inc.early != nil {
+			held := req.Clone()
+			req = &held
+		}
+		k.report("", func() { k.request(req) })
 	}
-	l := k.l
+	return req.ID
+}
+
+func (k *sink) request(req *model.Request) {
+	s, l := k.s, k.l
 	// the event, which every subscriber receives, carries its own copy; the
 	// pending set keeps the service's.
 	published := req.Clone()
-	recorded := &model.Event{Kind: model.EventRequest, Origin: model.OriginManaged, Text: kind, Req: &published}
+	recorded := &model.Event{Kind: model.EventRequest, Origin: model.OriginManaged, Text: req.Kind, Req: &published}
 	if err := s.record(l, recorded); err != nil {
 		dl.Errorf("request '%s' for '%s' could not be recorded and is not answerable: %v", req.ID, l.id, err)
-		return req.ID
+		return
 	}
 	l.pending = append(l.pending, req)
 	l.pendingAt[req.ID] = recorded.At
 	s.changed()
-	return req.ID
 }
 
 func (k *sink) Resolved(requestID, outcome string) {
 	s := k.s
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !k.current() {
-		return
+	if k.current() {
+		k.report("", func() { k.resolved(requestID, outcome) })
 	}
+}
+
+func (k *sink) resolved(requestID, outcome string) {
 	// the resolution leaves the pending set only once it is recorded. one that
 	// cannot be recorded stays listed, and an answer to it reaches the runtime,
 	// which refuses it as no longer pending.
@@ -833,7 +914,7 @@ func (k *sink) Resolved(requestID, outcome string) {
 	if i < 0 {
 		return
 	}
-	if err := s.settleLocked(l, l.pending[i], outcome); err != nil {
+	if err := k.s.settleLocked(l, l.pending[i], outcome); err != nil {
 		dl.Errorf("%v", err)
 	}
 }
@@ -856,14 +937,22 @@ func (k *sink) Exited(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	defer close(k.inc.exited)
+	if k.inc.early != nil && k.current() {
+		k.inc.earlyExit = func() { k.exited(err) }
+		return
+	}
+	k.exited(err)
+}
+
+func (k *sink) exited(err error) {
 	if !k.current() {
 		return
 	}
-	l := k.l
-	released := l.releasing
-	l.runtime, l.inc, l.releasing = nil, nil, false
+	s, l := k.s, k.l
+	released, handoff := l.releasing, l.handoff
+	l.runtime, l.inc, l.releasing, l.handoff = nil, nil, false, false
 	confirmed := s.retireRequestsLocked(l)
-	ev := &model.Event{Status: model.StatusStopped}
+	ev := &model.Event{Status: model.StatusStopped, Gap: handoff}
 	switch {
 	case errors.Is(err, harness.ErrLeftRunning):
 		// never a clean stop, asked for or not: something it started may still

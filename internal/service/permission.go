@@ -58,7 +58,7 @@ type ModeOutcome struct {
 // so there is exactly one writer of it.
 //
 // with no runtime the outcome is stored. an unsupervised conversation, or one
-// starting, stopping or resuming, is refused. with a runtime the outcome is
+// starting or stopping, is refused. with a runtime the outcome is
 // the harness's answer. confirmed: the runtime has already reported the new
 // mode. refused: the request goes back to what it was before, recorded the
 // same way. unconfirmed: the request stands and the live mode is whatever
@@ -87,7 +87,7 @@ func (s *Service) SetPermissionMode(conversationID, mode string) (ModeOutcome, e
 	switch {
 	case l != nil && l.busy:
 		s.mu.Unlock()
-		return ModeOutcome{}, newError(CodeConflict, "the runtime is starting or the conversation is resuming")
+		return ModeOutcome{}, newError(CodeConflict, "the runtime is starting")
 	case l != nil && l.releasing:
 		s.mu.Unlock()
 		return ModeOutcome{}, newError(CodeConflict, "the runtime is stopping")

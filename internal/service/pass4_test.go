@@ -128,7 +128,7 @@ func (c *changingResolver) Resolve(ctx context.Context, dir, activate string) (*
 	return res, err
 }
 
-// a resume and an adoption read native history by running the harness in
+// the transcript view and adoption read native history by running the harness in
 // the project's environment: a file that changes while that environment is
 // resolved refuses the read, as it refuses a launch.
 func TestAHistoryReadChecksTheEnvironmentItRunsIn(t *testing.T) {
@@ -146,21 +146,29 @@ func TestAHistoryReadChecksTheEnvironmentItRunsIn(t *testing.T) {
 
 	resolver.when = func() bool { return true }
 	reads := len(r.fake.Reads())
-	wantCode(t, r.svc.Resume(conv.ID), CodeEnvironmentChanged)
+	_, err := r.svc.NativeTranscript(conv.ID)
+	wantCode(t, err, CodeEnvironmentChanged)
 	if len(r.fake.Reads()) != reads {
-		t.Error("a resume read history in an environment whose file changed")
+		t.Error("the transcript read ran in an environment whose file changed")
 	}
 
 	writeEnvFile(t, r.project.Checkout, "export MEGA_MARKER="+markerOne)
 	r.approve(r.project.ID)
 	r.fake.SetSessions([]harness.Session{{NativeID: "terminal-1", Preview: "from the terminal"}})
 	r.fake.SetHistory("terminal-1", []*model.Event{{Kind: model.EventUser, Text: "from the terminal", NativeID: "t-1"}})
-	// the change lands in the resolution for the adoption's own read, once
-	// its conversation exists.
-	resolver.when = func() bool { return len(r.svc.Workspace().Conversations) == 2 }
+	// Resolve discovery in the approved environment. Change the file during
+	// the second resolution, just before the adoption snapshot would read it.
+	resolutions := 0
+	resolver.when = func() bool {
+		resolutions++
+		return resolutions == 2
+	}
 	reads = len(r.fake.Reads())
-	_, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "adopted")
+	_, err = r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "adopted")
 	wantCode(t, err, CodeEnvironmentChanged)
+	if len(r.svc.Workspace().Conversations) != 1 {
+		t.Error("adoption published a conversation before the approval check")
+	}
 	if len(r.fake.Reads()) != reads {
 		t.Error("an adoption read history in an environment whose file changed")
 	}
@@ -261,33 +269,21 @@ func TestLateOutputsMarkerIsRebuiltFromTheLog(t *testing.T) {
 	}
 }
 
-// a resume whose history read failed shows an error; a retry that reads it
-// clears that error, live and as the log is read back at the next start.
-func TestAResumeThatSucceedsClearsItsReadError(t *testing.T) {
+func TestTranscriptFailureLeavesTheConversationIntact(t *testing.T) {
 	r := newRig(t)
 	conv := r.stoppedWithSession()
+	before := r.view(conv.ID)
 	r.fake.FailHistory(errors.New("the session could not be read"))
-	if err := r.svc.Resume(conv.ID); err == nil {
-		t.Fatal("a failed read resumed")
+	if _, err := r.svc.NativeTranscript(conv.ID); err == nil {
+		t.Fatal("a failed transcript read succeeded")
 	}
-	if got := r.attention(conv.ID); got != model.AttentionError {
-		t.Fatalf("after the failed read: %q", got)
-	}
-	r.fake.FailHistory(nil)
-	if err := r.svc.Resume(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	if got := r.attention(conv.ID); got == model.AttentionError {
-		t.Errorf("a resume that read the history still shows the read's error")
-	}
-	r.restart()
-	if got := r.attention(conv.ID); got == model.AttentionError {
-		t.Errorf("read back at the next start, the read's error is shown again")
+	if after := r.view(conv.ID); after.Attention != before.Attention || after.LastSeq != before.LastSeq || after.ReadSeq != before.ReadSeq {
+		t.Fatalf("failed read changed the conversation: %+v", after)
 	}
 }
 
 // an error that came from the runtime is not cleared by a resume, which
-// reads history and starts nothing: only a runtime that starts clears it.
+// starts nothing: only a runtime that starts clears it.
 func TestAResumeLeavesARuntimesError(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")

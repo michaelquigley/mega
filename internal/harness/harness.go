@@ -335,13 +335,9 @@ type ModelOption struct {
 	IsDefault     bool
 }
 
-// History is a native session's stored messages, in order. Open names the
-// events (by NativeID) that belong to a turn still in progress, so their output
-// is not counted as finished; a harness whose history carries no turn status
-// reports none.
+// History is a native session's stored messages, in order.
 type History struct {
 	Events []*model.Event
-	Open   map[string]bool
 }
 
 // Session is a native session found by discovery.

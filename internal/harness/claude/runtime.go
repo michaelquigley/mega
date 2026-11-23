@@ -227,6 +227,9 @@ func (r *runtime) NativeID() string {
 func (r *runtime) Prompt(uuid, text string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.wrongSession {
+		return fmt.Errorf("%w: %w", harness.ErrPromptRefused, harness.ErrWrongSession)
+	}
 	r.interrupted = false
 	return r.send(&promptFrame{Type: "prompt", UUID: uuid, Text: text})
 }

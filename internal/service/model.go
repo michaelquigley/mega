@@ -187,7 +187,7 @@ func (s *Service) SetModel(conversationID, chosenModel, effort string) (ModeOutc
 	switch {
 	case l != nil && l.busy:
 		s.mu.Unlock()
-		return ModeOutcome{}, newError(CodeConflict, "the runtime is starting or the conversation is resuming")
+		return ModeOutcome{}, newError(CodeConflict, "the runtime is starting")
 	case l != nil && l.releasing:
 		s.mu.Unlock()
 		return ModeOutcome{}, newError(CodeConflict, "the runtime is stopping")

@@ -426,7 +426,7 @@ func TestRestartLosesPendingAndLeavesRunningUnsupervised(t *testing.T) {
 	if err := r.svc.Resume(conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	if reads := r.fake.Reads(); !slices.Equal(reads, []string{conv.NativeID}) {
+	if reads := r.fake.Reads(); len(reads) != 0 {
 		t.Errorf("history reads = %v", reads)
 	}
 	if len(r.fake.Runtimes()) != launches {
@@ -452,7 +452,7 @@ func TestCleanShutdownLeavesNone(t *testing.T) {
 	r.svc.Shutdown(ctx)
 	r.restart()
 	view := r.view(conv.ID)
-	if view.Runtime != model.RuntimeNone || slices.Contains(kinds(r.events(conv.ID)), "runtime:unsupervised") {
+	if view.Runtime != model.RuntimeNone || slices.ContainsFunc(r.events(conv.ID), (*model.Event).HistoryBoundary) {
 		t.Errorf("view = %+v, events = %v", view, kinds(r.events(conv.ID)))
 	}
 }
@@ -470,78 +470,77 @@ func TestShutdownDeadlineLeavesUnfinishedRuntimeRunning(t *testing.T) {
 	}
 }
 
-func TestImportIsIdempotentAndMatchesByIdentityNotText(t *testing.T) {
+func TestHandoffLeavesOneGapAndTheTerminalExchangeStaysInNativeHistory(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("managed prompt")
 	rt := r.fake.Last()
+	started(rt)
 	finishTurn(rt, "a-1", "same words")
-	managedPrompt := rt.Prompts()[0].UUID
 	if err := r.svc.Release(conv.ID); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the runtime to exit", rt.Exited)
-
-	// the native transcript after a terminal visit: the managed turn, then a
-	// terminal turn whose reply repeats the managed reply's text.
 	r.fake.SetHistory(conv.NativeID, []*model.Event{
-		{Kind: model.EventUser, Text: "managed prompt", NativeID: managedPrompt},
+		{Kind: model.EventUser, Text: "managed prompt", NativeID: rt.Prompts()[0].UUID},
 		{Kind: model.EventAssistant, Text: "same words", NativeID: "a-1"},
 		{Kind: model.EventUser, Text: "terminal prompt", NativeID: "t-1"},
 		{Kind: model.EventAssistant, Text: "same words", NativeID: "t-2"},
 	})
+	before := r.view(conv.ID)
+	for range 2 {
+		transcript, err := r.svc.NativeTranscript(conv.ID)
+		if err != nil || len(transcript) != 4 || transcript[2].Text != "terminal prompt" || transcript[3].Text != "same words" {
+			t.Fatalf("transcript = %+v, %v", transcript, err)
+		}
+	}
+	if after := r.view(conv.ID); after.LastSeq != before.LastSeq || after.ReadSeq != before.ReadSeq || after.Attention != model.AttentionUnread {
+		t.Fatalf("opening transcript changed the timeline or its attention: %+v", after)
+	}
+	r.restart()
 	if err := r.svc.Resume(conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	once := r.events(conv.ID)
-	if err := r.svc.Resume(conv.ID); err != nil {
+	if err := r.svc.Prompt(conv.ID, "next managed prompt"); err != nil {
 		t.Fatal(err)
 	}
-	twice := r.events(conv.ID)
-	if got := kinds(twice[len(once):]); !slices.Equal(got, []string{"runtime:resuming", "runtime:resumed"}) {
-		t.Errorf("the second import added %v", got)
+	next := r.fake.Last()
+	if next.Spec.NativeID != conv.NativeID {
+		t.Fatalf("launched %q instead of %q", next.Spec.NativeID, conv.NativeID)
 	}
-	if last := twice[len(twice)-1]; last.Text != "0 messages added from native history" {
-		t.Errorf("resumed = %q", last.Text)
+	started(next)
+	finishTurn(next, "a-2", "next managed reply")
+	if reads := r.fake.Reads(); !slices.Equal(reads, []string{conv.NativeID, conv.NativeID}) {
+		t.Fatalf("history reads = %v", reads)
 	}
-
-	var users, sameWords int
-	var native []string
-	for _, ev := range twice {
-		if ev.Kind == model.EventUser && ev.Text == "managed prompt" {
-			users++
-		}
-		if ev.Text == "same words" {
-			sameWords++
-		}
-		if ev.Origin == model.OriginNative {
-			native = append(native, ev.NativeID)
-		}
-	}
-	if users != 1 || sameWords != 2 || !slices.Equal(native, []string{"t-1", "t-2"}) {
-		t.Errorf("managed prompts %d, same-text replies %d, native %v", users, sameWords, native)
-	}
-}
-
-func TestPromptAfterReleaseImportsBeforeStarting(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	finishTurn(rt, "a-1", "done")
-	if err := r.svc.Release(conv.ID); err != nil {
+	latest, err := r.svc.History(conv.ID, HistoryQuery{Turns: 1})
+	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the runtime to exit", rt.Exited)
-	r.fake.SetHistory(conv.NativeID, []*model.Event{{Kind: model.EventUser, Text: "from the terminal", NativeID: "t-1"}})
-	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
+	earlier, err := r.svc.History(conv.ID, HistoryQuery{Turns: 1, Before: latest.From})
+	if err != nil {
 		t.Fatal(err)
 	}
-	evs := r.events(conv.ID)
-	var order []string
-	for _, ev := range evs[len(evs)-2:] {
-		order = append(order, ev.Text)
+	gaps := 0
+	for i, page := range []History{earlier, latest} {
+		var speech []string
+		for _, ev := range page.Events {
+			if ev.Gap {
+				gaps++
+				if ev.Status != model.StatusStopped {
+					t.Errorf("release gap on %q", ev.Status)
+				}
+			}
+			if ev.Kind == model.EventUser || ev.Kind == model.EventAssistant {
+				speech = append(speech, ev.Text)
+			}
+		}
+		want := [][]string{{"managed prompt", "same words"}, {"next managed prompt", "next managed reply"}}[i]
+		if !slices.Equal(speech, want) {
+			t.Errorf("page %d speech = %v, want %v", i, speech, want)
+		}
 	}
-	if !slices.Equal(order, []string{"from the terminal", "two"}) {
-		t.Errorf("tail = %v", order)
+	if gaps != 1 {
+		t.Errorf("gap count = %d", gaps)
 	}
 }
 
@@ -711,27 +710,6 @@ func TestUnrecordedWrongSessionStillStopsTheRuntime(t *testing.T) {
 	}
 }
 
-func TestUnrecordedResumeIsRefusedBeforeReading(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	finishTurn(rt, "a-1", "done")
-	if err := r.svc.Release(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the runtime to exit", rt.Exited)
-	r.closeLog(conv.ID)
-	if err := r.svc.Resume(conv.ID); err == nil {
-		t.Fatal("a resume that cannot be recorded went ahead")
-	}
-	if len(r.fake.Reads()) != 0 {
-		t.Error("native history was read for an unrecorded resume")
-	}
-	if view := r.view(conv.ID); view.State != model.RuntimeNone {
-		t.Errorf("state = %q", view.State)
-	}
-}
-
 func TestUnrecordedLaunchFailureKeepsStartingAndClearsBusy(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
@@ -816,7 +794,7 @@ func TestDiscoverHidesAdoptedSessionsAndAdoptImportsWithoutRuntime(t *testing.T)
 		t.Error("adoption started a runtime")
 	}
 	got := kinds(r.events(adopted.ID))
-	if !slices.Equal(got, []string{"runtime:resuming", "user", "assistant", "runtime:resumed"}) {
+	if !slices.Equal(got, []string{"user", "assistant"}) {
 		t.Errorf("events = %v", got)
 	}
 
@@ -929,7 +907,10 @@ func TestUnrecordedSessionIsResumedAndBoundByTheNextLaunch(t *testing.T) {
 	first := r.fake.Last()
 	waitFor(t, "the unbindable runtime to stop", first.Exited)
 	if view := r.view(conv.ID); view.NativeID != "" {
-		t.Fatalf("the registry recorded %q despite the failed write", view.NativeID)
+		t.Fatalf("the view exposed an unconfirmed id %q", view.NativeID)
+	}
+	if _, err := r.svc.NativeTranscript(conv.ID); ErrorCode(err) != CodeConflict || len(r.fake.Reads()) != 0 {
+		t.Fatalf("reading an unconfirmed id: %v, adapter reads %v", err, r.fake.Reads())
 	}
 
 	r.fake.OnLaunch(nil)
@@ -944,6 +925,32 @@ func TestUnrecordedSessionIsResumedAndBoundByTheNextLaunch(t *testing.T) {
 	}
 	if view := r.view(conv.ID); view.NativeID != first.NativeID() {
 		t.Errorf("the registry holds %q after the next launch", view.NativeID)
+	}
+}
+
+func TestRecordedStartMakesTheTranscriptAvailableEvenIfTheRegistryWriteFails(t *testing.T) {
+	r := newRig(t)
+	r.fake.DuringLaunch(func(rt *harnesstest.Runtime) {
+		started(rt)
+		r.svc.mu.Lock()
+		r.svc.failUpdate = func() error { return errors.New("registry write failed") }
+		r.svc.mu.Unlock()
+	})
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "recorded start", "one", LaunchChoice{})
+	if err == nil {
+		t.Fatal("the binding write should fail")
+	}
+	rt := r.fake.Last()
+	waitFor(t, "the runtime to exit", rt.Exited)
+	if got := r.svc.reg.Snapshot().Conversations[0].NativeID; got != "" {
+		t.Fatalf("registry id = %q, want empty", got)
+	}
+	r.fake.SetHistory(rt.NativeID(), []*model.Event{{Kind: model.EventAssistant, Text: "recorded session", NativeID: "reply"}})
+	if got := r.view(conv.ID).NativeID; got != rt.NativeID() {
+		t.Fatalf("visible id = %q, want %q", got, rt.NativeID())
+	}
+	if messages, err := r.svc.NativeTranscript(conv.ID); err != nil || len(messages) != 1 || messages[0].Text != "recorded session" {
+		t.Fatalf("transcript = %+v, %v", messages, err)
 	}
 }
 
@@ -973,6 +980,13 @@ func TestSessionStartedInTheLogIsResumedAfterARestart(t *testing.T) {
 	}
 
 	r.restart()
+	r.fake.SetHistory(rt.NativeID(), []*model.Event{{Kind: model.EventAssistant, Text: "native reply", NativeID: "native-reply"}})
+	if transcript, err := r.svc.NativeTranscript(conv.ID); err != nil || len(transcript) != 1 || transcript[0].Text != "native reply" {
+		t.Fatalf("transcript = %+v, %v", transcript, err)
+	}
+	if view := r.view(conv.ID); view.NativeID != rt.NativeID() {
+		t.Fatalf("visible session = %q, want %q", view.NativeID, rt.NativeID())
+	}
 	launches := len(r.fake.Runtimes())
 	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
 		t.Fatal(err)
@@ -986,7 +1000,7 @@ func TestSessionStartedInTheLogIsResumedAfterARestart(t *testing.T) {
 	if view := r.view(conv.ID); view.NativeID != rt.NativeID() {
 		t.Errorf("the registry holds %q", view.NativeID)
 	}
-	if reads := r.fake.Reads(); len(reads) == 0 || reads[len(reads)-1] != rt.NativeID() {
+	if reads := r.fake.Reads(); !slices.Equal(reads, []string{rt.NativeID()}) {
 		t.Errorf("history reads = %v", reads)
 	}
 }
@@ -1132,7 +1146,7 @@ func TestRemoveConversationRefusedWhileItHasARuntime(t *testing.T) {
 	}
 }
 
-func TestRemoveConversationRefusedWhileUnsupervisedOrResuming(t *testing.T) {
+func TestRemoveConversationRefusedUntilSupervisionLossAcknowledged(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	started(r.fake.Last())
@@ -1142,20 +1156,7 @@ func TestRemoveConversationRefusedWhileUnsupervisedOrResuming(t *testing.T) {
 	}
 	wantCode(t, r.svc.RemoveConversation(conv.ID), CodeConflict)
 
-	// while the resume reads native history the conversation is busy.
-	r.fake.SetHistory(conv.NativeID, nil)
-	reading := make(chan struct{})
-	release := make(chan struct{})
-	r.fake.OnHistory(func() {
-		close(reading)
-		<-release
-	})
-	done := make(chan error, 1)
-	go func() { done <- r.svc.Resume(conv.ID) }()
-	<-reading
-	wantCode(t, r.svc.RemoveConversation(conv.ID), CodeConflict)
-	close(release)
-	if err := <-done; err != nil {
+	if err := r.svc.Resume(conv.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.svc.RemoveConversation(conv.ID); err != nil {
@@ -1388,43 +1389,5 @@ func TestDismissOnlyWhereOffered(t *testing.T) {
 	}
 	if pending := r.view(conv.ID).Pending; len(pending) != 0 {
 		t.Errorf("still pending: %+v", pending)
-	}
-}
-
-// a meta user message (a subagent's hand-back) arrives only through an import,
-// as a native event with its own identity; importing it again adds nothing.
-func TestMetaMessageImportedTwiceIsRecordedOnce(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	finishTurn(rt, "a-1", "done")
-	if err := r.svc.Release(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the runtime to exit", rt.Exited)
-	r.fake.SetHistory(conv.NativeID, []*model.Event{
-		{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"},
-		{Kind: model.EventNative, Text: "meta: hand-back from web-fetch", NativeID: "meta-1"},
-	})
-	for i := 0; i < 2; i++ {
-		if err := r.svc.Resume(conv.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var metas, prompts int
-	for _, ev := range r.events(conv.ID) {
-		if ev.NativeID == "meta-1" {
-			metas++
-			if ev.Kind != model.EventNative {
-				t.Errorf("the hand-back was recorded as %s", ev.Kind)
-			}
-		}
-		if ev.Kind == model.EventUser && ev.Origin == model.OriginNative {
-			prompts++
-		}
-	}
-	if metas != 1 || prompts != 0 {
-		t.Errorf("hand-back recorded %d times; native prompts %d", metas, prompts)
 	}
 }

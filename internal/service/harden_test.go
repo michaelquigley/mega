@@ -216,7 +216,7 @@ func TestAnAnswerKeepsASettlementThatCrossedIt(t *testing.T) {
 // a resume whose recovered output cannot be recorded unread stays
 // unsupervised and says so, so a retry counts it; it never clears the state
 // that would have counted it.
-func TestAResumeThatCannotRecordUnreadStaysUnsupervised(t *testing.T) {
+func TestAResumeThatCannotRecordAcknowledgmentStaysUnsupervised(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	finishTurn(r.fake.Last(), "a-1", "done")
@@ -235,7 +235,7 @@ func TestAResumeThatCannotRecordUnreadStaysUnsupervised(t *testing.T) {
 		return errors.New("the registry could not be written")
 	}
 	if err := r.svc.Resume(conv.ID); err == nil {
-		t.Error("a resume that could not record the recovered output reported success")
+		t.Error("a resume that could not record the acknowledgment reported success")
 	}
 	if view := r.view(conv.ID); view.Runtime != model.RuntimeUnsupervised {
 		t.Fatalf("after the failed resume: %q", view.Runtime)
@@ -243,7 +243,7 @@ func TestAResumeThatCannotRecordUnreadStaysUnsupervised(t *testing.T) {
 	if err := r.svc.Resume(conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.attention(conv.ID); got != model.AttentionUnread {
+	if got := r.attention(conv.ID); got != model.AttentionIdle {
 		t.Errorf("after the retry: %q", got)
 	}
 }

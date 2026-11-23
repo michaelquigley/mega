@@ -2530,3 +2530,17 @@ dialog.adopt-dialog .actions {
 .folder-list li[role='presentation']:hover {
   background: none;
 }
+
+
+.history-gap {
+  display: block;
+}
+
+.history-gap button {
+  font: inherit;
+}
+
+.transcript-messages {
+  display: grid;
+  gap: 0.75rem;
+}

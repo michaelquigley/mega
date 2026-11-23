@@ -322,6 +322,26 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type transcriptMessage struct {
+	Speaker string
+	Text    string
+}
+
+func (s *Server) nativeTranscript(w http.ResponseWriter, r *http.Request) {
+	events, err := s.svc.NativeTranscript(r.PathValue("id"))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	messages := make([]transcriptMessage, 0, len(events))
+	for _, ev := range events {
+		messages = append(messages, transcriptMessage{Speaker: ev.Kind, Text: ev.Text})
+	}
+	writeJSON(w, r, http.StatusOK, &struct {
+		Messages []transcriptMessage
+	}{Messages: messages})
+}
+
 // getEvents reads history: ?turns=N for the newest N turns and the turn in
 // flight, ?before=S&turns=N for the N turns before seq S (all of them without
 // turns), or ?since=N for everything after seq N. native events come only

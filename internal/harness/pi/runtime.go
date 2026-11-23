@@ -30,9 +30,6 @@ const (
 	// survivorGrace is how long the exit waits for what pi started to go
 	// before naming it still running.
 	survivorGrace = 5 * time.Second
-	// entryWait bounds how long a reported message waits for its session
-	// entry before it is identified another way.
-	entryWait = 2 * time.Second
 )
 
 // dialog methods pi raises as extension_ui_request records and waits on; the
@@ -61,29 +58,24 @@ type runtime struct {
 	stopping bool
 
 	// frames carries what pi sends, in order, from the connection's reader
-	// to work, which handles them one at a time and may ask pi for session
-	// entries meanwhile; worked closes when work is done. discard closes when
+	// to work, which handles them one at a time. worked closes when work
+	// is done. discard closes when
 	// a launch failed, so nothing waits on frames nobody reads.
 	frames  chan received
 	worked  chan struct{}
 	discard chan struct{}
-	// cursor is the last session entry matched to a message, for get_entries,
-	// and unmatched the messages waiting for theirs, in order. both are work's.
-	cursor    string
-	unmatched []pendingMessage
 
-	mu          sync.Mutex
-	sessionID   string
-	dialogs     map[string]*dialog // service request id -> dialog
-	turnActive  bool
-	lastStop    string // the last assistant message's stop reason in this run
-	lastError   string // and its error
-	model       string // the conversation's model and effort, as last applied
-	effort      string
-	closing     bool
-	closedAt    time.Time
-	escalated   bool // a signal had to end pi
-	sessionFile string
+	mu         sync.Mutex
+	sessionID  string
+	dialogs    map[string]*dialog // service request id -> dialog
+	turnActive bool
+	lastStop   string // the last assistant message's stop reason in this run
+	lastError  string // and its error
+	model      string // the conversation's model and effort, as last applied
+	effort     string
+	closing    bool
+	closedAt   time.Time
+	escalated  bool // a signal had to end pi
 }
 
 func newRuntime(sink harness.Sink) *runtime {
@@ -117,70 +109,6 @@ func (r *runtime) work() {
 	for rec := range r.frames {
 		r.handle(rec.f, rec.at)
 	}
-}
-
-// entryID is the id of the session entry pi recorded for m: the first
-// message entry after the cursor with m's role, timestamp and call, which
-// pi writes unchanged. it asks pi (get_entries), or, once pi can no longer be
-// asked (its input closed for a release, or the process gone), reads the
-// session file, which holds the same entries; the import reads the same ids.
-// pi may report a message a moment before it records its entry, so it looks
-// again for a short while; the cursor moving past each match keeps two
-// messages of one role and millisecond apart. empty when no such entry is
-// found.
-func (r *runtime) entryID(m *message) string {
-	deadline := time.Now().Add(entryWait)
-	for {
-		entries, err := r.entriesAfter()
-		if err == nil {
-			for _, e := range entries {
-				em, ok := bindMessage(e.Message)
-				if e.Type == "message" && ok && em.Role == m.Role && em.Timestamp == m.Timestamp && em.ToolCallID == m.ToolCallID {
-					r.cursor = e.ID
-					return e.ID
-				}
-			}
-		}
-		if time.Now().After(deadline) {
-			return ""
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-}
-
-// entriesAfter is the session's entries after the cursor: from pi, else from
-// the session file.
-func (r *runtime) entriesAfter() ([]*entry, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
-	defer cancel()
-	command := map[string]any{"type": "get_entries"}
-	if r.cursor != "" {
-		command["since"] = r.cursor
-	}
-	got := &struct{ Entries []*entry }{}
-	if err := r.conn.call(ctx, command, got); err == nil {
-		return got.Entries, nil
-	}
-	r.mu.Lock()
-	path, id := r.sessionFile, r.sessionID
-	r.mu.Unlock()
-	header, entries, err := readSession(path)
-	if err != nil {
-		return nil, err
-	}
-	// the file is found by its name, which is no proof of what it holds.
-	if err := harness.SameSession(fmt.Sprintf("the session file '%s'", path), id, header.ID); err != nil {
-		return nil, err
-	}
-	if r.cursor == "" {
-		return entries, nil
-	}
-	for i, e := range entries {
-		if e.ID == r.cursor {
-			return entries[i+1:], nil
-		}
-	}
-	return nil, fmt.Errorf("no entry '%s' in '%s'", r.cursor, path)
 }
 
 func (r *runtime) NativeID() string {
@@ -448,7 +376,6 @@ func (r *runtime) watch() {
 	// thing a sink hears.
 	close(r.frames)
 	<-r.worked
-	unmatched := r.settleUnmatched()
 	r.mu.Lock()
 	var unanswered []string
 	for id, d := range r.dialogs {
@@ -467,65 +394,23 @@ func (r *runtime) watch() {
 	if escalated {
 		err = fmt.Errorf("pi did not stop when asked, so mega ended its process: %v", err)
 	}
-	if unmatched > 0 {
-		err = errors.Join(err, errors.New(unmatchedText(unmatched)))
-	}
 	if left := harness.Leftovers(harness.GroupSurvivors(r.conn.cmd.Process.Pid, survivorGrace)); left != nil {
 		err = errors.Join(err, left)
 	}
 	r.sink.Exited(err)
 }
 
-// pendingMessage is a message pi reported whose session entry has not been
-// found yet.
-type pendingMessage struct {
-	m   *message
-	raw map[string]any
-}
-
-// record records a message's events under its entry's id. a prompt is
-// recorded by the service as it sends it, so for a user message this
-// records only pi's identity for it, which an import recognizes.
-func (r *runtime) record(m *message, raw map[string]any, id string) {
+// The service records the prompt as it sends it. Keep pi’s echo as native
+// bookkeeping and map other live messages immediately in wire order.
+func (r *runtime) record(m *message, raw map[string]any) {
 	if m.Role == "user" {
-		r.sink.Event(&model.Event{Kind: model.EventNative, Origin: model.OriginManaged, Text: "user/recorded by pi", NativeID: id})
+		r.sink.Event(&model.Event{Kind: model.EventNative, Origin: model.OriginManaged, Text: "user/recorded by pi"})
 		return
 	}
-	for _, ev := range mapMessage(m, raw, id) {
+	for _, ev := range mapMessage(m, raw, "") {
 		ev.Origin = model.OriginManaged
 		r.sink.Event(ev)
 	}
-}
-
-// settleUnmatched looks once more, as a run settles or pi exits, for the
-// entries of the messages still waiting, which pi may have written since,
-// and records them in order. a message whose entry still cannot be found is
-// recorded with no identity, so its output is shown and counted, and the
-// count is returned for the turn or the exit to say so: an import, which
-// reads pi's entries, may bring such a message in again.
-func (r *runtime) settleUnmatched() int {
-	waiting := r.unmatched
-	r.unmatched = nil
-	missed := 0
-	for _, p := range waiting {
-		if id := r.entryID(p.m); id != "" {
-			r.record(p.m, p.raw, id)
-			continue
-		}
-		missed++
-		if p.m.Role == "user" {
-			continue
-		}
-		for _, ev := range mapMessage(p.m, p.raw, "") {
-			ev.Origin, ev.NativeID = model.OriginManaged, ""
-			r.sink.Event(ev)
-		}
-	}
-	return missed
-}
-
-func unmatchedText(n int) string {
-	return fmt.Sprintf("mega could not match %d messages pi reported to its session entries; they are shown, and a later import of this session may bring them in again", n)
 }
 
 // handle handles one record pi sent besides a response, which arrived at
@@ -552,24 +437,12 @@ func (r *runtime) handle(f map[string]any, at time.Time) {
 			r.lastStop, r.lastError = m.StopReason, m.ErrorMessage
 			r.mu.Unlock()
 		}
-		// a message waits behind one whose entry was not found, so the
-		// history keeps pi's order.
-		if len(r.unmatched) > 0 {
-			r.unmatched = append(r.unmatched, pendingMessage{m: m, raw: raw})
-			return
-		}
-		id := r.entryID(m)
-		if id == "" {
-			r.unmatched = append(r.unmatched, pendingMessage{m: m, raw: raw})
-			return
-		}
-		r.record(m, raw, id)
+		r.record(m, raw)
 	case "agent_start":
 		r.mu.Lock()
 		r.turnActive = true
 		r.mu.Unlock()
 	case "agent_settled":
-		unmatched := r.settleUnmatched()
 		aborted, _ := f["aborted"].(bool)
 		r.mu.Lock()
 		stop, failure := r.lastStop, r.lastError
@@ -594,8 +467,6 @@ func (r *runtime) handle(f map[string]any, at time.Time) {
 		}
 		end := &model.Event{Kind: model.EventTurnEnd, Origin: model.OriginManaged, Status: model.TurnSuccess}
 		switch {
-		case unmatched > 0:
-			end.Status, end.Text = model.TurnError, unmatchedText(unmatched)
 		case aborted:
 			end.Status = model.TurnInterrupted
 		case stop == "error":
@@ -732,7 +603,6 @@ func (m *modelInfo) name() string {
 // state is the part of get_state the adapter reads (pi 1.5.2).
 type state struct {
 	SessionID     string     `dd:"sessionId,+nullable"`
-	SessionFile   string     `dd:"sessionFile,+nullable"`
 	Model         *modelInfo `dd:",+nullable"`
 	ThinkingLevel string     `dd:"thinkingLevel"`
 	IsStreaming   bool       `dd:"isStreaming"`

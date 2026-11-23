@@ -29,6 +29,6 @@ A failed read of history can no longer leave a gap nothing fills, and a recorded
 
 ## order
 
-Depends on nothing. It comes before `the-page-has-one-value`, which is about what the page knows of the workspace and is easier once a conversation's events have one route. Lands on `main`. To settle when it is specified: what the stream's frame for "reached N" looks like.
+Depends on nothing. It comes before `the-page-has-one-value-for-where-it-stands`, which is about what the page knows of the workspace and is easier once a conversation's events have one route. Lands on `main`. To settle when it is specified: what the stream's frame for "reached N" looks like.
 
 The unretried `catchUp` is fixed by this and not before it. Michael, 2026-11-19, on whether to fix it on its own first: breaking all of it into chunks is the answer.

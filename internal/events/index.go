@@ -60,6 +60,14 @@ func (x *index) note(ev *model.Event, offset int64) {
 	case ev.Kind == model.EventUser && ev.Origin == model.OriginNative && x.held && len(x.calls) == 0:
 		x.startTurn(x.lead)
 	}
+	if ev.HistoryBoundary() {
+		// Keep the boundary and its surrounding metadata with the next
+		// turn, even when the preceding one had no recorded end.
+		if x.held {
+			x.startTurn(x.lead)
+		}
+		x.calls = nil
+	}
 	x.ended = ev.Kind == model.EventTurnEnd
 	switch ev.Kind {
 	case model.EventToolUse:

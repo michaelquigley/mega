@@ -119,6 +119,10 @@ func bindMessage(raw map[string]any) (*sdkMessage, error) {
 // stored history share it, so a message seen live and later imported yields
 // events with the same NativeID.
 func mapMessage(raw map[string]any) ([]*model.Event, error) {
+	return mapSessionMessage(raw, userBlock)
+}
+
+func mapSessionMessage(raw map[string]any, mapUser func(*sdkBlock) *model.Event) ([]*model.Event, error) {
 	msg, err := bindMessage(raw)
 	if err != nil {
 		return nil, err
@@ -150,7 +154,7 @@ func mapMessage(raw map[string]any) ([]*model.Event, error) {
 		if text, ok := msg.Message.text(); ok {
 			return []*model.Event{{Kind: model.EventUser, Text: text, NativeID: msg.UUID, Raw: raw}}, nil
 		}
-		return mapBlocks(msg, raw, userBlock)
+		return mapBlocks(msg, raw, mapUser)
 	case msg.Type == "result":
 		status := model.TurnSuccess
 		if msg.IsError || msg.Subtype != "success" {
@@ -219,6 +223,13 @@ func assistantBlock(block *sdkBlock) *model.Event {
 	default:
 		return &model.Event{Kind: model.EventNative, Text: "assistant/" + block.Type}
 	}
+}
+
+func historyUserBlock(block *sdkBlock) *model.Event {
+	if block.Type == "text" {
+		return &model.Event{Kind: model.EventUser, Text: block.Text}
+	}
+	return userBlock(block)
 }
 
 func userBlock(block *sdkBlock) *model.Event {

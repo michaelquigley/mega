@@ -7,7 +7,7 @@ tags: [story]
 
 Output counts when it is recorded, and only reading moves the reading position. Mega stops working out which output is new.
 
-Third in the sequence of `simplify-the-core`. Its shape depends on what is decided for `megas-history-may-have-a-gap`, which comes just before it.
+Third in the sequence of `simplify-the-core`. Piece 2, `megas-history-may-have-a-gap`, removes the resume import and its unread scan.
 
 ## why
 
@@ -21,14 +21,14 @@ An unread mark can no longer be lost because a write failed, or miscounted by a 
 
 ## what changes
 
-- **Removed:** the buffering of a turn's output until its end, the counting of output flagged as after its turn, the scan a resume makes for what is new, and the detection of an open turn in Claude's and pi's histories where it served only that scan.
+- **Removed:** the buffering of a turn's output until its end, the counting of output flagged as after its turn, and any remaining special handling for imported output when deciding what counts as unread.
 - **The newest output is taken from the log.** The registry's unread marker is neither read nor written. The field stays in the file until `the-registry-records-no-runtime-state` removes it.
 - **One thing the marker's write did is kept:** the workspace notification, when recorded output changes a conversation's mark or its place in the needs-you list.
 - **The canon's `bookkeeping-never-creates-attention`** is amended with it.
 
 ## what it costs
 
-A conversation released, worked on in a terminal and resumed shows as unread until it is looked at, and so does a session just adopted. If mega's history is allowed a gap, this cost changes shape: there is less imported output to count.
+An adoption snapshot with agent output shows as unread until the operator opens the conversation. Work done while mega could not see the session stays in the native transcript and contributes nothing to the mark.
 
 ## what does not change
 
@@ -36,7 +36,7 @@ The order of attention. A conversation with a turn in flight still reads as runn
 
 ## how it is shown
 
-- an unclean restart of a scratch mega with a turn in flight, resumed, shows unread once;
+- agent output recorded before an unclean restart, beyond the reading position, shows unread after Resume even if mega missed the turn end;
 - a conversation with an unread reply, released and resumed without being opened, is still on the needs-you list;
 - a session just adopted shows as unread until it is opened;
 - two unread conversations, the older then given more output, are in the order of each one's newest output;

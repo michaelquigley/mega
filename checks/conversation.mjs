@@ -56,8 +56,9 @@
 // and dark, with the panel open and collapsed, and the start lines,
 // shots/start-{tested,newer,older}.png, and the pi conversation,
 // shots/pi-conversation.png.
-import { rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { seedExchange } from '../shim/claude/fake/sessionStore.mjs'
 import { appendImported, appendNative, appendTurns } from './lib/gen.mjs'
 import { suite } from './lib/mega.mjs'
 
@@ -73,13 +74,48 @@ const P = await t.register('long', t.checkout('long'))
 const A = (await t.launch(P.id, 'claude', 'echo\nhello')).id
 const B = (await t.launch(P.id, 'claude', 'echo\nhello')).id
 const C = (await t.launch(P.id, 'claude', 'echo\nhello', { name: 'imported' })).id
-for (const id of [A, B, C]) {
+const gap = await t.launch(P.id, 'claude', 'echo\nmanaged before the gap', { name: 'handoff gap' })
+const unknown = await t.launch(P.id, 'claude', 'echo\nunknown session', { name: 'unknown session' })
+const legacy = await t.launch(P.id, 'claude', 'echo\nlegacy completed', { name: 'legacy loss' })
+for (const id of [A, B, C, gap.id]) {
   await t.idle(id)
   await api('POST', `/api/conversations/${id}/release`)
 }
-await until('all released', async () => (await convOf(A)).state === 'none' && (await convOf(B)).state === 'none' && (await convOf(C)).state === 'none')
+await until('all released', async () => (await convOf(A)).state === 'none' && (await convOf(B)).state === 'none' && (await convOf(C)).state === 'none' && (await convOf(gap.id)).state === 'none')
 await t.stop()
 const logOf = (id) => join(t.dir, 'data', 'conversations', id, 'events.jsonl')
+const terminalPrompt = 'terminal prompt with attachment'
+const terminalReply = 'terminal reply during handoff'
+const nativeHistory = seedExchange(join(t.dir, 'fakeshim'), gap.native_id, {
+  prompt: terminalPrompt,
+  reply: terminalReply,
+  attachment: true,
+})
+
+const readLog = (id) => readFileSync(logOf(id), 'utf8').trim().split('\n').map(JSON.parse)
+const writeLog = (id, rows) => writeFileSync(logOf(id), rows.map((ev) => JSON.stringify(ev) + '\n').join(''))
+const registry = join(t.dir, 'data/registry.yaml')
+function rewriteConversation(id, rewrite) {
+  const doc = readFileSync(registry, 'utf8')
+  const rows = doc.split(/(?=^[ \t]*- )/m)
+  const index = rows.findIndex((row) => new RegExp(`^[ \t]+id: ['"]?${id}['"]?$`, 'm').test(row))
+  if (index < 0) throw new Error(`could not find scratch conversation ${id}`)
+  rows[index] = rewrite(rows[index])
+  writeFileSync(registry, rows.join(''))
+}
+const loseBinding = (row) => row.replace(/^[ \t]*native_id: .*\n/m, '')
+rewriteConversation(gap.id, loseBinding)
+rewriteConversation(unknown.id, (row) => loseBinding(row).replace(/runtime: none/, 'runtime: running').replace(/output_seq: \d+/, 'output_seq: 0'))
+writeLog(unknown.id, readLog(unknown.id).filter((ev) => ev.status === 'starting'))
+const prior = readLog(legacy.id).filter((ev) => ev.kind !== 'runtime' || ev.status !== 'stopped' && ev.status !== 'stopping')
+const past = Date.now() - 3600_000
+const legacyEvents = [
+  { kind: 'user', text: 'prompt before supervision was lost', origin: 'managed', at: new Date(past).toISOString() },
+  { kind: 'assistant', text: 'reply before supervision was lost', origin: 'managed', at: new Date(past + 1000).toISOString() },
+  { kind: 'runtime', status: 'unsupervised', text: 'legacy loss record', origin: 'service', at: new Date(past + 2000).toISOString() },
+]
+writeLog(legacy.id, [...prior, ...legacyEvents.map((ev, i) => ({ ...ev, seq: prior.at(-1).seq + i + 1 }))])
+rewriteConversation(legacy.id, (row) => row.replace(/runtime: none/, 'runtime: unsupervised'))
 const genA = appendTurns(logOf(A), 20000, 1)
 const genB = appendTurns(logOf(B), 20000, 2)
 appendNative(logOf(B))
@@ -817,5 +853,101 @@ await dark.getByRole('button', { name: /^Collapse the side panel/ }).click()
 await dark.locator('nav.rail').waitFor()
 await until('dark re-centred', async () => centred(await column(dark, '.conversation')) && (await column(dark, '.conversation')).left > open.left)
 await t.shot(dark, 'centred-dark-rail')
+
+// Exact native history is available before the next managed launch, even
+// when the binding exists only in the log. The native dialog shares no rows
+// or acknowledgments with the conversation timeline.
+const nativeDialog = page.locator('dialog:modal', { has: page.getByRole('heading', { name: 'Native transcript' }) })
+const moreMenu = page.getByRole('button', { name: 'More', exact: true })
+const transcriptItem = page.getByRole('menuitem', { name: 'View native transcript' })
+const gapLink = page.locator('.history-gap').getByRole('button', { name: 'View native transcript' })
+const closeTranscript = async () => {
+  await nativeDialog.getByRole('button', { name: 'Close' }).click()
+  await nativeDialog.waitFor({ state: 'hidden' })
+}
+await page.goto(`${url}/#/c/${gap.id}`)
+await gapLink.waitFor()
+await until('the visible gap to be read', async () => {
+  const view = await convOf(gap.id)
+  return view.read_seq === view.last_seq
+})
+check(await gapLink.count() === 1 && (await convOf(gap.id)).native_id === gap.native_id, 'one visible handoff gap is acknowledged and offers the exact id held in the log')
+const gapBefore = await convOf(gap.id)
+await gapLink.click()
+await nativeDialog.getByText(terminalPrompt, { exact: true }).waitFor()
+check(
+  (await nativeDialog.getByText(terminalReply, { exact: true }).count()) === 1 &&
+    (await nativeDialog.locator('.message.user', { hasText: terminalPrompt }).locator('.who').textContent()) === 'You' &&
+    (await nativeDialog.locator('.message.assistant', { hasText: terminalReply }).locator('.who').textContent()) === 'Claude Code' &&
+    !(await nativeDialog.textContent()).includes('outside mega'),
+  'the standard modal shows the terminal exchange by speaker, including a prompt with text and an attachment',
+)
+await closeTranscript()
+check((await page.locator('.events').textContent()).includes('managed before the gap') && !(await page.locator('.events').textContent()).includes(terminalReply), 'the managed timeline shows what mega witnessed')
+await page.reload()
+await gapLink.waitFor()
+await moreMenu.click()
+await transcriptItem.click()
+await nativeDialog.getByText(terminalReply, { exact: true }).waitFor()
+const gapAfter = await convOf(gap.id)
+check(await gapLink.count() === 1 && gapBefore.last_seq === gapAfter.last_seq && gapBefore.read_seq === gapAfter.read_seq, 'More can reread the same transcript after reload without moving the reading position')
+await closeTranscript()
+
+nativeHistory.empty()
+await gapLink.click()
+await nativeDialog.getByText('No messages to show.', { exact: true }).waitFor()
+check(true, 'a confirmed empty Claude session says No messages to show')
+await closeTranscript()
+nativeHistory.missing()
+await gapLink.click()
+await nativeDialog.getByRole('alert').filter({ hasText: 'Transcript unavailable' }).waitFor()
+check((await convOf(gap.id)).native_id === gap.native_id, 'a missing Claude session reports Transcript unavailable and the conversation survives')
+await closeTranscript()
+nativeHistory.restore()
+
+// Losing a first launch before its identity was recorded still lets the
+// operator acknowledge the loss and remove the Mega conversation.
+await page.goto(`${url}/#/c/${unknown.id}`)
+await page.locator('.history-gap').getByText(/Adopt a session/).waitFor()
+await moreMenu.click()
+check(await gapLink.count() === 0 && await transcriptItem.count() === 0, 'an unknown session shows Adopt guidance and offers no transcript')
+const unknownBefore = await convOf(unknown.id)
+await page.getByRole('menuitem', { name: 'Resume', exact: true }).click()
+await until('the acknowledgment to clear supervision loss', async () => (await convOf(unknown.id)).state === 'none')
+const unknownAfter = await convOf(unknown.id)
+check(!unknownAfter.native_id && unknownAfter.last_seq === unknownBefore.last_seq, 'Resume acknowledges an unknown session without starting a runtime')
+check((await api('DELETE', `/api/conversations/${unknown.id}`)).status === 204, 'the acknowledged conversation can be removed')
+
+await page.goto(`${url}/#/c/${legacy.id}`)
+await page.getByText('legacy loss record', { exact: false }).waitFor()
+await moreMenu.click()
+await transcriptItem.click()
+await nativeDialog.getByText('legacy completed', { exact: true }).waitFor()
+check(true, 'More opens the bound transcript for an Unsupervised entry from an older build')
+await closeTranscript()
+await moreMenu.click()
+await page.getByRole('menuitem', { name: 'Resume', exact: true }).click()
+await until('legacy supervision loss acknowledged', async () => (await convOf(legacy.id)).state === 'none')
+check((await api('POST', `/api/conversations/${legacy.id}/prompt`, { text: 'echo\nreply after the gap' })).status === 202, 'the next prompt starts after acknowledging the old gap')
+await t.idle(legacy.id)
+await t.stop()
+const replay = readLog(legacy.id)
+const secondPrompt = replay.findLast((ev) => ev.kind === 'user')
+const secondEnd = replay.findLast((ev) => ev.kind === 'turn_end')
+const secondStart = Math.floor(Date.parse(secondPrompt.at) / 1000) * 1000
+secondPrompt.at = new Date(secondStart).toISOString()
+secondEnd.at = new Date(secondStart + 10_000).toISOString()
+writeLog(legacy.id, replay)
+await t.start()
+await page.reload()
+const oldTurn = page.locator('.events .turn-block').filter({ hasText: 'reply before supervision was lost' })
+const nextTurn = page.locator('.events .turn-block').filter({ hasText: 'reply after the gap' })
+await nextTurn.locator('.message.assistant').waitFor()
+const oldOutcomes = await oldTurn.locator('.turn-end').count()
+const nextLine = await nextTurn.locator('.turn-line').textContent()
+check(await oldTurn.count() === 1 && oldOutcomes === 0 && nextLine.includes('took 10s'), `the old turn has no recorded outcome (${oldOutcomes}) and the next turn took ten seconds from its own prompt: "${nextLine}"`)
+const legacyTail = (await api('GET', `/api/conversations/${legacy.id}/events?turns=1`)).body
+const legacyEarlier = (await api('GET', `/api/conversations/${legacy.id}/events?turns=1&before=${legacyTail.from}`)).body
+check(legacyTail.events.some((ev) => ev.text === 'reply after the gap') && legacyEarlier.events.some((ev) => ev.text === 'reply before supervision was lost'), 'paging back one turn crosses the old Unsupervised boundary')
 
 await t.done()

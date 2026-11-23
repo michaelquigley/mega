@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+CHANGE: **Resume no longer imports native history.** Adoption starts with one snapshot. After a terminal handoff or loss of supervision, the timeline marks where mega stopped watching. **View native transcript** opens the exact session’s prompts and replies. Resume acknowledges lost supervision and launches nothing. The next Start or prompt uses the bound session.
+
+FIX: **Pi records replies as they arrive and reports the harness’s turn outcome.** Live replies can appear as soon as pi sends them, including when no file entries have been written yet.
+
 CHANGE: **mega's default port is now 6342.** (2026-11-18) The old default, 8470, is registered with IANA to another protocol and is also used by NetFoundry's Agora. 6342 is unassigned. Nothing else about the listener changes: it is loopback only, and `listen` in the config or `--listen` still names another port. What an operator has to do:
 - **With no `listen` in your config,** mega moves to `http://127.0.0.1:6342` at its next start.
 - **Bookmarks, shares and tunnels that name 8470** need changing to 6342. Or keep the old port by putting `listen: 127.0.0.1:8470` in `~/.config/mega/mega.yaml`; a config that names a port keeps it.
@@ -20,15 +24,13 @@ FIX: **A request whose settlement mega could not write down is recorded as it wa
 
 FIX: **An interrupt no longer stays shown under way once nothing is left to stop.** (2026-11-20) Pressed with no turn running while a request was still being settled, as a Codex answer awaiting its reply, it stayed shown until the next prompt.
 
-FIX: **Nothing starts once a shutdown has begun, or in an environment file that changed while it was read.** (2026-11-19) A start, a resume or an adoption now checks again immediately before the harness runs, after the version check and any history import. A shutdown that began meanwhile refuses it, and a shutdown waits for a launch already under way. An environment file changed meanwhile refuses it with `environment_changed`, as an edit before the start always did.
+FIX: **Nothing starts once a shutdown has begun, or in an environment file that changed while it was read.** (2026-11-19) A launch checks again after the version check. Adoption and the transcript view check before reading native history. A shutdown that began meanwhile refuses it, and a shutdown waits for a launch already under way. An environment file changed meanwhile refuses it with `environment_changed`, as an edit before the start always did.
 
 FIX: **A conversation's unread output is no longer lost to a failed registry write.** (2026-11-19) When a turn's end could not record its output as unread, the output stayed read for good. mega now counts it from the conversation's log at its next start, including the output of a Codex background command that finishes after its turn.
 
 FIX: **An answer to a request whose runtime has ended is refused.** (2026-11-19) A request left by a runtime that ended, whose abort could not be recorded, now takes no further answer, so none reaches the runtime that replaces it. A request Codex or pi settles while its answer is on the way is now shown as settled, not answered.
 
 FIX: **Another session's history or output never reaches a conversation.** (2026-11-19) A history read back from Claude Code, Codex or pi is refused if it holds another session than the one asked for, and Codex output for another thread is left, even before Codex has confirmed which thread it opened.
-
-FIX: **A resume that succeeds clears the error of one that failed.** (2026-11-19) A resume or an adoption whose history read failed shows the conversation as an error. A later resume that reads it now clears that error, so its unread output shows in Needs you. An error from the runtime itself still waits for a runtime to start.
 
 FIX: **The shutdown banner says only what the page heard.** (2026-11-19) mega now tells the page when a shutdown has finished, as the last thing it sends. A page that heard it says mega was shut down, as before. A page that asked for a shutdown and then lost contact without hearing it says a shutdown was asked for and contact was lost, in the banner, the footer ("Shutdown asked, contact lost, retrying") and the rail.
 
@@ -42,7 +44,7 @@ FIX: **An answer no longer lets work go on after you stop a turn.** (2026-11-19)
 
 FIX: **A request stays on the page until its answer is recorded.** (2026-11-19) An answered request used to leave the page before mega had recorded the answer, so a failed record hid a request the agent was still waiting on. It now leaves once the answer is recorded, a moment later than before, and a second answer meanwhile is refused.
 
-FIX: **What a conversation counts as unread after something goes wrong.** (2026-11-19) Output from a runtime that died mid-turn is now counted when it exits, instead of by a later turn. After mega restarts uncleanly, resuming counts only what the lost runtime produced and what the resume brings in, so history from an earlier adoption stays read, and a Claude or pi turn still unfinished in the session read back is no longer counted as finished.
+FIX: **What a conversation counts as unread after something goes wrong.** (2026-11-19) Output from a runtime that died mid-turn is now counted when it exits, instead of by a later turn.
 
 FIX: **After a reconnect or a restart, the page waits to say what it knows.** (2026-11-19) "Live" waits until no further workspace read is queued, and the shutdown banner no longer reports a shutdown from before a restart as under way until the restarted mega has confirmed it.
 

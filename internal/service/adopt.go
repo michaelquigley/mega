@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michaelquigley/df/dl"
+	"github.com/michaelquigley/mega/internal/events"
 
 	"github.com/michaelquigley/mega/internal/harness"
 	"github.com/michaelquigley/mega/internal/model"
@@ -168,7 +168,7 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 	// settings, as a new conversation's is. claude settings that name no
 	// effort leave it to be chosen on the control bar before the first
 	// launch (errChooseEffort).
-	copyPlace, err := s.placeFor(projectID)
+	copyPlace, facts, err := s.placeWithFacts(projectID)
 	if err != nil {
 		return ConversationView{}, err
 	}
@@ -179,17 +179,23 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 		return ConversationView{}, err
 	}
 
+	snapshot, err := s.readNativeHistory(projectID, harnessName, nativeID, copyPlace, facts)
+	if err != nil {
+		return ConversationView{}, err
+	}
+
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.closed {
-		s.mu.Unlock()
 		return ConversationView{}, newError(CodeUnavailable, "the service is shutting down")
 	}
 	if err := s.refuseNewWorkLocked(); err != nil {
-		s.mu.Unlock()
+		return ConversationView{}, err
+	}
+	if _, err := s.projectLocked(projectID); err != nil {
 		return ConversationView{}, err
 	}
 	if s.heldLocked(harnessName)[nativeID] {
-		s.mu.Unlock()
 		return ConversationView{}, newError(CodeConflict, fmt.Sprintf("session '%s' was adopted meanwhile", nativeID))
 	}
 	conv := model.Conversation{
@@ -205,43 +211,92 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 		Model:          asked.Model,
 		Effort:         asked.Effort,
 	}
+	if err := s.writeSnapshot(&conv, snapshot); err != nil {
+		return ConversationView{}, err
+	}
+	if _, err := s.liveLocked(conv.ID); err != nil {
+		return ConversationView{}, err
+	}
 	if err := s.update(func(doc *registry.Document) error {
 		doc.Conversations = append(doc.Conversations, conv)
 		return nil
 	}); err != nil {
-		s.mu.Unlock()
+		// The rename may have survived even if its directory sync failed.
+		// Keep the complete log so either result is safe after restart.
+		s.live[conv.ID].log.Close()
+		delete(s.live, conv.ID)
 		return ConversationView{}, err
 	}
-	l, err := s.liveLocked(conv.ID)
+	return s.viewLocked(conv), nil
+}
+
+// writeSnapshot completes the log before the conversation is published.
+func (s *Service) writeSnapshot(conv *model.Conversation, snapshot []*model.Event) error {
+	log, err := events.Open(s.logPath(conv.ID))
 	if err != nil {
-		s.mu.Unlock()
-		return ConversationView{}, err
+		return err
 	}
-	if err := s.transition(l, &model.Event{Status: model.StatusResuming, Text: fmt.Sprintf("adopting session '%s'", nativeID)}, StateResuming, nil); err != nil {
-		s.mu.Unlock()
-		return s.view(conv.ID), err
-	}
-	l.busy = true
-	s.mu.Unlock()
-
-	place, env, importErr := s.placeWithFacts(projectID)
-	var result imported
-	if importErr == nil {
-		result, importErr = s.importHistory(conv, l, place, env)
-	}
-
-	s.mu.Lock()
-	l.busy = false
-	if importErr != nil {
-		if err := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read: %s", recordable(importErr))}, "", nil); err != nil {
-			dl.Errorf("%v", err)
+	defer log.Close()
+	seen := make(map[string]bool)
+	for _, ev := range snapshot {
+		if ev.NativeID == "" || seen[ev.NativeID] {
+			continue
 		}
-		s.mu.Unlock()
-		return s.view(conv.ID), importErr
+		ev = ev.Clone()
+		ev.Origin = model.OriginNative
+		if err := s.appendEvent(conv.ID, log, ev); err != nil {
+			return err
+		}
+		seen[ev.NativeID] = true
 	}
-	// adopting is the operator's choice of a session they know, so what it
-	// brings in is not unread.
-	err = s.transition(l, &model.Event{Status: model.StatusResumed, Text: fmt.Sprintf("%d messages added from native history", result.added)}, "", nil)
+	conv.ReadSeq = log.LastSeq()
+	return nil
+}
+
+// NativeTranscript reads speech from the exact bound session on demand.
+func (s *Service) NativeTranscript(conversationID string) ([]*model.Event, error) {
+	s.mu.Lock()
+	conv, err := s.conversationLocked(conversationID)
+	if err == nil {
+		conv = s.viewLocked(conv).Conversation
+		err = s.conversationCheckoutLocked(conv)
+	}
 	s.mu.Unlock()
-	return s.view(conv.ID), err
+	if err != nil {
+		return nil, err
+	}
+	if conv.NativeID == "" {
+		return nil, errSessionUnknown
+	}
+	place, facts, err := s.placeWithFacts(conv.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	evs, err := s.readNativeHistory(conv.ProjectID, conv.Harness, conv.NativeID, place, facts)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(evs, func(ev *model.Event) bool {
+		return ev.Kind != model.EventUser && ev.Kind != model.EventAssistant
+	}), nil
+}
+
+func (s *Service) readNativeHistory(projectID, harnessName, nativeID string, place harness.Place, facts *model.EnvironmentFacts) ([]*model.Event, error) {
+	s.mu.Lock()
+	err := s.harnessGateLocked(projectID, facts)
+	s.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	h, ok := s.harnesses[harnessName]
+	if !ok {
+		return nil, newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", harnessName))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), historyTimeout)
+	defer cancel()
+	history, err := h.History(ctx, place, nativeID)
+	if err != nil {
+		return nil, s.explain(harnessName, place.Find, fmt.Errorf("reading native transcript: %w", harnessFault(harnessName, err)))
+	}
+	return history.Events, nil
 }

@@ -337,10 +337,23 @@ const snapshotsSaid = ((await panel.locator('dd[data-snapshots]').textContent())
 t.say(`  the panel on the snapshots: "${snapshotsSaid}"`)
 const snapshotsDir = join(t.dir, 'data', 'snapshots')
 const freshAbout = (await api('GET', '/api/version')).body
-check(
-  freshAbout.snapshots?.dir === snapshotsDir && freshAbout.snapshots?.count >= 1 && freshAbout.snapshots?.newest?.reason === 'start-up' && snapshotsSaid.startsWith('Newest ') && snapshotsSaid.includes('at start-up') && snapshotsSaid.endsWith(`kept, in ${snapshotsDir}`),
-  'its panel says when the newest configuration snapshot was taken and where the snapshots are',
-)
+if (process.env.MEGA_CHECK_DISABLE_SNAPSHOTS === '1') {
+  check(!freshAbout.snapshots && snapshotsSaid === 'None are taken (snapshots.keep is 0).', 'the scratch service and panel confirm that snapshots are disabled')
+  await panel.getByRole('button', { name: 'Close' }).click()
+  await until('the panel closed', async () => (await panel.count()) === 0)
+  await page.route('**/api/version', async (route) => {
+    await route.fulfill({ json: { ...freshAbout, snapshots: { dir: snapshotsDir, count: 1, newest: { reason: 'start-up', taken: '2026-11-21T12:00:00Z' } } } })
+  }, { times: 1 })
+  await page.getByRole('button', { name: buildTitle }).click()
+  await until('the snapshot summary to be rendered', async () => (await panel.locator('dd[data-snapshots]').textContent())?.includes('at start-up'))
+  const summary = (await panel.locator('dd[data-snapshots]').textContent()).trim()
+  check(summary.startsWith('Newest ') && summary.endsWith(`kept, in ${snapshotsDir}`), 'its panel renders the time and directory of a snapshot summary')
+} else {
+  check(
+    freshAbout.snapshots?.dir === snapshotsDir && freshAbout.snapshots?.count >= 1 && freshAbout.snapshots?.newest?.reason === 'start-up' && snapshotsSaid.startsWith('Newest ') && snapshotsSaid.includes('at start-up') && snapshotsSaid.endsWith(`kept, in ${snapshotsDir}`),
+    'its panel says when the newest configuration snapshot was taken and where the snapshots are',
+  )
+}
 check(!snapshotsSaid.includes('effortLevel'), 'and shows nothing of what a snapshot holds')
 await panel.getByRole('button', { name: 'Close' }).click()
 await until('the panel closed', async () => (await panel.count()) === 0)

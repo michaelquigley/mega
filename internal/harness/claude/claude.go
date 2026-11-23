@@ -331,9 +331,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	return r, nil
 }
 
-// History reads the session's stored messages through the shim. a claude
-// transcript carries no explicit turn status, so History infers which events
-// belong to an unfinished last turn (seeTurn) and reports them open.
+// History reads the exact session’s stored messages through the shim.
 func (h *Harness) History(ctx context.Context, place harness.Place, nativeID string) (harness.History, error) {
 	cmd, err := h.command(ctx, place, "messages", "--session", nativeID, "--cwd", place.Cwd)
 	if err != nil {
@@ -346,7 +344,6 @@ func (h *Harness) History(ctx context.Context, place harness.Place, nativeID str
 		return harness.History{}, fmt.Errorf("reading history of '%s': %w: %s", nativeID, err, strings.TrimSpace(stderr.String()))
 	}
 	var evs []*model.Event
-	turn := &harness.TurnTail{}
 	reader := bufio.NewReader(bytes.NewReader(out))
 	for {
 		line, err := reader.ReadBytes('\n')
@@ -361,58 +358,31 @@ func (h *Harness) History(ctx context.Context, place harness.Place, nativeID str
 			if err := harness.SameSession("claude's messages", nativeID, got); err != nil {
 				return harness.History{}, fmt.Errorf("reading history of '%s': %w", nativeID, err)
 			}
-			mapped, mapErr := mapMessage(raw)
+			mapped, mapErr := mapSessionMessage(raw, historyUserBlock)
 			if mapErr != nil {
 				return harness.History{}, mapErr
 			}
 			for _, ev := range mapped {
 				ev.Origin = model.OriginNative
 			}
-			seeTurn(turn, raw, mapped, len(evs))
 			evs = append(evs, mapped...)
 		}
 		if errors.Is(err, io.EOF) {
-			return harness.History{Events: evs, Open: turn.Open(evs)}, nil
+			if len(evs) == 0 {
+				// The SDK gives the same empty reply for a missing session.
+				sessions, err := h.Discover(ctx, place)
+				if err != nil {
+					return harness.History{}, err
+				}
+				if !slices.ContainsFunc(sessions, func(session harness.Session) bool { return session.NativeID == nativeID }) {
+					return harness.History{}, fmt.Errorf("session '%s' is unavailable in this checkout", nativeID)
+				}
+			}
+			return harness.History{Events: evs}, nil
 		}
 		if err != nil {
 			return harness.History{}, err
 		}
-	}
-}
-
-// seeTurn feeds one message read back, and the events it mapped to, which
-// start at index at, to the turn tail (harness.TurnTail). claude's history
-// carries no turn end, but every assistant message carries the model's
-// stop_reason, and a turn's last one ends it: end_turn, or a stop_sequence,
-// max_tokens or refusal. a tool call (tool_use), a pause (pause_turn), a
-// tool's result or a prompt with no reply after it leaves the turn open (the
-// claude-rt1 fixture's 149 sessions, claude code 2.1.318 to 2.1.326: every
-// assistant message has one). a message with none is taken as ended, as
-// before. native events, claude's bookkeeping, are never fed.
-func seeTurn(t *harness.TurnTail, raw map[string]any, mapped []*model.Event, at int) {
-	spoken := false
-	for i, ev := range mapped {
-		switch ev.Kind {
-		case model.EventUser:
-			t.Prompt(at + i)
-			spoken = true
-		case model.EventAssistant, model.EventToolUse, model.EventToolResult:
-			spoken = true
-		}
-	}
-	if !spoken {
-		return
-	}
-	if raw["type"] != "assistant" {
-		t.Working()
-		return
-	}
-	message, _ := raw["message"].(map[string]any)
-	switch stop, _ := message["stop_reason"].(string); stop {
-	case "tool_use", "pause_turn":
-		t.Working()
-	default:
-		t.Ended(at + len(mapped))
 	}
 }
 

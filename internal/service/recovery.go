@@ -41,12 +41,15 @@ func (s *Service) recover() error {
 			l.outputAt = at
 		}
 		if conv.Runtime == model.RuntimeRunning {
-			if err := s.record(l, &model.Event{
-				Kind:   model.EventRuntime,
-				Status: model.StatusUnsupervised,
-				Text:   "the service restarted without seeing this runtime exit; supervision is lost and execution is uncertain",
-			}); err != nil {
-				return err
+			if !gapSinceStart(evs) {
+				if err := s.record(l, &model.Event{
+					Kind:   model.EventRuntime,
+					Status: model.StatusUnsupervised,
+					Gap:    true,
+					Text:   "the service restarted without seeing this runtime exit; supervision is lost and execution is uncertain",
+				}); err != nil {
+					return err
+				}
 			}
 			orphaned = append(orphaned, conv.ID)
 		}
@@ -68,13 +71,27 @@ func (s *Service) recover() error {
 	})
 }
 
+// gapSinceStart also covers a restart between writing an exit or loss
+// marker and saving the corresponding registry state.
+func gapSinceStart(evs []*model.Event) bool {
+	for i := len(evs) - 1; i >= 0; i-- {
+		ev := evs[i]
+		if ev.HistoryBoundary() {
+			return true
+		}
+		if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarting {
+			break
+		}
+	}
+	return false
+}
+
 // finishedOutput is the unread marker as the log has it: the newest agent
 // output whose turn ended, or whose runtime's exit was recorded, by the rule
 // sink.Event and Exited apply as it happens. output the adapter marked as
 // after its turn counts at once; output of a turn still open at the log's
-// end does not. imported events never count, since an import leaves what it
-// brings in read, and a resume counts what it finds in its own write; a
-// runtime lost to a restart leaves its turn to that resume.
+// end does not. imported events stay read, and a turn lost to a restart
+// stays unfinished.
 func finishedOutput(evs []*model.Event) (int64, time.Time) {
 	var seq, turn int64
 	var at, turnAt time.Time

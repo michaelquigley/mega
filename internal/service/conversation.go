@@ -184,9 +184,8 @@ func (s *Service) Prompt(conversationID, text string) error {
 		s.mu.Unlock()
 		return s.send(conversationID, text)
 	}
-	// no runtime: bring the cache up to date with anything written natively
-	// since the last one stopped, then resume by exact id. with no session
-	// known, a fresh one starts only on the log's proof that none exists; this
+	// Without a runtime, resume by exact id. With no known session, a
+	// fresh one starts only on the log’s proof that none exists. This
 	// is checked before anything is recorded, so a refusal never counts as proof.
 	if l.sessionOf(conv) == "" {
 		fresh, err := s.freshAllowedLocked(l)
@@ -203,14 +202,10 @@ func (s *Service) Prompt(conversationID, text string) error {
 		s.mu.Unlock()
 		return err
 	}
-	conv.NativeID = l.sessionOf(conv)
 	s.mu.Unlock()
 
 	place, facts, err := s.resolveForStart(conv, l)
 	if err != nil {
-		return err
-	}
-	if err := s.importBeforeLaunch(conv, l, place, facts); err != nil {
 		return err
 	}
 	if err := s.startRuntime(conversationID, l, false, place, facts); err != nil {
@@ -222,7 +217,6 @@ func (s *Service) Prompt(conversationID, text string) error {
 // Start starts a runtime for a stopped conversation and sends nothing: the
 // operator's gesture to have it running, its MCP servers connected and its
 // settings taking changes at once. like a prompt to a stopped conversation, it
-// first brings the cache up to date with anything written natively, then
 // resumes the exact session. a conversation with no session is refused, since
 // only its opening prompt may start one; so is an unsupervised one, which
 // Resume settles first.
@@ -277,9 +271,6 @@ func (s *Service) Start(conversationID string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.importBeforeLaunch(conv, l, place, facts); err != nil {
-		return err
-	}
 	return s.explain(conv.Harness, place.Find, s.startRuntime(conversationID, l, true, place, facts))
 }
 
@@ -312,30 +303,6 @@ func (s *Service) resolveForStart(conv model.Conversation, l *live) (harness.Pla
 	return place, facts, nil
 }
 
-// importBeforeLaunch brings the cache up to date with the native session
-// before a runtime resumes it, after beginStartLocked. a failure ends the
-// start, recorded, with no runtime launched. callers do not hold s.mu.
-func (s *Service) importBeforeLaunch(conv model.Conversation, l *live, place harness.Place, env *model.EnvironmentFacts) error {
-	if conv.NativeID == "" {
-		return nil
-	}
-	if _, err := s.importHistory(conv, l, place, env); err != nil {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		l.busy = false
-		if errors.As(err, new(refusedToRun)) {
-			// the gate refused before the harness ran: nothing started.
-			s.failedLaunch(l, err, true)
-			return err
-		}
-		if recordErr := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read, so no runtime was started: %s", recordable(err))}, "", nil); recordErr != nil {
-			dl.Errorf("%v", recordErr)
-		}
-		return err
-	}
-	return nil
-}
-
 // idleCheckLocked finds a conversation that can take an operator action that
 // needs its runtime settled. callers hold s.mu.
 func (s *Service) idleCheckLocked(conversationID string) (model.Conversation, *live, error) {
@@ -355,15 +322,14 @@ func (s *Service) idleCheckLocked(conversationID string) (model.Conversation, *l
 	}
 	switch {
 	case l.busy:
-		return conv, nil, newError(CodeConflict, "the runtime is starting or the conversation is resuming")
+		return conv, nil, newError(CodeConflict, "the runtime is starting")
 	case l.releasing:
 		return conv, nil, newError(CodeConflict, "the runtime is stopping")
 	}
 	return conv, l, nil
 }
 
-// beginStartLocked shows a start under way and holds off other starts and
-// resumes until it ends. callers hold s.mu.
+// beginStartLocked shows a start under way and holds off other starts until it ends. callers hold s.mu.
 func (s *Service) beginStartLocked(l *live) error {
 	if err := s.transition(l, &model.Event{Status: model.StatusStarting}, StateStarting, nil); err != nil {
 		return err
@@ -391,7 +357,13 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		return err
 	}
 	s.mu.Lock()
-	h, spec, inc, err := s.prepareLaunchLocked(conversationID, l, facts)
+	conv, err := s.conversationLocked(conversationID)
+	if err != nil {
+		l.busy = false
+		s.mu.Unlock()
+		return err
+	}
+	h, spec, inc, err := s.prepareLaunchLocked(conv, l, facts)
 	spec.Idle = idle
 	// the project's resolved environment, in full, and nothing of mega's own;
 	// what it was is recorded with the runtime's start, as names and
@@ -425,10 +397,9 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		s.versionSeen(h.Name(), version)
 	}
 	// the last check, immediately before the harness starts: nothing reading
-	// the version, filling the request or importing history took a moment
-	// for may have begun a shutdown or changed the environment's file.
+	// the version may have begun a shutdown or changed the environment file.
 	s.mu.Lock()
-	if err := s.harnessGateLocked(conversationID, facts); err != nil {
+	if err := s.harnessGateLocked(conv.ProjectID, facts); err != nil {
 		l.busy = false
 		if l.inc == inc {
 			l.inc = nil
@@ -442,7 +413,12 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		return err
 	}
 	s.mu.Unlock()
-	rt, err := h.Launch(spec, &sink{s: s, l: l, inc: inc})
+	k := &sink{s: s, l: l, inc: inc}
+	rt, err := h.Launch(spec, k)
+	var nativeID string
+	if err == nil && spec.NativeID == "" {
+		nativeID = rt.NativeID()
+	}
 	// the harness's own failure: what is recorded and shown is its summary.
 	err = harnessFault(h.Name(), err)
 
@@ -451,6 +427,31 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 	l.busy = false
 	refused := l.refused
 	l.refused = nil
+	held, earlyExit := inc.early, inc.earlyExit
+	inc.early, inc.earlyExit = nil, nil
+	// a new session belongs to this conversation from the moment it exists:
+	// hold it until the registry does, so no later launch starts another.
+	bindErr := error(nil)
+	if err == nil && held != nil {
+		refused = k.confirmFirstStart(nativeID, held)
+		if refused == nil && nativeID != "" {
+			bindErr = s.updateConversation(conversationID, func(c *model.Conversation) { c.NativeID = nativeID })
+			if bindErr == nil {
+				l.session, l.sessionRecorded = "", false
+			} else {
+				dl.Errorf("recording the session of '%s'; holding it for the next launch: %v", conversationID, bindErr)
+			}
+		}
+	}
+	if earlyExit != nil {
+		// record the refusal separately from the exit the adapter observed.
+		if refused != nil && k.current() {
+			if err := s.transition(l, refused, l.state, nil); err != nil {
+				dl.Errorf("recording the first launch refusal for '%s': %v", conversationID, err)
+			}
+		}
+		earlyExit()
+	}
 	if err != nil {
 		if l.inc == inc {
 			l.inc = nil
@@ -467,19 +468,10 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		}
 		return fmt.Errorf("starting runtime for '%s': %w", conversationID, err)
 	}
-	// a new session belongs to this conversation from the moment it exists:
-	// hold it until the registry does, so no later launch starts another.
-	bindErr := error(nil)
-	if spec.NativeID == "" && rt.NativeID() != "" {
-		l.session = rt.NativeID()
-		bindErr = s.updateConversation(conversationID, func(c *model.Conversation) { c.NativeID = rt.NativeID() })
-		if bindErr == nil {
-			l.session = ""
-		} else {
-			dl.Errorf("recording the session of '%s'; holding it for the next launch: %v", conversationID, bindErr)
-		}
-	}
 	if l.inc != inc {
+		if refused != nil {
+			return newError(CodeConflict, refused.Text)
+		}
 		// it exited while starting, and its exit has been settled already.
 		return fmt.Errorf("the runtime for '%s' exited as it started", conversationID)
 	}
@@ -509,20 +501,15 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 
 // prepareLaunchLocked checks a conversation can launch, records it running and
 // opens its incarnation. callers hold s.mu.
-func (s *Service) prepareLaunchLocked(conversationID string, l *live, env *model.EnvironmentFacts) (harness.Harness, harness.Spec, *incarnation, error) {
-	conv, err := s.conversationLocked(conversationID)
-	if err != nil {
-		return nil, harness.Spec{}, nil, err
-	}
+func (s *Service) prepareLaunchLocked(conv model.Conversation, l *live, env *model.EnvironmentFacts) (harness.Harness, harness.Spec, *incarnation, error) {
 	project, err := s.projectLocked(conv.ProjectID)
 	if err != nil {
 		return nil, harness.Spec{}, nil, err
 	}
-	// the environment was resolved, and history may have been imported, since
-	// the file was checked: the launch is committed only while the project's
+	// the environment was resolved since the file was checked: the launch is committed only while the project's
 	// environment may still run and is still the activation that was resolved.
 	// the same check runs again immediately before the harness starts.
-	if err := s.harnessGateLocked(conversationID, env); err != nil {
+	if err := s.harnessGateLocked(conv.ProjectID, env); err != nil {
 		return nil, harness.Spec{}, nil, err
 	}
 	h, ok := s.harnesses[conv.Harness]
@@ -534,61 +521,48 @@ func (s *Service) prepareLaunchLocked(conversationID string, l *live, env *model
 	// that write fails, the launch is refused, so no fresh session is started
 	// in its place.
 	session := l.sessionOf(conv)
-	if err := s.updateConversation(conversationID, func(c *model.Conversation) {
+	if err := s.updateConversation(conv.ID, func(c *model.Conversation) {
 		c.Runtime = model.RuntimeRunning
 		c.NativeID = session
 	}); err != nil {
 		return nil, harness.Spec{}, nil, err
 	}
-	l.session = ""
+	l.session, l.sessionRecorded = "", false
 	inc := &incarnation{exited: make(chan struct{}), launched: make(chan struct{})}
+	if session == "" {
+		inc.early = []launchCallback{}
+	}
 	l.inc = inc
 	// the recorded request goes with every launch, so a release and a resume
 	// keep it; a terminal visit never changes it.
 	return h, harness.Spec{Cwd: project.Checkout, NativeID: session, PermissionMode: conv.PermissionMode, Model: conv.Model, Effort: conv.Effort}, inc, nil
 }
 
-// harnessGateLocked is the check immediately before mega runs a harness for
-// a conversation: a launch, and the history read that a start, a resume and
-// an adoption make, each running the harness in the project's environment.
-// nothing runs once a shutdown has begun or the service has closed, and
-// nothing runs in an environment whose file or override is no longer the
-// activation that was resolved for it (env; nil checks only that the
-// environment may run). a refusal is refusedToRun, since no harness ran.
-// callers hold s.mu.
-func (s *Service) harnessGateLocked(conversationID string, env *model.EnvironmentFacts) error {
+// harnessGateLocked rechecks the approved activation just before a harness
+// launch or transcript read. Callers hold s.mu.
+func (s *Service) harnessGateLocked(projectID string, env *model.EnvironmentFacts) error {
 	if s.closed {
-		return refusedToRun{newError(CodeUnavailable, "the service is shutting down")}
+		return newError(CodeUnavailable, "the service is shutting down")
 	}
-	conv, err := s.conversationLocked(conversationID)
+	project, err := s.projectLocked(projectID)
 	if err != nil {
 		return err
 	}
-	project, err := s.projectLocked(conv.ProjectID)
-	if err != nil {
-		return err
-	}
-	if err := s.envUnchangedLocked(project, env); err != nil {
-		return refusedToRun{err}
-	}
-	return nil
+	return s.envUnchangedLocked(project, env)
 }
 
-// refusedToRun is the gate's refusal: nothing ran, so a start it ends is
-// recorded as not started.
-type refusedToRun struct{ error }
-
-func (r refusedToRun) Unwrap() error { return r.error }
-
 // send records the prompt with a service-minted message identity and hands it
-// to the runtime, which passes the identity to the harness so a later import
-// recognizes the prompt instead of recording it twice.
+// to the runtime, which can pass it to the harness to identify live echoes.
 func (s *Service) send(conversationID, text string) error {
 	s.mu.Lock()
 	l := s.live[conversationID]
 	if l == nil || l.runtime == nil {
 		s.mu.Unlock()
 		return newError(CodeConflict, "the conversation has no runtime")
+	}
+	if l.inc.wrong || l.releasing {
+		s.mu.Unlock()
+		return newError(CodeConflict, "the runtime is stopping")
 	}
 	uuid := registry.NewUUID()
 	ev := &model.Event{Kind: model.EventUser, Origin: model.OriginManaged, Text: text, NativeID: uuid}
@@ -831,6 +805,7 @@ func (s *Service) Release(conversationID string) error {
 		return newError(CodeConflict, "the conversation has no runtime to release")
 	}
 	rt := l.runtime
+	l.handoff = true
 	s.beginStopLocked(l, &model.Event{Status: model.StatusStopping})
 	s.mu.Unlock()
 	// the stop is fenced before Release returns: nothing the runtime is asked
@@ -856,206 +831,24 @@ func releaseRuntime(rt harness.Runtime, active bool) {
 	}
 }
 
-// Resume brings a stopped or unsupervised conversation's cache up to date with
-// its native history and clears unsupervised. it starts no runtime; the next
-// prompt does.
+// Resume acknowledges lost supervision without talking to the harness.
 func (s *Service) Resume(conversationID string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.closed {
-		s.mu.Unlock()
 		return newError(CodeUnavailable, "the service is shutting down")
 	}
 	conv, err := s.conversationLocked(conversationID)
 	if err != nil {
-		s.mu.Unlock()
 		return err
 	}
-	l, err := s.liveLocked(conversationID)
-	if err != nil {
-		s.mu.Unlock()
-		return err
+	if conv.Runtime == model.RuntimeUnsupervised {
+		return s.updateConversation(conversationID, func(c *model.Conversation) { c.Runtime = model.RuntimeNone })
 	}
-	if l.runtime != nil || l.busy {
-		s.mu.Unlock()
+	if s.busyReasonLocked(conv) != "" {
 		return newError(CodeConflict, "the conversation has a runtime or is starting; release it before resuming")
 	}
-	// reading native history runs the harness in the project's environment,
-	// so it waits on that environment as a start does.
-	if err := s.conversationEnvReadyLocked(conv); err != nil {
-		s.mu.Unlock()
-		return err
-	}
-	if err := s.transition(l, &model.Event{Status: model.StatusResuming}, StateResuming, nil); err != nil {
-		s.mu.Unlock()
-		return err
-	}
-	l.busy = true
-	s.mu.Unlock()
-
-	var result imported
-	var importErr error
-	s.mu.Lock()
-	conv.NativeID = l.sessionOf(conv)
-	// what a resume after an unclean restart may count: what came after the
-	// lost runtime's launch, which it produced or a recovery import brought in.
-	lostFrom, scanErr := s.lostFromLocked(l)
-	s.mu.Unlock()
-	if conv.NativeID != "" {
-		var place harness.Place
-		var env *model.EnvironmentFacts
-		place, env, importErr = s.placeWithFacts(conv.ProjectID)
-		if importErr == nil {
-			result, importErr = s.importHistory(conv, l, place, env)
-		}
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	l.busy = false
-	if importErr != nil {
-		if err := s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("native history could not be read: %s", recordable(importErr))}, "", nil); err != nil {
-			dl.Errorf("%v", err)
-		}
-		return importErr
-	}
-	// after an unclean restart the runtime may have kept working where nobody
-	// could see it, and the turn it was in never ended where the service could
-	// see it either. the marker moves to the newest finished agent output that
-	// the lost runtime produced or this resume brought in; output an earlier
-	// adoption or release imported stays as it was, read. the reading
-	// position decides whether it is unread. after a release the operator was
-	// the one in the terminal, so the import changes nothing.
-	//
-	// the output counted and the end of unsupervised are one registry write:
-	// a resume that cannot record what it found stays unsupervised and says
-	// so, so a retry counts it, never clearing the state that would.
-	if conv.Runtime == model.RuntimeUnsupervised {
-		seq, at, err := int64(0), time.Time{}, scanErr
-		if err == nil {
-			seq, at, err = s.newestFinishedOutputLocked(l, result.open, lostFrom)
-		}
-		if err == nil {
-			err = s.updateConversation(conversationID, func(c *model.Conversation) {
-				if seq > c.OutputSeq {
-					c.OutputSeq = seq
-				}
-				c.Runtime = model.RuntimeNone
-			})
-		}
-		if err != nil {
-			// it is still unsupervised, as it says, not a runtime that ended
-			// badly: a retry that succeeds leaves no fault behind.
-			if recordErr := s.transition(l, &model.Event{Status: model.StatusUnsupervised, Text: fmt.Sprintf("the output found on resuming could not be recorded, so the conversation stays unsupervised; resume again: %s", recordable(err))}, "", nil); recordErr != nil {
-				dl.Errorf("%v", recordErr)
-			}
-			return err
-		}
-		if c, err := s.conversationLocked(conversationID); err == nil && seq > 0 && c.OutputSeq == seq {
-			l.outputAt = at
-		}
-	}
-	return s.transition(l, &model.Event{Status: model.StatusResumed, Text: fmt.Sprintf("%d messages added from native history", result.added)}, "", nil)
-}
-
-// imported reports what an import added, and which native events belong to a
-// turn still in progress.
-type imported struct {
-	added int
-	open  map[string]bool
-}
-
-// importHistory appends the native messages the cache lacks, matched by native
-// identity, as native-origin events, and reports what it added. it never
-// rewrites what the log holds, and never moves the unread marker itself.
-func (s *Service) importHistory(conv model.Conversation, l *live, place harness.Place, env *model.EnvironmentFacts) (imported, error) {
-	s.mu.Lock()
-	h, ok := s.harnesses[conv.Harness]
-	gateErr := s.harnessGateLocked(conv.ID, env)
-	s.mu.Unlock()
-	if !ok {
-		return imported{}, newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", conv.Harness))
-	}
-	if gateErr != nil {
-		return imported{}, gateErr
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), historyTimeout)
-	defer cancel()
-	history, err := h.History(ctx, place, conv.NativeID)
-	if err != nil {
-		return imported{}, s.explain(conv.Harness, place.Find, fmt.Errorf("importing history of '%s': %w", conv.ID, harnessFault(conv.Harness, err)))
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	result := imported{open: history.Open}
-	for _, ev := range history.Events {
-		if ev.NativeID == "" || l.seen[ev.NativeID] {
-			continue
-		}
-		ev.Origin = model.OriginNative
-		if err := s.record(l, ev); err != nil {
-			return result, err
-		}
-		result.added++
-	}
-	return result, nil
-}
-
-// lostFromLocked reads where the lost runtime began: its launch, the last
-// `starting` the service recorded before running anything, moved past the
-// import that brings the cache up to date before a launch, the native events
-// recorded straight after it. everything later is the lost runtime's own
-// output or a recovery import, a retried one included, which a `resuming`
-// event opens; an adoption's or a release's import came before. the launch is
-// recorded before the registry says running, so a crash before the runtime
-// reports started still finds it. callers hold s.mu.
-func (s *Service) lostFromLocked(l *live) (int64, error) {
-	evs, err := l.log.Since(0)
-	if err != nil {
-		return 0, err
-	}
-	launch := -1
-	for i, ev := range evs {
-		if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarting {
-			launch = i
-		}
-	}
-	if launch < 0 {
-		return 0, nil
-	}
-	lostFrom := evs[launch].Seq
-	for _, ev := range evs[launch+1:] {
-		if ev.Origin != model.OriginNative {
-			break
-		}
-		lostFrom = ev.Seq
-	}
-	return lostFrom, nil
-}
-
-// newestFinishedOutputLocked finds the newest agent output (assistant, tool use
-// or tool result; never a native event) that a resume counts: anything after
-// the lost runtime's launch at lostFrom, recorded live or imported by this
-// recovery, a retried one included. output imported earlier, by an adoption,
-// a release or the launch's own catching up, is left out, and so are events
-// of a turn still in progress. callers hold s.mu.
-func (s *Service) newestFinishedOutputLocked(l *live, open map[string]bool, lostFrom int64) (int64, time.Time, error) {
-	evs, err := l.log.Since(0)
-	if err != nil {
-		return 0, time.Time{}, err
-	}
-	for i := len(evs) - 1; i >= 0; i-- {
-		ev := evs[i]
-		switch ev.Kind {
-		case model.EventAssistant, model.EventToolUse, model.EventToolResult:
-			if ev.NativeID != "" && open[ev.NativeID] {
-				continue
-			}
-			if ev.Seq > lostFrom {
-				return ev.Seq, ev.At, nil
-			}
-		}
-	}
-	return 0, time.Time{}, nil
+	return nil
 }
 
 // markUnreadLocked advances the unread marker to seq, as a confirmed registry
@@ -1212,7 +1005,7 @@ func (s *Service) RemoveConversation(id string) error {
 
 // busyReasonLocked says why a conversation cannot be removed, or returns "" if
 // it can. a conversation with a runtime in any state is refused: starting,
-// running, stopping, resuming, or unsupervised, since an orphan from before a
+// running, stopping, or unsupervised, since an orphan from before a
 // restart may still be working. a stop the log could not record leaves the
 // conversation recorded running, and that is refused too until a restart
 // settles it. the reason reads after the conversation's name. callers hold s.mu.
@@ -1222,7 +1015,7 @@ func (s *Service) busyReasonLocked(conv model.Conversation) string {
 	case conv.Runtime == model.RuntimeUnsupervised:
 		return "lost supervision when the service restarted and its execution is uncertain; resume it before removing it"
 	case l != nil && l.busy:
-		return "is starting a runtime or resuming; wait for it to settle before removing it"
+		return "is starting a runtime; wait for it to settle before removing it"
 	case conv.Runtime == model.RuntimeRunning || (l != nil && (l.runtime != nil || l.releasing)):
 		return "has a runtime; release it before removing it"
 	}

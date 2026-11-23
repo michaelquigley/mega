@@ -124,6 +124,9 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
 		}
+		if err := checkSessionHeader(path, id); err != nil {
+			return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
+		}
 		args = append(args, "--session", path)
 	}
 	if spec.Model != "" {
@@ -155,13 +158,8 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 		stop(c)
 		return nil, fmt.Errorf("pi opened session '%s', not '%s'", st.SessionID, id)
 	}
-	// the entries a resumed session already holds are behind the cursor.
-	held := &struct{ Entries []*entry }{}
-	if err := c.call(ctx, map[string]any{"type": "get_entries"}, held); err == nil && len(held.Entries) > 0 {
-		r.cursor = held.Entries[len(held.Entries)-1].ID
-	}
 	r.mu.Lock()
-	r.sessionID, r.sessionFile = id, st.SessionFile
+	r.sessionID = id
 	r.model, r.effort = spec.Model, spec.Effort
 	r.turnActive = st.IsStreaming
 	r.mu.Unlock()
@@ -183,8 +181,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 }
 
 // History reads the session's conversation from its file: the chain from the
-// last entry back to the root, as pi reopens it, and which of its events
-// belong to a last turn with no end.
+// last entry back to the root, as pi reopens it.
 func (h *Harness) History(_ context.Context, place harness.Place, nativeID string) (harness.History, error) {
 	path, err := sessionFile(place.Env, place.Cwd, nativeID)
 	if err != nil {
@@ -197,10 +194,7 @@ func (h *Harness) History(_ context.Context, place harness.Place, nativeID strin
 	return history, nil
 }
 
-// historyOf reads a session file's conversation, and which of its events
-// belong to a last turn with no end. with want, the file's own header must
-// name that session, or nothing is read: a file is found by its name, which
-// is no proof of what it holds.
+// historyOf checks the file’s identity before mapping the same read.
 func historyOf(path, want string) (harness.History, error) {
 	// one read: the header checked and the entries mapped are the same
 	// file's, never a file replaced between two reads.
@@ -213,8 +207,7 @@ func historyOf(path, want string) (harness.History, error) {
 			return harness.History{}, err
 		}
 	}
-	evs, turn := turnsOf(entries)
-	return harness.History{Events: evs, Open: turn.Open(evs)}, nil
+	return harness.History{Events: eventsOf(entries)}, nil
 }
 
 // Discover lists the sessions pi stored for the checkout. pi's protocol lists

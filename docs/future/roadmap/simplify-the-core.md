@@ -29,13 +29,13 @@ Most are not about a feature. They are about how the core is put together, and a
 One card each, in this order. Each names the failure it makes impossible.
 
 1. **`a-codex-question-is-a-message`.** An answer to a Codex question can no longer start a turn after a stop.
-2. **`megas-history-may-have-a-gap`.** A design to put to Michael first. A message can no longer be shown twice because an import did not recognise it.
+2. **`megas-history-may-have-a-gap`.** A handoff leaves a gap in mega's timeline. A later import can no longer duplicate a message.
 3. **`unread-is-output-beyond-where-you-have-read`.** An unread mark can no longer be lost to a failed write or miscounted by a rebuild.
 4. **`a-turn-is-inferred-from-a-message`.** A stray message can no longer open a turn that nothing closes.
 5. **`a-failed-write-stops-mega`.** Mega can no longer run on while unable to record.
 6. **`reading-the-workspace-starts-nothing`.** A read of the workspace can no longer run anything.
 7. **`one-route-for-recorded-history`.** A failed read of history can no longer leave a gap nothing fills.
-8. **`the-page-has-one-value`.** Two parts of the page can no longer disagree about whether it is current.
+8. **`the-page-has-one-value-for-where-it-stands`.** Two parts of the page can no longer disagree about whether it is current.
 9. **`one-kit-under-the-adapters`.** A fix to one adapter's stop rule can no longer be missing from the other two.
 10. **`one-fold-for-what-happened`.** A restart can no longer recover something different from what the service had decided. On the branch.
 11. **`the-registry-records-no-runtime-state`.** The registry and a log can no longer disagree about whether a runtime is running. On the branch, with the cutover.

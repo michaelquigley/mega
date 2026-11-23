@@ -16,13 +16,12 @@ horizon:
   - updating-harnesses-from-mega.md
 researching:
   - simplify-the-core.md
-  - megas-history-may-have-a-gap.md
   - unread-is-output-beyond-where-you-have-read.md
   - a-turn-is-inferred-from-a-message.md
   - a-failed-write-stops-mega.md
   - reading-the-workspace-starts-nothing.md
   - one-route-for-recorded-history.md
-  - the-page-has-one-value.md
+  - the-page-has-one-value-for-where-it-stands.md
   - one-kit-under-the-adapters.md
   - one-fold-for-what-happened.md
   - the-registry-records-no-runtime-state.md
@@ -41,6 +40,7 @@ researching:
   - reads-after-the-service-closes.md
   - mega-on-macos-and-windows.md
 evaluating:
+  - megas-history-may-have-a-gap.md
   - a-codex-question-is-a-message.md
   - a-model-switch-on-an-idle-runtime-is-untested.md
   - the-page-says-more-than-it-has-seen.md

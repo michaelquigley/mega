@@ -14,7 +14,7 @@ const (
 	BlockerTurn       = "turn"       // a turn in flight
 	BlockerRequest    = "request"    // a request waiting on the operator
 	BlockerBackground = "background" // a background job still running
-	BlockerSettling   = "settling"   // a runtime starting, or a conversation resuming
+	BlockerSettling   = "settling"   // a runtime starting
 )
 
 // Blocker is one conversation holding the gate, by kind.
@@ -25,15 +25,14 @@ type Blocker struct {
 	Turn           bool
 	Requests       int
 	Background     int
-	// Settling is the transient state in the way ("starting", "resuming"),
-	// if any: a launch or an import that has not finished yet.
+	// Settling is "starting" while a launch is in progress.
 	Settling string
 }
 
 // Gate is the "shut down when idle" state: whether it is armed, since when,
 // and what is in the way. idle is computed from the conversations at every
 // read, never stored: no turn in flight, no pending request, no background
-// job and nothing starting or resuming, in any conversation. a runtime that is
+// job and nothing starting, in any conversation. a runtime that is
 // merely running and idle is not in the way; the shutdown releases it.
 type Gate struct {
 	Armed    bool
@@ -68,7 +67,7 @@ func blockerOf(view ConversationView, busy bool) (Blocker, bool) {
 		Background:     len(view.Background),
 	}
 	switch {
-	case view.State == StateStarting || view.State == StateResuming:
+	case view.State == StateStarting:
 		b.Settling = view.State
 	case busy:
 		b.Settling = StateStarting

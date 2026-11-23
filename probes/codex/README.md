@@ -28,6 +28,26 @@ node probe.mjs read --thread <thread-id>
 
 Flags: `--approve REGEX` (accept matching command approvals, else decline), `--approve-delay-ms N`, `--answer REGEX` (option label for `item/tool/requestUserInput`), `--interrupt-after-ms N [--interrupt-turn I]`, `--interrupt-on-approval`, `--stale-after-interrupt`, `--kill-owner-after-ms N`, `--kill-server-after-ms N`, `--approval-policy`, `--sandbox`, `--timeout-ms`.
 
+## Tracing a mega e2e run
+
+For the npm install, copy the wrapper into its own scratch package layout. Link the installed package’s dependencies so mega’s helper check still uses the real package.
+
+```sh
+trace=$(mktemp -d /tmp/mega-codex-trace.XXXXXX)
+installed=$(readlink -f "$(command -v codex)")
+mkdir -p "$trace"/{bin,tmp,state,config,data}
+ln -s "$(dirname "$(dirname "$installed")")/node_modules" "$trace/node_modules"
+ln -s "$installed" "$trace/bin/codex"
+cp probes/codex/trace-app-server.mjs "$trace/bin/codex-trace.js"
+MEGA_E2E_CODEX="$trace/bin/codex-trace.js" \
+MEGA_E2E_CODEX_FIXTURE=/home/michael/Repos/q/research/roundhouse-fixtures/codex-rt1 \
+TMPDIR="$trace/tmp" XDG_STATE_HOME="$trace/state" \
+XDG_CONFIG_HOME="$trace/config" XDG_DATA_HOME="$trace/data" \
+  go test -tags e2e -count=1 -v -timeout 30m ./internal/e2e/ -run '^TestCodexModelSwitchWhileIdle$'
+```
+
+The wrapper forwards the protocol bytes unchanged. It writes the time, direction, request id, method, and reply outcome to `bin/app-server-trace.jsonl`. Match the opening request to its reply by id, then look for the completion notification and compare with the test result. The trace excludes all parameters and reply bodies.
+
 ## Protocol source
 
 Shapes were taken from the installed binary, not from memory:

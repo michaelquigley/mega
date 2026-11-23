@@ -77,6 +77,7 @@ import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { join } from 'node:path'
 import { toolResultMessage, toolUseMessage } from './messages.mjs'
+import { messageFile, sessionIndex } from './sessionStore.mjs'
 
 const store = process.cwd()
 const [cmd, ...rest] = process.argv.slice(2)
@@ -93,7 +94,7 @@ const claudeVersion = existsSync(join(store, 'claude-version')) ? readFileSync(j
 
 if (cmd === 'list') {
   const cwd = arg('--cwd')
-  const file = join(store, 'sessions.jsonl')
+  const file = sessionIndex(store)
   if (existsSync(file)) {
     for (const line of readFileSync(file, 'utf8').split('\n').filter(Boolean)) {
       const session = JSON.parse(line)
@@ -117,7 +118,7 @@ if (cmd === 'models') {
   process.exit(0)
 }
 if (cmd === 'messages') {
-  const file = join(store, `messages-${arg('--session')}.jsonl`)
+  const file = messageFile(store, arg('--session'))
   if (existsSync(file)) {
     process.stdout.write(readFileSync(file, 'utf8'))
   }
@@ -143,9 +144,9 @@ const ask = (command) => {
   out({ type: 'request', id, kind: 'permission', tool: 'Bash', input: { command }, toolUseId: 'tu-' + id })
 }
 
-// keep records a message for later imports, then sends it.
+// keep records a message in native history, then sends it.
 const keep = (msg) => {
-  appendFileSync(join(store, `messages-${session}.jsonl`), JSON.stringify(msg) + '\n')
+  appendFileSync(messageFile(store, session), JSON.stringify(msg) + '\n')
   out({ type: 'event', msg })
 }
 const say = (text) =>
@@ -340,7 +341,7 @@ lines.on('line', (line) => {
   if (frame.type === 'prompt') {
     if (first === null && fresh) {
       first = frame.text
-      appendFileSync(join(store, 'sessions.jsonl'), JSON.stringify({ id: session, cwd, first, at: Date.now() }) + '\n')
+      appendFileSync(sessionIndex(store), JSON.stringify({ id: session, cwd, first, at: Date.now() }) + '\n')
     }
     if (frame.text.startsWith('mcp-sign-in')) notesSignedIn = true
     init(frame.text.match(/^fallback\s+(\S+)/)?.[1])

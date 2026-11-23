@@ -99,7 +99,7 @@ func dialogTitle(req model.Request) string {
 // TestPiRoundTrip: a conversation copies pi's own model and thinking level,
 // a marker turn, the extension's plain question answered, the extension's
 // gate on a command answered after a delay with the turn waiting, a release,
-// an import that adds nothing, and an exact-id resume that remembers.
+// a native transcript read, and an exact-id launch that remembers.
 func TestPiRoundTrip(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_PI_FIXTURE")
 	h := newPiHarness()
@@ -156,8 +156,7 @@ func TestPiRoundTrip(t *testing.T) {
 		t.Errorf("late answer: %q", code)
 	}
 
-	// release, and an import that adds nothing: every message the live
-	// stream recorded, the prompts included, matches by identity.
+	// A transcript read after release leaves the timeline as recorded.
 	if err := svc.Release(s.id); err != nil {
 		t.Fatal(err)
 	}
@@ -166,17 +165,16 @@ func TestPiRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Resume(s.id); err != nil {
-		t.Fatal(err)
+	messages, err := svc.NativeTranscript(s.id)
+	if err != nil || len(messages) == 0 {
+		t.Fatalf("reading native transcript: %d messages, %v", len(messages), err)
 	}
 	after, err := svc.Events(s.id, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, ev := range after[len(before):] {
-		if ev.Kind != model.EventRuntime {
-			t.Errorf("import added a message again: %s %s %q", ev.Kind, ev.NativeID, ev.Text)
-		}
+	if len(after) != len(before) || !after[len(after)-1].Gap {
+		t.Fatal("the transcript read changed the timeline or release left no gap")
 	}
 
 	// the exact-id resume remembers the whole conversation.

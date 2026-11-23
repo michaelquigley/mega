@@ -123,8 +123,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	return r, nil
 }
 
-// History reads the thread's stored turns from a short-lived app-server. items
-// of a turn still in progress are reported open.
+// History reads the exact thread’s stored turns from a short-lived app-server.
 func (h *Harness) History(ctx context.Context, place harness.Place, nativeID string) (harness.History, error) {
 	read := &threadRead{}
 	if err := h.once(ctx, place, "thread/read", &threadReadParams{ThreadID: nativeID, IncludeTurns: true}, read); err != nil {
@@ -134,7 +133,7 @@ func (h *Harness) History(ctx context.Context, place harness.Place, nativeID str
 	if err := harness.SameSession("codex's thread/read", nativeID, read.Thread.ID); err != nil {
 		return harness.History{}, fmt.Errorf("reading history of '%s': %w", nativeID, err)
 	}
-	history := harness.History{Open: make(map[string]bool)}
+	var history harness.History
 	for _, t := range read.Thread.Turns {
 		items, _ := t.Items.([]any)
 		for _, entry := range items {
@@ -154,9 +153,6 @@ func (h *Harness) History(ctx context.Context, place harness.Place, nativeID str
 			}
 			for _, ev := range mapped {
 				ev.Origin = model.OriginNative
-				if t.Status == "inProgress" {
-					history.Open[ev.NativeID] = true
-				}
 			}
 			history.Events = append(history.Events, mapped...)
 		}
