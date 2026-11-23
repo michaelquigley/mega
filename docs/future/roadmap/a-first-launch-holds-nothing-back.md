@@ -1,6 +1,6 @@
 ---
 title: a first launch holds nothing back
-state: researching
+state: evaluating
 created: 2026-11-23
 tags: [story]
 ---
@@ -44,3 +44,12 @@ Everything else. That includes the check in `started` against the bound session,
 - **Terminus will repeat three findings Michael has already disposed of,** listed in the journal for 2026-11-23. It may also raise the first-launch mismatch again. This card is the answer to that one: no harness can produce it.
 - **A finding whose fix would add state, a hold or an ordering rule** is brought to Michael as a question of whether to fix it at all, before any fix is proposed.
 - **Size.** `internal/service` was 6,638 non-test lines at `8503877`. The report gives the figure afterwards, and what was deleted outright.
+
+## as built
+
+Built on 2026-11-23. The queue is gone and `internal/service` went from 6,638 non-test lines to 6,547. Two things rode along by Michael's rulings:
+
+- **The runtime's id is read before the service lock is taken again,** as at `8503877`. The removal had moved the read under the lock, which is the order the card `codex-request-raised-under-the-runtime-lock` described. With it restored, no call from the service into a runtime holds the service lock, and that card was removed.
+- **An answer that arrives while a runtime is still starting is refused** with "the runtime is starting", and the request stays pending. The queue had been hiding that window on a pi first launch, where an extension can ask at session start. The inbox card for it, `an-answer-before-the-runtime-is-installed-is-aborted`, was fixed here and removed.
+
+The last terminus review, `f0c417e1ff9b`, was `not_clean` on three findings in code this card did not touch: the race captured as `an-answer-racing-a-release-retires-a-live-pi-dialog`, the unread rebuild that piece 3 removes, and the shared turn record on the paused hardening card.

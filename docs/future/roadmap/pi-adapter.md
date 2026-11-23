@@ -5,7 +5,7 @@ created: 2026-11-06
 tags: [feature]
 ---
 
-Add pi as the third harness: launched, prompted, interrupted, resumed, discovered and adopted as Claude and Codex conversations are, through an adapter that speaks pi's JSONL RPC over stdio from Go. Part of the epic `an-external-operator-can-install-mega`, pulled forward from the spec's deferred list by Michael on 2026-11-13.
+Add pi as the third harness: launched, prompted, interrupted, resumed, discovered and adopted as Claude and Codex conversations are, through an adapter that speaks pi's JSONL RPC over stdio from Go. Part of the epic for an external operator installing mega, whose card was closed on 2026-11-18, pulled forward from the spec's deferred list by Michael on 2026-11-13.
 
 ## what is already known
 

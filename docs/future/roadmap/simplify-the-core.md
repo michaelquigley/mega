@@ -46,7 +46,7 @@ Then the full-tree review resumes on `harden-requests-stops-and-restarts`, and i
 
 Two pieces in, `internal/service` was the size it started at, and Michael asked for a review of the model, of what had landed, and of this plan. Its rulings are in `docs/future/simplify-the-core-inventory.md`. A removal it finds is a card of its own, built before the next numbered piece:
 
-- **`a-first-launch-holds-nothing-back`.** A callback can no longer be held, reordered or dropped by a launch in progress.
+- **`a-first-launch-holds-nothing-back`.** A callback can no longer be held, reordered or dropped by a launch in progress. Built 2026-11-23.
 
 ## how each piece is run
 
