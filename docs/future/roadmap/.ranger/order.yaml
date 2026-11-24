@@ -1,4 +1,5 @@
 building:
+  - a-conversation-gets-its-session-once.md
 horizon:
   - start-up-reads-every-log.md
   - request-and-what-ran-follow-ups.md

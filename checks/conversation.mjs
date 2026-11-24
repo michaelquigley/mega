@@ -104,7 +104,6 @@ function rewriteConversation(id, rewrite) {
   writeFileSync(registry, rows.join(''))
 }
 const loseBinding = (row) => row.replace(/^[ \t]*native_id: .*\n/m, '')
-rewriteConversation(gap.id, loseBinding)
 rewriteConversation(unknown.id, (row) => loseBinding(row).replace(/runtime: none/, 'runtime: running').replace(/output_seq: \d+/, 'output_seq: 0'))
 writeLog(unknown.id, readLog(unknown.id).filter((ev) => ev.status === 'starting'))
 const prior = readLog(legacy.id).filter((ev) => ev.kind !== 'runtime' || ev.status !== 'stopped' && ev.status !== 'stopping')
@@ -854,9 +853,9 @@ await dark.locator('nav.rail').waitFor()
 await until('dark re-centred', async () => centred(await column(dark, '.conversation')) && (await column(dark, '.conversation')).left > open.left)
 await t.shot(dark, 'centred-dark-rail')
 
-// Exact native history is available before the next managed launch, even
-// when the binding exists only in the log. The native dialog shares no rows
-// or acknowledgments with the conversation timeline.
+// Exact native history is available before the next managed launch. The
+// native dialog shares no rows or acknowledgments with the conversation
+// timeline.
 const nativeDialog = page.locator('dialog:modal', { has: page.getByRole('heading', { name: 'Native transcript' }) })
 const moreMenu = page.getByRole('button', { name: 'More', exact: true })
 const transcriptItem = page.getByRole('menuitem', { name: 'View native transcript' })
@@ -871,7 +870,7 @@ await until('the visible gap to be read', async () => {
   const view = await convOf(gap.id)
   return view.read_seq === view.last_seq
 })
-check(await gapLink.count() === 1 && (await convOf(gap.id)).native_id === gap.native_id, 'one visible handoff gap is acknowledged and offers the exact id held in the log')
+check(await gapLink.count() === 1 && (await convOf(gap.id)).native_id === gap.native_id, 'one visible handoff gap is acknowledged and offers the exact bound id')
 const gapBefore = await convOf(gap.id)
 await gapLink.click()
 await nativeDialog.getByText(terminalPrompt, { exact: true }).waitFor()

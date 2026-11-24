@@ -87,6 +87,7 @@ Until the first tagged release, mega keeps no rule whose only subject is somethi
 - **Safety is not relaxed:** where an old log leaves it unclear whether a runtime is alive, the conversation is unsupervised.
 - **A change that would break reading gets a conversion** at start-up, carried for a few builds and then deleted. After that, a workspace that skipped those builds is told to run the older build once first.
 - **The fallback is adoption.** Michael: "my naive understanding is that we can always just do a clean full-import (adopt) of a session?" It is right. A conversation can be removed and its session adopted again, and the harness's own history comes back whole. What only mega recorded does not: start and stop rows, approval rows, what each turn ran with, the name and the label.
+- **A limit found later the same day.** `Adopt` refuses a session discovery does not list, and Codex and pi list only the 50 newest in a checkout. "Always" was more than had been checked. The fallback holds for a session that is new or was active when mega went down, and can fail for one left alone for weeks in a busy checkout. No real checkout on this machine is past 50 today. The card is `adoption-reaches-any-session-in-the-checkout`, to be built before the rules for older logs are removed.
 
 What it puts in question: the one-time fill in `internal/service/choice.go`, the replay of old import markers in `internal/service/live.go`, and the `mode_confirmed` rows on the page. Open: whether Michael's other two machines still hold conversations from before 2026-11-13, which the fill has not yet run on.
 
@@ -118,6 +119,12 @@ Michael confirmed the remainder in one answer: "that all sounds correct."
 
 The inventory is complete. The review of what pieces 1 and 2 landed is next, against rulings 1 to 4.
 
+### 7. Only the registry binds a conversation to its session (2026-11-23)
+
+Today the service also holds a session id in memory, seeded from the log's last `started` line at start-up, for a session the registry does not hold yet: the write that saves it failed, or mega went down between the launch returning and that write. The next launch then saves it. Michael, given the scenario of a power loss in that instant: "A sounds simpler."
+
+A conversation whose session never reached the registry has no session, and is treated as any failed first launch under ruling 4: it is removed, and its session is adopted, since no conversation holds it. What is lost is the name the conversation was given and mega's own rows for its first seconds.
+
 ## The landed work, reviewed against the rulings
 
 Each item says what was found and waits for Michael's ruling. Nothing is removed by this document. Removals he accepts become a piece of their own.
@@ -138,6 +145,14 @@ The harness has also been given nothing to answer while the queue holds: the pro
 
 **Built 2026-11-23.** `internal/service` went from 6,638 non-test lines to 6,547. Two things rode along by Michael's rulings: the read of the runtime's id before the service lock, which the removal had undone, and a refusal of an answer that arrives while a runtime is still starting, which the queue had been hiding on a pi first launch.
 
+### B. The retry of a failed first launch, and the session held outside the registry
+
+Rulings 4 and 7. One rule replaces the machinery: only `StartConversation` launches a conversation with no session, when it creates it, and `Prompt` and `Start` refuse one afterwards. That removes `freshAllowedLocked`, the `not_started` status, `harness.ErrNotStarted` in three adapters, and the `session` and `sessionRecorded` fields with their seeding from the log.
+
+The canon needs no change for it: `exact-id-resume` already flags a new session for an existing conversation. No check suite asserts the retry. The card is `docs/future/roadmap/a-conversation-gets-its-session-once.md`, and the spec's "A simpler core" carries the rule.
+
+Still to review from the landed work: the handoff flag, the gap flag and the native transcript view under rulings 1 and 3, and the rules for older logs under ruling 2.
+
 ## The gate
 
 Michael, 2026-11-23: "we also need to make sure the terminus canon is appropriately aligned, as we're getting pretty continuous `not_clean` results."
@@ -152,7 +167,19 @@ Three causes were found:
 
 Michael, on the draft: "that sounds reasonable." One paragraph, the same words, ends the `boundary` section of `exact-id-resume`, `honest-runtime-state`, `pending-requests-distinct-from-history`, `bookkeeping-never-creates-attention` and `single-authority`. It is uncommitted in the terminus-canon working tree, with a journal entry there, for Michael to commit. `permissions-never-weakened` and `protocol-confined-to-adapters` were left alone on purpose.
 
-Still to rule: clearing the repeated findings, bringing each quality in step as its piece lands, and two captures for terminus itself.
+### G2. No dated exemptions, and terminus is left alone (ruled 2026-11-23)
+
+A "do not flag until piece 3 lands" line was proposed for the unread rebuild and withdrawn. Michael: "this is essentially telling terminus about planned work, yes?" And: "if the remainder of the recurring terminus findings are already planned to be addressed, we can leave terminus alone for now." The canon changes when a rule changes.
+
+### G3. Older logs, stated in two qualities (ruled 2026-11-23)
+
+Ruling 2 is a rule, so it went into the canon when its first application drew a blocking finding: a paragraph at the end of the `boundary` section of `honest-runtime-state` and `bookkeeping-never-creates-attention`. Michael: "sure, that's fine. we'll clean it up once we're past that part of the journey." It lapses at the first tagged release, and `first-tagged-release` carries the reminder.
+
+### What worked on the removal cards
+
+- **A finding in code the card did not touch and did not make newly reachable** is matched to an existing card or captured, and listed at handoff.
+- **A finding that is only wording** in a doc or a test of the card's own is fixed and reported at handoff.
+- **A finding whose fix would add state, a hold or an ordering rule** is a question of whether to fix it at all.
 
 ## Findings that needed no ruling
 

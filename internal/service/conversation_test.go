@@ -366,22 +366,81 @@ func TestExitDuringTurnIsAnErrorAndAbortsPending(t *testing.T) {
 	}
 }
 
-func TestLaunchFailureIsRecordedAndLeavesNoRuntime(t *testing.T) {
+// a first launch that fails, before the harness starts or in it, records one
+// error and leaves a conversation that is never launched again: a prompt and
+// a start are refused, across a restart too, and it can be removed.
+func TestAFailedFirstLaunchIsNeverLaunchedAgain(t *testing.T) {
+	for name, fail := range map[string]func(r *rig) (undo func()){
+		"in the harness": func(r *rig) func() {
+			r.fake.FailLaunch(errors.New("the harness did not confirm the launch"))
+			return func() { r.fake.FailLaunch(nil) }
+		},
+		"before the harness starts": func(r *rig) func() {
+			writeEnvFile(t, r.project.Checkout, "export MEGA_MARKER="+markerOne)
+			r.approve(r.project.ID)
+			r.fake.OnVersion(func() { writeEnvFile(t, r.project.Checkout, "export MEGA_MARKER="+markerTwo) })
+			return func() { r.fake.OnVersion(nil); r.approve(r.project.ID) }
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t)
+			undo := fail(r)
+			conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "failed", "one", LaunchChoice{})
+			if err == nil {
+				t.Fatal("expected the launch to fail")
+			}
+			undo()
+			if got := kinds(r.events(conv.ID)); !slices.Equal(got, []string{"runtime:starting", "runtime:error"}) {
+				t.Errorf("events = %v", got)
+			}
+			if view := r.view(conv.ID); view.NativeID != "" || view.State != model.RuntimeNone || view.Runtime != model.RuntimeNone {
+				t.Errorf("view = %+v", view)
+			}
+			launches := len(r.fake.Runtimes())
+			refused := func() {
+				t.Helper()
+				if err := r.svc.Prompt(conv.ID, "again"); !errors.Is(err, errNoSession) {
+					t.Errorf("prompt: %v", err)
+				}
+				if err := r.svc.Start(conv.ID); !errors.Is(err, errNoSession) {
+					t.Errorf("start: %v", err)
+				}
+				if len(r.fake.Runtimes()) != launches {
+					t.Error("a conversation with no session was launched again")
+				}
+			}
+			refused()
+			r.restart()
+			if err := r.svc.Resume(conv.ID); err != nil {
+				t.Fatal(err)
+			}
+			refused()
+			if err := r.svc.RemoveConversation(conv.ID); err != nil {
+				t.Errorf("removing it: %v", err)
+			}
+		})
+	}
+}
+
+// a conversation with a session whose launch fails records an error and is
+// launched again, on the same session.
+func TestAFailedLaunchOfASessionCanBeLaunchedAgain(t *testing.T) {
 	r := newRig(t)
-	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "named", "one", LaunchChoice{})
-	if err == nil {
+	conv := r.stoppedWithSession()
+	r.fake.FailLaunch(errors.New("no node"))
+	if err := r.svc.Prompt(conv.ID, "two"); err == nil {
 		t.Fatal("expected the launch to fail")
 	}
-	if conv.Runtime != model.RuntimeNone || conv.State != model.RuntimeNone {
-		t.Errorf("conversation = %+v", conv)
-	}
-	if got := kinds(r.events(conv.ID)); !slices.Equal(got, []string{"runtime:starting", "runtime:not_started"}) {
-		t.Errorf("events = %v", got)
+	evs := r.events(conv.ID)
+	if last := evs[len(evs)-1]; last.Status != model.StatusError {
+		t.Errorf("the failed launch was recorded as %q", last.Status)
 	}
 	r.fake.FailLaunch(nil)
-	if err := r.svc.Prompt(conv.ID, "again"); err != nil {
+	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
 		t.Fatal(err)
+	}
+	if spec := r.fake.Last().Spec; spec.NativeID != conv.NativeID {
+		t.Errorf("launched %q, not the conversation's session %q", spec.NativeID, conv.NativeID)
 	}
 }
 
@@ -733,7 +792,7 @@ func TestUnrecordedLaunchFailureKeepsStartingAndClearsBusy(t *testing.T) {
 		}
 		l.log.Close()
 	})
-	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
+	r.fake.FailLaunch(errors.New("no node"))
 	launches := len(r.fake.Runtimes())
 
 	if err := r.svc.Prompt(conv.ID, "two"); err == nil {
@@ -889,46 +948,10 @@ func TestUserMessageFromTheRuntimeOpensATurn(t *testing.T) {
 	wantCode(t, r.svc.Prompt(conv.ID, "two"), CodeConflict)
 }
 
-func TestUnrecordedSessionIsResumedAndBoundByTheNextLaunch(t *testing.T) {
-	r := newRig(t)
-	dir := filepath.Dir(r.path)
-	// the registry stops taking writes while the first runtime starts, so the
-	// session it creates cannot be recorded.
-	r.fake.OnLaunch(func() {
-		if err := os.Chmod(dir, 0o500); err != nil {
-			t.Error(err)
-		}
-	})
-	t.Cleanup(func() { os.Chmod(dir, 0o700) })
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unbound", "one", LaunchChoice{})
-	if err == nil {
-		t.Skip("directory permissions are not enforced here")
-	}
-	first := r.fake.Last()
-	waitFor(t, "the unbindable runtime to stop", first.Exited)
-	if view := r.view(conv.ID); view.NativeID != "" {
-		t.Fatalf("the view exposed an unconfirmed id %q", view.NativeID)
-	}
-	if _, err := r.svc.NativeTranscript(conv.ID); ErrorCode(err) != CodeConflict || len(r.fake.Reads()) != 0 {
-		t.Fatalf("reading an unconfirmed id: %v, adapter reads %v", err, r.fake.Reads())
-	}
-
-	r.fake.OnLaunch(nil)
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
-		t.Fatal(err)
-	}
-	if spec := r.fake.Last().Spec; spec.NativeID != first.NativeID() {
-		t.Errorf("the next launch used %q, not the session already created (%q)", spec.NativeID, first.NativeID())
-	}
-	if view := r.view(conv.ID); view.NativeID != first.NativeID() {
-		t.Errorf("the registry holds %q after the next launch", view.NativeID)
-	}
-}
-
-func TestRecordedStartMakesTheTranscriptAvailableEvenIfTheRegistryWriteFails(t *testing.T) {
+// a first launch whose session could not be saved stops its runtime, and the
+// conversation never gets that session: it is refused, across a restart too,
+// and the session is offered for adoption.
+func TestAFirstLaunchWhoseSessionCannotBeSavedIsNeverLaunchedAgain(t *testing.T) {
 	r := newRig(t)
 	r.fake.DuringLaunch(func(rt *harnesstest.Runtime) {
 		started(rt)
@@ -936,35 +959,31 @@ func TestRecordedStartMakesTheTranscriptAvailableEvenIfTheRegistryWriteFails(t *
 		r.svc.failUpdate = func() error { return errors.New("registry write failed") }
 		r.svc.mu.Unlock()
 	})
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "recorded start", "one", LaunchChoice{})
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unsaved", "one", LaunchChoice{})
 	if err == nil {
 		t.Fatal("the binding write should fail")
 	}
 	rt := r.fake.Last()
-	waitFor(t, "the runtime to exit", rt.Exited)
-	if got := r.svc.reg.Snapshot().Conversations[0].NativeID; got != "" {
-		t.Fatalf("registry id = %q, want empty", got)
+	waitFor(t, "the runtime to stop", rt.Exited)
+	r.fake.DuringLaunch(nil)
+	r.svc.mu.Lock()
+	r.svc.failUpdate = nil
+	r.svc.mu.Unlock()
+	if got := kinds(r.events(conv.ID)); !slices.Contains(got, "runtime:error") {
+		t.Errorf("events = %v", got)
 	}
-	r.fake.SetHistory(rt.NativeID(), []*model.Event{{Kind: model.EventAssistant, Text: "recorded session", NativeID: "reply"}})
-	if got := r.view(conv.ID).NativeID; got != rt.NativeID() {
-		t.Fatalf("visible id = %q, want %q", got, rt.NativeID())
-	}
-	if messages, err := r.svc.NativeTranscript(conv.ID); err != nil || len(messages) != 1 || messages[0].Text != "recorded session" {
-		t.Fatalf("transcript = %+v, %v", messages, err)
-	}
-}
-
-func TestSessionStartedInTheLogIsResumedAfterARestart(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	finishTurn(rt, "a-1", "done")
-	if err := r.svc.Release(conv.ID); err != nil {
+	r.restart()
+	if err := r.svc.Resume(conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the runtime to exit", rt.Exited)
-	// a registry that lost the binding while the log kept the started event.
+	r.sessionOnlyTheLogHolds(conv.ID, rt.NativeID())
+}
+
+// a session the log shows started and the registry does not hold, as after a
+// power loss between the launch and the write that binds it, is not resumed.
+func TestASessionOnlyTheLogHoldsIsNotResumedAfterARestart(t *testing.T) {
+	r := newRig(t)
+	conv := r.stoppedWithSession()
 	r.svc.mu.Lock()
 	err := r.svc.reg.Update(func(d *registry.Document) error {
 		for i := range d.Conversations {
@@ -978,30 +997,36 @@ func TestSessionStartedInTheLogIsResumedAfterARestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	r.restart()
-	r.fake.SetHistory(rt.NativeID(), []*model.Event{{Kind: model.EventAssistant, Text: "native reply", NativeID: "native-reply"}})
-	if transcript, err := r.svc.NativeTranscript(conv.ID); err != nil || len(transcript) != 1 || transcript[0].Text != "native reply" {
-		t.Fatalf("transcript = %+v, %v", transcript, err)
+	r.sessionOnlyTheLogHolds(conv.ID, conv.NativeID)
+}
+
+// sessionOnlyTheLogHolds checks a conversation whose session is not in the
+// registry: it shows none, reads none, is refused a prompt, and the session
+// is discovered and adopted into a new conversation.
+func (r *rig) sessionOnlyTheLogHolds(id, session string) {
+	r.t.Helper()
+	if view := r.view(id); view.NativeID != "" {
+		r.t.Errorf("the view shows session %q", view.NativeID)
 	}
-	if view := r.view(conv.ID); view.NativeID != rt.NativeID() {
-		t.Fatalf("visible session = %q, want %q", view.NativeID, rt.NativeID())
+	if _, err := r.svc.NativeTranscript(id); !errors.Is(err, errNoSession) || len(r.fake.Reads()) != 0 {
+		r.t.Errorf("transcript: %v, adapter reads %v", err, r.fake.Reads())
 	}
 	launches := len(r.fake.Runtimes())
-	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
-		t.Fatal(err)
+	if err := r.svc.Prompt(id, "two"); !errors.Is(err, errNoSession) {
+		r.t.Errorf("prompt: %v", err)
 	}
-	if len(r.fake.Runtimes()) != launches+1 {
-		t.Fatal("no runtime launched")
+	if len(r.fake.Runtimes()) != launches {
+		r.t.Error("the session was resumed")
 	}
-	if spec := r.fake.Last().Spec; spec.NativeID != rt.NativeID() {
-		t.Errorf("launched %q, not the session the log shows started (%q)", spec.NativeID, rt.NativeID())
+	r.fake.SetSessions([]harness.Session{{NativeID: session, Preview: "one"}})
+	r.fake.SetHistory(session, []*model.Event{{Kind: model.EventUser, Text: "one", NativeID: "u-1"}})
+	if sessions, err := r.svc.Discover(r.project.ID, model.HarnessClaude); err != nil || len(sessions) != 1 || sessions[0].NativeID != session {
+		r.t.Fatalf("discovered %+v, %v", sessions, err)
 	}
-	if view := r.view(conv.ID); view.NativeID != rt.NativeID() {
-		t.Errorf("the registry holds %q", view.NativeID)
-	}
-	if reads := r.fake.Reads(); !slices.Equal(reads, []string{rt.NativeID()}) {
-		t.Errorf("history reads = %v", reads)
+	adopted, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, session, "")
+	if err != nil || adopted.NativeID != session {
+		r.t.Errorf("adopted %+v, %v", adopted, err)
 	}
 }
 
@@ -1046,80 +1071,6 @@ func TestUnkeptSessionIsNeverReplacedAfterRestart(t *testing.T) {
 	}
 	if len(r.fake.Runtimes()) != launches {
 		t.Error("a fresh session was started in place of the unkept one")
-	}
-}
-
-func TestRecordedNotStartedAllowsAFreshSession(t *testing.T) {
-	r := newRig(t)
-	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "retry", "one", LaunchChoice{})
-	if err == nil {
-		t.Fatal("expected the launch to fail")
-	}
-	r.fake.FailLaunch(nil)
-	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
-		t.Fatal(err)
-	}
-	if spec := r.fake.Last().Spec; spec.NativeID != "" {
-		t.Errorf("launched %q, want a fresh session", spec.NativeID)
-	}
-}
-
-// a launch whose failure itself could not be recorded leaves a starting with
-// nothing after it: the accepted closed side, refused although no session
-// exists.
-func TestStartingWithNothingAfterItIsRefused(t *testing.T) {
-	r := newRig(t)
-	svc := r.svc
-	r.fake.OnLaunch(func() {
-		svc.mu.Lock()
-		for _, l := range svc.live {
-			l.log.Close()
-		}
-		svc.mu.Unlock()
-	})
-	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "closed", "one", LaunchChoice{})
-	if err == nil {
-		t.Fatal("expected the launch to fail")
-	}
-	r.fake.OnLaunch(nil)
-	r.fake.FailLaunch(nil)
-	r.restart()
-	if got := kinds(r.events(conv.ID)); !slices.Equal(got[:1], []string{"runtime:starting"}) || slices.Contains(got, "runtime:not_started") {
-		t.Fatalf("events = %v", got)
-	}
-	if err := r.svc.Resume(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	launches := len(r.fake.Runtimes())
-	wantCode(t, r.svc.Prompt(conv.ID, "two"), CodeConflict)
-	if len(r.fake.Runtimes()) != launches {
-		t.Error("a fresh session was started without proof that none exists")
-	}
-}
-
-// an unwrapped launch error leaves the session unknown, as a codex thread/start
-// that got no reply may have created a thread: it is recorded as an error, and
-// the conversation is refused a fresh session.
-func TestUnclassifiedLaunchFailureLeavesTheSessionUnknown(t *testing.T) {
-	r := newRig(t)
-	r.fake.FailLaunch(errors.New("no reply to thread/start"))
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unknown", "one", LaunchChoice{})
-	if err == nil {
-		t.Fatal("expected the launch to fail")
-	}
-	if got := kinds(r.events(conv.ID)); !slices.Equal(got, []string{"runtime:starting", "runtime:error"}) {
-		t.Errorf("events = %v", got)
-	}
-	if view := r.view(conv.ID); view.State != model.RuntimeNone || view.Runtime != model.RuntimeNone {
-		t.Errorf("view = %+v", view)
-	}
-	r.fake.FailLaunch(nil)
-	launches := len(r.fake.Runtimes())
-	wantCode(t, r.svc.Prompt(conv.ID, "again"), CodeConflict)
-	if len(r.fake.Runtimes()) != launches {
-		t.Error("a fresh session was started after a launch whose session is unknown")
 	}
 }
 

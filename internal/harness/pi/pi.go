@@ -122,10 +122,10 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	} else {
 		path, err := sessionFile(spec.Env, spec.Cwd, id)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
+			return nil, err
 		}
 		if err := checkSessionHeader(path, id); err != nil {
-			return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
+			return nil, err
 		}
 		args = append(args, "--session", path)
 	}
@@ -138,7 +138,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	r := newRuntime(sink)
 	c, err := start(h.cfg.Binary, place, args, r)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
+		return nil, err
 	}
 	r.conn = c
 	ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
@@ -147,10 +147,6 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	if err := c.call(ctx, map[string]any{"type": "get_state"}, st); err != nil {
 		close(r.discard)
 		stop(c)
-		if spec.NativeID == "" {
-			// a new session's file is written only with its first prompt.
-			return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
-		}
 		return nil, err
 	}
 	if st.SessionID != id {

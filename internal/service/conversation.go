@@ -184,19 +184,11 @@ func (s *Service) Prompt(conversationID, text string) error {
 		s.mu.Unlock()
 		return s.send(conversationID, text)
 	}
-	// Without a runtime, resume by exact id. With no known session, a
-	// fresh one starts only on the log’s proof that none exists. This
-	// is checked before anything is recorded, so a refusal never counts as proof.
-	if l.sessionOf(conv) == "" {
-		fresh, err := s.freshAllowedLocked(l)
-		if err != nil {
-			s.mu.Unlock()
-			return err
-		}
-		if !fresh {
-			s.mu.Unlock()
-			return errSessionUnknown
-		}
+	// without a runtime, resume by exact id; only StartConversation starts
+	// a new session.
+	if conv.NativeID == "" {
+		s.mu.Unlock()
+		return errNoSession
 	}
 	if err := s.beginStartLocked(l); err != nil {
 		s.mu.Unlock()
@@ -218,8 +210,8 @@ func (s *Service) Prompt(conversationID, text string) error {
 // operator's gesture to have it running, its MCP servers connected and its
 // settings taking changes at once. like a prompt to a stopped conversation, it
 // resumes the exact session. a conversation with no session is refused, since
-// only its opening prompt may start one; so is an unsupervised one, which
-// Resume settles first.
+// only its creation starts one; so is an unsupervised one, which Resume
+// settles first.
 func (s *Service) Start(conversationID string) error {
 	s.mu.Lock()
 	conv, l, err := s.idleCheckLocked(conversationID)
@@ -247,19 +239,9 @@ func (s *Service) Start(conversationID string) error {
 		s.mu.Unlock()
 		return newError(CodeConflict, "the conversation already has a runtime")
 	}
-	conv.NativeID = l.sessionOf(conv)
 	if conv.NativeID == "" {
-		// a launch whose session went unrecorded is refused as a prompt would
-		// refuse it; otherwise there is no session yet.
-		fresh, err := s.freshAllowedLocked(l)
 		s.mu.Unlock()
-		switch {
-		case err != nil:
-			return err
-		case !fresh:
-			return errSessionUnknown
-		}
-		return newError(CodeConflict, "the conversation has no session yet; its opening prompt starts one")
+		return errNoSession
 	}
 	if err := s.beginStartLocked(l); err != nil {
 		s.mu.Unlock()
@@ -286,8 +268,8 @@ func (s *Service) conversationEnvReadyLocked(conv model.Conversation) error {
 
 // resolveForStart resolves the project's environment for a runtime start,
 // after beginStartLocked, and checks the harness can run in it. a failure ends
-// the start, recorded as not started (no process was), with what may be
-// recorded of it and never the activation's output. callers do not hold s.mu.
+// the start, recorded as a failed launch, with what may be recorded of it and
+// never the activation's output. callers do not hold s.mu.
 func (s *Service) resolveForStart(conv model.Conversation, l *live) (harness.Place, *model.EnvironmentFacts, error) {
 	place, facts, err := s.resolveProject(conv.ProjectID)
 	if err == nil {
@@ -297,7 +279,7 @@ func (s *Service) resolveForStart(conv model.Conversation, l *live) (harness.Pla
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		l.busy = false
-		s.failedLaunch(l, err, true)
+		s.failedLaunch(l, err)
 		return harness.Place{}, nil, err
 	}
 	return place, facts, nil
@@ -352,7 +334,7 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 	if err := s.fillAtLaunch(conversationID, place); err != nil {
 		s.mu.Lock()
 		l.busy = false
-		s.failedLaunch(l, err, true)
+		s.failedLaunch(l, err)
 		s.mu.Unlock()
 		return err
 	}
@@ -374,7 +356,7 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 	}
 	if err != nil {
 		l.busy = false
-		s.failedLaunch(l, err, true)
+		s.failedLaunch(l, err)
 		s.mu.Unlock()
 		return err
 	}
@@ -404,7 +386,7 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		if l.inc == inc {
 			l.inc = nil
 		}
-		if s.failedLaunch(l, err, true) {
+		if s.failedLaunch(l, err) {
 			if updateErr := s.updateConversation(conversationID, func(c *model.Conversation) { c.Runtime = model.RuntimeNone }); updateErr != nil {
 				dl.Errorf("recording that '%s' did not start: %v", conversationID, updateErr)
 			}
@@ -435,24 +417,18 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		// like an unrecorded stop, an unrecorded failure leaves the conversation
 		// recorded running, so a restart settles it rather than this run
 		// claiming what its log could not confirm.
-		if s.failedLaunch(l, err, false) {
+		if s.failedLaunch(l, err) {
 			if updateErr := s.updateConversation(conversationID, func(c *model.Conversation) { c.Runtime = model.RuntimeNone }); updateErr != nil {
 				dl.Errorf("recording that '%s' did not start: %v", conversationID, updateErr)
 			}
 		}
 		return fmt.Errorf("starting runtime for '%s': %w", conversationID, err)
 	}
-	// a new session belongs to this conversation from the moment it exists:
-	// hold it until the registry does, so no later launch starts another.
+	// a new session is the conversation's once the registry holds it, and
+	// only then: a conversation whose session is not recorded never gets one.
 	bindErr := error(nil)
 	if nativeID != "" {
-		l.session = nativeID
 		bindErr = s.updateConversation(conversationID, func(c *model.Conversation) { c.NativeID = nativeID })
-		if bindErr == nil {
-			l.session, l.sessionRecorded = "", false
-		} else {
-			dl.Errorf("recording the session of '%s'; holding it for the next launch: %v", conversationID, bindErr)
-		}
 	}
 	if l.inc != inc {
 		if refused != nil {
@@ -469,8 +445,8 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		return newError(CodeConflict, refused.Text)
 	}
 	if bindErr != nil {
-		// the conversation cannot record its session yet; stop the runtime
-		// rather than run one the registry does not know.
+		// the conversation could not record its session, so it never holds
+		// one: stop the runtime rather than run one the registry does not know.
 		s.beginStopLocked(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("the session could not be recorded; stopping it: %v", bindErr)})
 		return bindErr
 	}
@@ -502,23 +478,14 @@ func (s *Service) prepareLaunchLocked(conv model.Conversation, l *live, env *mod
 	if !ok {
 		return nil, harness.Spec{}, nil, newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", conv.Harness))
 	}
-	// a session this conversation created but the registry does not hold yet is
-	// bound in the same write that records the runtime running, and resumed. if
-	// that write fails, the launch is refused, so no fresh session is started
-	// in its place.
-	session := l.sessionOf(conv)
-	if err := s.updateConversation(conv.ID, func(c *model.Conversation) {
-		c.Runtime = model.RuntimeRunning
-		c.NativeID = session
-	}); err != nil {
+	if err := s.updateConversation(conv.ID, func(c *model.Conversation) { c.Runtime = model.RuntimeRunning }); err != nil {
 		return nil, harness.Spec{}, nil, err
 	}
-	l.session, l.sessionRecorded = "", false
 	inc := &incarnation{exited: make(chan struct{}), launched: make(chan struct{})}
 	l.inc = inc
 	// the recorded request goes with every launch, so a release and a resume
 	// keep it; a terminal visit never changes it.
-	return h, harness.Spec{Cwd: project.Checkout, NativeID: session, PermissionMode: conv.PermissionMode, Model: conv.Model, Effort: conv.Effort}, inc, nil
+	return h, harness.Spec{Cwd: project.Checkout, NativeID: conv.NativeID, PermissionMode: conv.PermissionMode, Model: conv.Model, Effort: conv.Effort}, inc, nil
 }
 
 // harnessGateLocked rechecks the approved activation just before a harness

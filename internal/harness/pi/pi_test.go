@@ -607,7 +607,7 @@ func TestHistoryChecksTheSessionsOwnID(t *testing.T) {
 		t.Errorf("a file holding another session was imported: %d events (%v)", len(history.Events), err)
 	}
 	rt, err := h.Launch(harness.Spec{Cwd: checkout, Env: env, Find: env, NativeID: "not-this-one"}, newSink())
-	if rt != nil || !errors.Is(err, harness.ErrWrongSession) || !errors.Is(err, harness.ErrNotStarted) {
+	if rt != nil || !errors.Is(err, harness.ErrWrongSession) {
 		t.Errorf("launch reached an executable with a mismatched header: runtime %v, error %v", rt, err)
 	}
 }

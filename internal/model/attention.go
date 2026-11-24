@@ -11,7 +11,7 @@ const (
 	// AttentionRunning: a turn is in flight.
 	AttentionRunning = "running"
 	// AttentionError: the last runtime ended in an error, exited during a
-	// turn, or did not start.
+	// turn, or failed to launch.
 	AttentionError = "error"
 	// AttentionUnread: agent output from a completed turn the operator has not
 	// read.

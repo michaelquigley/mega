@@ -11,27 +11,6 @@ import (
 	"github.com/michaelquigley/mega/internal/harness"
 )
 
-// each claude launch failure comes before or while starting the shim, so each
-// is classified as not started; nothing is wrapped as a blanket.
-func TestLaunchFailuresBeforeTheShimAreNotStarted(t *testing.T) {
-	missingShim := New(Config{Node: "node", Shim: filepath.Join(t.TempDir(), "absent"), Executable: truePath(t)})
-	if _, err := missingShim.Launch(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir()}, &recordingSink{}); !errors.Is(err, harness.ErrNotStarted) {
-		t.Errorf("missing shim: %v", err)
-	}
-
-	shim := t.TempDir()
-	if err := os.WriteFile(filepath.Join(shim, shimScript), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(shim, "node_modules", "@anthropic-ai", "claude-agent-sdk"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	missingNode := New(Config{Node: filepath.Join(t.TempDir(), "no-node"), Shim: shim, Executable: truePath(t)})
-	if _, err := missingNode.Launch(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir()}, &recordingSink{}); !errors.Is(err, harness.ErrNotStarted) {
-		t.Errorf("node that cannot start: %v", err)
-	}
-}
-
 // Check names node when it cannot be found, and the shim when it is not
 // installed.
 func TestCheckNamesWhatIsMissing(t *testing.T) {
@@ -91,7 +70,7 @@ func TestAScriptClaudeExecutableIsRefused(t *testing.T) {
 			t.Errorf("%s: Check said %v", name, err)
 		}
 		_, err := h.Launch(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir()}, &recordingSink{})
-		if !errors.Is(err, harness.ErrNotStarted) || !errors.As(err, &missing) {
+		if !errors.As(err, &missing) {
 			t.Errorf("%s: launch said %v", name, err)
 		}
 	}

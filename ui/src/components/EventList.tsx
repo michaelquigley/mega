@@ -253,14 +253,14 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
           // for a harness that updates itself, and is not marked.
           const outside = event.status === 'started' && event.facts?.standing === 'older'
           let className = 'system'
-          if (event.status === 'error' || event.status === 'unsupervised' || event.status === 'not_started') {
+          if (event.status === 'error' || event.status === 'unsupervised') {
             className = 'system alert'
           } else if (outside) {
             className = 'system version-older'
           }
           return (
             <p key={event.seq} data-seq={event.seq} className={className} title={outside ? event.facts?.version_note : undefined}>
-              Runtime {event.status === 'not_started' ? 'did not start' : event.status}
+              Runtime {event.status}
               {event.facts?.model && ` · ${event.facts.model}`}
               {event.facts?.effort && ` · effort ${event.facts.effort}`}
               {event.facts?.version && ` · v${event.facts.version}`}

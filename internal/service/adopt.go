@@ -120,12 +120,8 @@ func (s *Service) heldLocked(harnessName string) map[string]bool {
 		if conv.Harness != harnessName {
 			continue
 		}
-		session := conv.NativeID
-		if l := s.live[conv.ID]; l != nil {
-			session = l.sessionOf(conv)
-		}
-		if session != "" {
-			held[session] = true
+		if conv.NativeID != "" {
+			held[conv.NativeID] = true
 		}
 	}
 	return held
@@ -258,7 +254,6 @@ func (s *Service) NativeTranscript(conversationID string) ([]*model.Event, error
 	s.mu.Lock()
 	conv, err := s.conversationLocked(conversationID)
 	if err == nil {
-		conv = s.viewLocked(conv).Conversation
 		err = s.conversationCheckoutLocked(conv)
 	}
 	s.mu.Unlock()
@@ -266,7 +261,7 @@ func (s *Service) NativeTranscript(conversationID string) ([]*model.Event, error
 		return nil, err
 	}
 	if conv.NativeID == "" {
-		return nil, errSessionUnknown
+		return nil, errNoSession
 	}
 	place, facts, err := s.placeWithFacts(conv.ProjectID)
 	if err != nil {

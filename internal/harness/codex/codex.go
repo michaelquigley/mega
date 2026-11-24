@@ -3,7 +3,6 @@ package codex
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"strings"
 	"syscall"
@@ -60,17 +59,15 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	r.expected = spec.NativeID
 	c, err := dial(h.cfg.Binary, harness.Place{Cwd: spec.Cwd, Env: spec.Env, Find: spec.Find}, r)
 	if err != nil {
-		// the app-server never started.
-		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
+		return nil, err
 	}
 	r.conn = c
 	ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
 	defer cancel()
 	started := &threadStarted{}
 	if err := c.initialize(ctx); err != nil {
-		// no thread is ever created before the handshake completes.
 		shutDown(c)
-		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
+		return nil, err
 	}
 	// thread/start and thread/resume take a model but no effort (0.166.0
 	// schema): the conversation's model goes with them, and its effort with
@@ -78,18 +75,10 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	threadModel := spec.Model
 	if spec.NativeID == "" {
 		err = c.call(ctx, "thread/start", &threadStartParams{Cwd: spec.Cwd, Model: threadModel}, started)
-		var refused *replyError
-		if errors.As(err, &refused) {
-			// the server answered that it did not start the thread.
-			shutDown(c)
-			return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
-		}
 	} else {
 		err = c.call(ctx, "thread/resume", &threadResumeParams{ThreadID: spec.NativeID, Cwd: spec.Cwd, Model: threadModel}, started)
 	}
 	if err != nil {
-		// no answer to thread/start (a timeout, or the app-server exiting) may
-		// still have created a thread, so this one is left unclassified.
 		shutDown(c)
 		return nil, err
 	}

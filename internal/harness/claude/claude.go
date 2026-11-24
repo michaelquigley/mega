@@ -293,7 +293,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	}
 	executable, err := h.executable(spec.Find)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
+		return nil, err
 	}
 	args := []string{"run", "--cwd", spec.Cwd, "--exec", executable, sessionFlag, nativeID}
 	// the conversation's mode, model and effort, always passed. a mode is
@@ -318,8 +318,7 @@ func (h *Harness) Launch(spec harness.Spec, sink harness.Sink) (harness.Runtime,
 	}
 	cmd, err := h.command(context.Background(), harness.Place{Cwd: spec.Cwd, Env: spec.Env, Find: spec.Find}, args...)
 	if err != nil {
-		// the shim was never started, so no session can exist.
-		return nil, fmt.Errorf("%w: %w", harness.ErrNotStarted, err)
+		return nil, err
 	}
 	r, err := start(cmd, nativeID, sink, mode, spec.Idle)
 	if err != nil {

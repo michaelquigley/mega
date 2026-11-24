@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+CHANGE: **A conversation whose first launch failed is not launched again.** (2026-11-23) Whatever failed, the launch records one error, and a prompt or Start is refused with a message to remove the conversation and, if the harness made a session, adopt it under "Adopt a session". Before, a launch proven to have failed before any session existed could be retried in the same conversation. A conversation whose session never reached the registry is treated the same way: its session is no longer resumed, and can be adopted when discovery lists it. A failed launch of a conversation that has a session is recorded as an error, where before it could say "did not start", and can be launched again as before.
+
 FIX: **An answer given while a conversation is starting no longer throws the request away.** (2026-11-23) A pi extension can ask before its runtime has finished launching. An answer given then was recorded as aborted, although pi never received it and was still waiting. It is now refused with "the runtime is starting". The card stays, and answers once the launch is done.
 
 CHANGE: **Resume no longer imports native history.** Adoption starts with one snapshot. After a terminal handoff or loss of supervision, the timeline marks where mega stopped watching. **View native transcript** opens the exact session’s prompts and replies. Resume acknowledges lost supervision and launches nothing. The next Start or prompt uses the bound session.

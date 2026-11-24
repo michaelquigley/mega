@@ -47,6 +47,7 @@ Then the full-tree review resumes on `harden-requests-stops-and-restarts`, and i
 Two pieces in, `internal/service` was the size it started at, and Michael asked for a review of the model, of what had landed, and of this plan. Its rulings are in `docs/future/simplify-the-core-inventory.md`. A removal it finds is a card of its own, built before the next numbered piece:
 
 - **`a-first-launch-holds-nothing-back`.** A callback can no longer be held, reordered or dropped by a launch in progress. Built 2026-11-23.
+- **`a-conversation-gets-its-session-once`.** A conversation's session can no longer be known in one place and missing from another. Built 2026-11-23.
 
 ## how each piece is run
 
@@ -63,7 +64,7 @@ Pieces 1 to 9 land on `main`, one at a time, like any batch. Pieces 10 and 11 ar
 
 ## what must not change
 
-- A session is resumed by its exact id, and a new one is started only on proof that none exists.
+- A session is resumed by its exact id, and a new one is started only for a new conversation, once, when it is created.
 - Permissions are never weakened, no trust is set for the operator, and nothing is answered for him.
 - A state mega cannot vouch for is never shown as certain. A simpler mega may say "look at this" more often. It may not say something untrue.
 - A pending request is answered once, by the operator, and never after it stopped being pending.

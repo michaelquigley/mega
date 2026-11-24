@@ -59,12 +59,6 @@ func SameSession(what, want, got string) error {
 	return fmt.Errorf("%w: %s holds session '%s', not '%s'", ErrWrongSession, what, got, want)
 }
 
-// ErrNotStarted marks a Launch failure the adapter can prove came before any
-// native session could exist. adapters wrap it at each such failure site, never
-// as a blanket over Launch: an error without it means the session is unknown,
-// and the service then refuses to start a fresh one in its place.
-var ErrNotStarted = errors.New("the runtime did not start")
-
 // ErrModeUnconfirmed reports a permission mode switch the harness did not
 // confirm in time: it may still take effect, and the runtime reports it as a
 // mode change if it does.
@@ -96,8 +90,6 @@ type Harness interface {
 	// session; otherwise the runtime resumes exactly that session. the runtime's
 	// native identity is known when Launch returns. Launch may deliver to the
 	// sink before it returns, so callers must not hold a lock the sink needs.
-	// a failure that provably came before any session could exist wraps
-	// ErrNotStarted; any other failure leaves the session unknown.
 	Launch(spec Spec, sink Sink) (Runtime, error)
 
 	// History reads the native session's stored messages without a runtime.

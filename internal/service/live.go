@@ -99,12 +99,8 @@ type live struct {
 	refused   *model.Event
 	switching bool // a permission mode or model change is waiting on the runtime
 
-	// session holds the exact id until the registry does. A recorded start
-	// also makes it available for transcript reads and conversation views.
-	session         string
-	sessionRecorded bool
-	state           string // displayed: "", starting, running, or stopping
-	turnActive      bool
+	state      string // displayed: "", starting, running, or stopping
+	turnActive bool
 	// turnStartedAt is when the turn in flight began; zero when none is. it
 	// lives only here, beside turnActive, and is never stored.
 	turnStartedAt time.Time
@@ -204,9 +200,6 @@ func (s *Service) liveLocked(conversationID string) (*live, error) {
 		if ev.NativeID != "" {
 			l.seen[ev.NativeID] = true
 		}
-		if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarted && ev.Facts != nil && ev.Facts.Session != "" {
-			l.session, l.sessionRecorded = ev.Facts.Session, true
-		}
 		if ev.Seq == outputSeq {
 			l.outputAt = ev.At
 		}
@@ -227,7 +220,7 @@ func (s *Service) liveLocked(conversationID string) (*live, error) {
 				continue
 			}
 		case model.StatusResumed, model.StatusStarting, model.StatusStarted,
-			model.StatusNotStarted, model.StatusStopped, model.StatusUnsupervised:
+			model.StatusStopped, model.StatusUnsupervised:
 			legacyImport = false
 		}
 		l.noteRuntime(ev.Status)
@@ -305,24 +298,18 @@ func (l *live) noteRuntime(status string) {
 	switch status {
 	case model.StatusStarted, model.StatusStopped:
 		l.fault = false
-	case model.StatusError, model.StatusNotStarted:
+	case model.StatusError:
 		l.fault = true
 	}
 }
 
-// failedLaunch records a launch that failed. only a failure proven to come
-// before any native session could exist is not_started: the service's own
-// failures before launching, and a harness error wrapping harness.ErrNotStarted.
-// any other failure is an error whose session is unknown, which keeps the
-// conversation refused a fresh session. like every transition it is shown only
-// once recorded: if the log cannot record it, the last confirmed starting stays
-// on screen and the log's sticky refusal of later writes says a restart is
-// needed. it reports whether the failure was recorded. callers hold s.mu.
-func (s *Service) failedLaunch(l *live, reason error, beforeLaunch bool) bool {
-	ev := &model.Event{Status: model.StatusNotStarted, Text: fmt.Sprintf("the runtime did not start: %s", recordable(reason))}
-	if !beforeLaunch && !errors.Is(reason, harness.ErrNotStarted) {
-		ev = &model.Event{Status: model.StatusError, Text: fmt.Sprintf("the launch failed and whether it created a session is unknown: %s", recordable(reason))}
-	}
+// failedLaunch records a launch that failed, whatever failed, as one error.
+// like every transition it is shown only once recorded: if the log cannot
+// record it, the last confirmed starting stays on screen and the log's sticky
+// refusal of later writes says a restart is needed. it reports whether the
+// failure was recorded. callers hold s.mu.
+func (s *Service) failedLaunch(l *live, reason error) bool {
+	ev := &model.Event{Status: model.StatusError, Text: fmt.Sprintf("the launch failed: %s", recordable(reason))}
 	if err := s.transition(l, ev, "", nil); err != nil {
 		dl.Errorf("%v", err)
 		return false
@@ -361,9 +348,6 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 		// the registry says, so a page never holds a conversation without one.
 		view.Attention = recordedAttention(conv)
 		return view
-	}
-	if l.sessionRecorded {
-		view.NativeID = l.sessionOf(conv)
 	}
 	view.LastSeq = l.log.LastSeq()
 	if l.state != "" {
@@ -446,50 +430,10 @@ func recordedAttention(conv model.Conversation) string {
 	}
 }
 
-// sessionOf is the native session the conversation is bound to: the one the
-// registry holds, or else one it created that the registry does not hold yet.
-// callers hold s.mu.
-func (l *live) sessionOf(conv model.Conversation) string {
-	if conv.NativeID != "" {
-		return conv.NativeID
-	}
-	return l.session
-}
-
-// errSessionUnknown refuses to start a fresh session for a conversation whose
-// earlier launch may have created one that neither the registry nor the log
-// recorded.
-var errSessionUnknown = newError(CodeConflict, "this conversation launched before but its session could not be recorded, so mega will not start another in its place; find the session under 'Adopt a session' and adopt it into a new conversation")
-
-// freshAllowedLocked reports whether the log proves no native session can
-// exist for the conversation: no launch has started, or every launch that
-// started was recorded as not_started. callers hold s.mu.
-func (s *Service) freshAllowedLocked(l *live) (bool, error) {
-	evs, err := l.log.Since(0)
-	if err != nil {
-		return false, err
-	}
-	open := false
-	for _, ev := range evs {
-		if ev.Kind != model.EventRuntime {
-			continue
-		}
-		switch ev.Status {
-		case model.StatusStarting:
-			if open {
-				return false, nil
-			}
-			open = true
-		case model.StatusNotStarted:
-			open = false
-		default:
-			if open {
-				return false, nil
-			}
-		}
-	}
-	return !open, nil
-}
+// errNoSession refuses to launch a conversation the registry holds no
+// session for, whatever left it without one: only its creation launches a
+// new session, once.
+var errNoSession = newError(CodeConflict, "this conversation has no recorded session, so mega will not launch it; remove it, and if the harness made a session, adopt it under 'Adopt a session'")
 
 // unrecorded is the outcome the harness settled a request with, if that
 // could not be recorded yet: the request stays listed, as last confirmed,
@@ -689,7 +633,7 @@ func (k *sink) started(ev *model.Event) {
 	if err != nil {
 		return
 	}
-	bound := l.sessionOf(conv)
+	bound := conv.NativeID
 	if ev.Facts != nil && ev.Facts.Session != "" && bound != "" && ev.Facts.Session != bound {
 		k.inc.wrong = true
 		refusal := &model.Event{
@@ -733,12 +677,7 @@ func (k *sink) started(ev *model.Event) {
 	if l.releasing || l.refused != nil {
 		state = l.state
 	}
-	if err := s.transition(l, ev, state, func() {
-		l.facts = facts
-		if conv.NativeID == "" && facts.Session != "" {
-			l.session, l.sessionRecorded = facts.Session, true
-		}
-	}); err != nil {
+	if err := s.transition(l, ev, state, func() { l.facts = facts }); err != nil {
 		dl.Errorf("%v", err)
 	}
 }

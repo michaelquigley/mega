@@ -38,3 +38,11 @@ What the Agent SDK's licence allows for redistribution, which decides between in
 ## not in this card
 
 Replacing the bridge altogether, which waits for a Go SDK or a stable control protocol, as the spec's seam census records. Prebuilt binaries for macOS, which wait on `mega-on-macos-and-windows`.
+
+## from the review of 2026-11-23
+
+Two things lapse at the first tagged release, and come out with it:
+
+- **Ruling 2 of `docs/future/simplify-the-core-inventory.md`,** that a log written by an older build is read as the current build reads it. From the first release, an older format is owed a conversion or a rule.
+- **The paragraph that states it in the canon,** at the end of the `boundary` section of `honest-runtime-state` and `bookkeeping-never-creates-attention` in terminus-canon. Michael, 2026-11-23: "we'll clean it up once we're past that part of the journey."
+

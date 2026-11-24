@@ -21,7 +21,7 @@ const (
 )
 
 // TestMain lets the test binary stand in for `codex app-server` when the
-// fake mode is set, so Launch can be driven through its failure sites.
+// fake mode is set, so Launch can be driven.
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(fakeMode); mode != "" {
 		fakeAppServer(mode)
@@ -108,12 +108,6 @@ func fakeAppServer(mode string) {
 				}
 				continue
 			}
-			switch mode {
-			case "no-reply":
-				os.Exit(0) // as if it died after creating the thread
-			case "refuse":
-				fmt.Printf(`{"id":%v,"error":{"code":-32000,"message":"refused"}}`+"\n", frame["id"])
-			}
 		}
 	}
 }
@@ -122,33 +116,6 @@ func fakeHarness(t *testing.T, mode string) *Harness {
 	t.Helper()
 	t.Setenv(fakeMode, mode)
 	return New(Config{Binary: os.Args[0]})
-}
-
-func TestNoReplyToThreadStartLeavesTheSessionUnknown(t *testing.T) {
-	h := fakeHarness(t, "no-reply")
-	_, err := h.Launch(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir()}, &recordingSink{})
-	if err == nil {
-		t.Fatal("expected the launch to fail")
-	}
-	if errors.Is(err, harness.ErrNotStarted) {
-		t.Errorf("a thread/start with no reply was classified as not started: %v", err)
-	}
-}
-
-func TestRefusedThreadStartIsNotStarted(t *testing.T) {
-	h := fakeHarness(t, "refuse")
-	_, err := h.Launch(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir()}, &recordingSink{})
-	if !errors.Is(err, harness.ErrNotStarted) {
-		t.Errorf("an explicit refusal of thread/start: %v", err)
-	}
-}
-
-func TestMissingAppServerIsNotStarted(t *testing.T) {
-	h := New(Config{Binary: "/nonexistent/codex"})
-	_, err := h.Launch(harness.Spec{Env: os.Environ(), Find: os.Environ(), Cwd: t.TempDir()}, &recordingSink{})
-	if !errors.Is(err, harness.ErrNotStarted) {
-		t.Errorf("a missing app-server: %v", err)
-	}
 }
 
 // a thread read back must be the thread asked for: another is refused before

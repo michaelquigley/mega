@@ -73,11 +73,10 @@ func TestStartResumesTheExactSessionIdleWithoutReadingHistory(t *testing.T) {
 	}
 }
 
-// a start is refused for an unsupervised conversation, for one with no
-// session, and for one whose session went unrecorded; none launches anything.
-func TestStartIsRefusedWithoutASessionToResume(t *testing.T) {
+// a start is refused for an unsupervised conversation, which Resume settles
+// first; it launches nothing.
+func TestStartIsRefusedForAnUnsupervisedConversation(t *testing.T) {
 	r := newRig(t)
-
 	unsupervised := r.start("one")
 	started(r.fake.Last())
 	r.restart()
@@ -87,33 +86,8 @@ func TestStartIsRefusedWithoutASessionToResume(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "resume the conversation first") {
 		t.Errorf("unsupervised: %v", err)
 	}
-
-	r.fake.FailLaunch(fmt.Errorf("%w: no node", harness.ErrNotStarted))
-	fresh, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "fresh", "one", LaunchChoice{})
-	if err == nil || fresh.NativeID != "" {
-		t.Fatalf("expected a conversation with no session: %+v, %v", fresh, err)
-	}
-	r.fake.FailLaunch(errors.New("lost on the way"))
-	unknown, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unknown", "one", LaunchChoice{})
-	if err == nil || unknown.NativeID != "" {
-		t.Fatalf("expected a conversation whose session went unrecorded: %+v, %v", unknown, err)
-	}
-	r.fake.FailLaunch(nil)
-	launched = len(r.fake.Runtimes())
-
-	err = r.svc.Start(fresh.ID)
-	wantCode(t, err, CodeConflict)
-	if err == nil || !strings.Contains(err.Error(), "opening prompt") {
-		t.Errorf("no session: %v", err)
-	}
-	if err := r.svc.Start(unknown.ID); !errors.Is(err, errSessionUnknown) {
-		t.Errorf("unrecorded session: %v", err)
-	}
 	if len(r.fake.Runtimes()) != launched {
 		t.Error("a refused start launched a runtime")
-	}
-	if got := kinds(r.events(fresh.ID)); !slices.Equal(got, []string{"runtime:starting", "runtime:not_started"}) {
-		t.Errorf("a refused start recorded something: %v", got)
 	}
 }
 

@@ -78,7 +78,7 @@ The long-lived handoff and adoption are built. See [Conversations and runtimes](
 
 ## A simpler core
 
-Decided on 2026-11-19. The sequence and its decisions are on `docs/future/roadmap/simplify-the-core.md`. The first two pieces are built. See [The Codex adapter](../current/mega.md#the-codex-adapter) and [Discovery and adoption](../current/mega.md#discovery-and-adoption). Where this section differs from the ones above, this one is the target, and those are brought in step as each piece lands.
+Decided on 2026-11-19. The sequence and its decisions are on `docs/future/roadmap/simplify-the-core.md`. The first two pieces are built. See [The Codex adapter](../current/mega.md#the-codex-adapter) and [Discovery and adoption](../current/mega.md#discovery-and-adoption). So are two removals from the review of 2026-11-23, which is recorded in `docs/future/simplify-the-core-inventory.md`: a first launch holds nothing back, and a conversation gets its session once. See [Conversations and runtimes](../current/mega.md#conversations-and-runtimes). Where this section differs from the ones above, this one is the target, and those are brought in step as each piece lands.
 
 The first slice kept two facts about a conversation in two places: its runtime state and its unread marker were in the registry, and the events that decided them were in its log, written one after the other. Every operation then needed its own answer to what happens when the second write fails, and start-up needed its own code to work out what the service had decided before it stopped. Most of what the reviews of 2026-11-18 and 2026-11-19 found lived in those answers and that code, not in any feature. The core is to be made smaller, so those faults have nowhere to live.
 

@@ -187,7 +187,7 @@ func TestAFailedActivationRefusesTheLaunch(t *testing.T) {
 	}
 	// the log says the start did not happen, never what the activation printed.
 	evs := r.events(conv.ID)
-	if last := evs[len(evs)-1]; last.Status != model.StatusNotStarted || !strings.Contains(last.Text, "could not be resolved") {
+	if last := evs[len(evs)-1]; last.Status != model.StatusError || !strings.Contains(last.Text, "could not be resolved") {
 		t.Errorf("the failed start was recorded as %s: %q", last.Status, last.Text)
 	}
 	noValueOnDisk(t, r, "secret-ish-output-91c2")
