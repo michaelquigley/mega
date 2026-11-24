@@ -155,7 +155,7 @@ func TestClaudeLaunchWithNoEffortToCopyIsRefused(t *testing.T) {
 	}
 	_, err = r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{})
 	wantCode(t, err, CodeInvalid)
-	if n := len(r.svc.Workspace().Conversations); n != 0 {
+	if n := len(workspaceOf(t, r.svc).Conversations); n != 0 {
 		t.Errorf("the refusal left %d conversations", n)
 	}
 	if n := len(r.fake.Runtimes()); n != 0 {

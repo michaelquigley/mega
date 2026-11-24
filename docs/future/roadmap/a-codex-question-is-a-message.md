@@ -65,4 +65,4 @@ Every request Codex makes through its protocol. `item/tool/requestUserInput` is 
 
 ## order
 
-Depends on nothing. It comes before `one-kit-under-the-adapters`, because it removes one of the differences that kit would otherwise have to allow. Lands on `main`.
+Depends on nothing. Lands on `main`.

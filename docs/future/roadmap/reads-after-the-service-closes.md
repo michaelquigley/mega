@@ -1,13 +1,13 @@
 ---
 title: reads after the service closes
-state: researching
+state: evaluating
 created: 2026-11-12
 tags: [defect]
 ---
 
 Once the service has closed, every read is refused as `unavailable`, and nothing is kept to answer one from. The page keeps what it last read.
 
-Proposed as the next build in `simplify-the-core`, on 2026-11-24, after `a-failed-write-stops-mega`. It takes the first of the two options this card has carried since 2026-11-12, the one that needs nothing kept.
+Built on 2026-11-24, after `a-failed-write-stops-mega`. Michael took the first of the two options this card had carried since 2026-11-12, the one that needs nothing kept.
 
 ## why
 
@@ -47,6 +47,18 @@ The order of an orderly stop. The reply to the page's own shutdown request, whic
 - **A finding whose fix would add state, a hold or an ordering rule** is brought to Michael as a question of whether to fix it at all. Anything else this card caused comes to him one at a time.
 - **Size.** `internal/service` was 6,222 non-test lines when `a-failed-write-stops-mega` was built. The report gives the figure afterwards.
 
+## as built
+
+Built on 2026-11-24. `closedLive` is gone. One helper, `lockOpen`, refuses thirteen reads once the service has closed: the workspace, the version, folders, discovery, a look at a session, models, paths, outside paths, the approved version, MCP, history and invocation.
+
+- **`internal/service` grew, from 6,222 non-test lines to 6,263.** Only the workspace and MCP reads ever used the set-aside copy, and the card's "every read" was written before the reads were counted. Michael accepted the lines for this card: one rule with no exceptions was worth the helper at thirteen reads.
+- **A command's reply is refused too.** `view`, which builds the reply of a rename or a launch after the lock is given up, refuses once the service has closed. Such a command can be answered `unavailable` although it took effect, and the next start shows it.
+- **A refused catch-up counts as a dropped stream** on the page, so the page cannot read Live in the moment before the stream closes.
+- **A mega starting on the same data directory in that last moment** no longer takes the closing one for a running one, since its probe's workspace read is refused. The data directory is free for the next instance once the record is closed, so this matches what was already true.
+- **Two error codes are left as they are, and the documents say so:** a log read already under way when the service closes can fail as `internal`, and a read acknowledgment for a conversation the registry no longer holds is `not_found`.
+
+The last terminus review, `eb142b3b94e4`, was `not_clean` on one finding in code this card did not touch, `answer-in-flight-still-listed-as-pending`, noted on `harden-requests-stops-and-restarts`.
+
 ## as first written, 2026-11-12
 
 An orderly stop releases every runtime and then closes the service, which lets go of each conversation's live state. The HTTP server is stopped after that, so the page that asked for the shutdown gets its answer. A read in that window is answered from the registry alone: `last_seq` is 0, and there is no pending set, background list, facts or environment. Attention had no value at all, and an open page holding it went blank when it went stale. The UI test runner batch fixed attention, which now comes from the registry (unsupervised, unread or idle). The rest of the view is still a torn-down one.
@@ -62,4 +74,4 @@ Renamed from `reads-after-close` on 2026-11-12 so the filename matches the title
 
 ## before the registry gives up its runtime state, 2026-11-19
 
-A read in that window is answered from the registry alone. `the-registry-records-no-runtime-state`, the last piece of `simplify-the-core`, takes the runtime state out of the registry, so such a read would then have even less to say. The decision above wants making before that piece is built. Answering `unavailable` once the service has closed is the one that needs nothing kept.
+A read in that window is answered from the registry alone. `the-registry-records-no-runtime-state`, the last piece of `simplify-the-core`, takes the runtime state out of the registry, so such a read would then have even less to say. The decision above wants making before that piece is built. Answering `unavailable` once the service has closed is the one that needs nothing kept. That piece was removed from the epic on 2026-11-24.

@@ -27,7 +27,7 @@ func TestALookChangesNothingAndDiscoveryCountsTheHeld(t *testing.T) {
 	if err != nil || len(found.Sessions) != 1 || found.Sessions[0].NativeID != "terminal-1" || found.Held != 1 {
 		t.Fatalf("discovered %+v, %v", found, err)
 	}
-	before := r.svc.Workspace()
+	before := workspaceOf(t, r.svc)
 	look, err := r.svc.Look(r.project.ID, model.HarnessClaude, "terminal-1")
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestALookChangesNothingAndDiscoveryCountsTheHeld(t *testing.T) {
 	if look.FirstPrompt != "Started in a terminal" || look.LastPrompt != "and then this" || look.LastReply != "the last reply" || look.Prompts != 2 {
 		t.Errorf("look: %+v", look)
 	}
-	after := r.svc.Workspace()
+	after := workspaceOf(t, r.svc)
 	if len(after.Conversations) != len(before.Conversations) || len(after.NeedsYou) != len(before.NeedsYou) {
 		t.Errorf("the look changed the workspace: %d conversations, %d waiting; were %d, %d", len(after.Conversations), len(after.NeedsYou), len(before.Conversations), len(before.NeedsYou))
 	}

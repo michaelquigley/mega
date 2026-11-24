@@ -57,7 +57,7 @@ func TestTheServiceSnapshotsTheConfiguration(t *testing.T) {
 	if seenEnv == nil {
 		t.Error("the configuration was not looked for in the start-up check's environment")
 	}
-	if sum := svc.Snapshots(); sum == nil || sum.Count != 1 || sum.Newest.Name != list[0].Name || sum.Dir != store.Dir() {
+	if sum, err := svc.Snapshots(); err != nil || sum == nil || sum.Count != 1 || sum.Newest.Name != list[0].Name || sum.Dir != store.Dir() {
 		t.Errorf("summary = %+v", sum)
 	}
 
@@ -97,7 +97,7 @@ func TestTheServiceSnapshotsTheConfiguration(t *testing.T) {
 // with no store, the service takes no snapshot and reports none.
 func TestNoStoreTakesNone(t *testing.T) {
 	svc := tempService(t)
-	if svc.Snapshots() != nil {
-		t.Error("a service with no store reports snapshots")
+	if sum, err := svc.Snapshots(); err != nil || sum != nil {
+		t.Errorf("a service with no store reports snapshots: %+v %v", sum, err)
 	}
 }

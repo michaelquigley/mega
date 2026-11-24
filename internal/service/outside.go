@@ -331,7 +331,9 @@ func shownPath(home, full string) string {
 // checkout's search (Paths) answers it. the directories are the operator's
 // own, so they are the same in every project; the project must still exist.
 func (s *Service) OutsidePaths(projectID, q string) (found OutsideFound, searched bool, err error) {
-	s.mu.Lock()
+	if err := s.lockOpen(); err != nil {
+		return OutsideFound{}, false, err
+	}
 	_, err = s.projectLocked(projectID)
 	s.mu.Unlock()
 	if err != nil {

@@ -30,7 +30,7 @@ func TestAMissingExecutableIsPreflightedAndRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the release", stoppedRT.Exited)
-	if st := r.svc.Workspace().Environments[r.project.ID]; len(st.Missing) != 0 || st.Resolved == nil {
+	if st := workspaceOf(t, r.svc).Environments[r.project.ID]; len(st.Missing) != 0 || st.Resolved == nil {
 		t.Fatalf("all found: %+v", st)
 	}
 	checked := r.fake.Checked()
@@ -44,7 +44,7 @@ func TestAMissingExecutableIsPreflightedAndRefused(t *testing.T) {
 	}
 
 	r.fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "node", Reason: "'node' was not found on the project's PATH"})
-	st := r.svc.Workspace().Environments[r.project.ID]
+	st := workspaceOf(t, r.svc).Environments[r.project.ID]
 	if len(st.Missing) != 1 || st.Missing[0].Executable != "node" || st.Missing[0].Harness != model.HarnessClaude {
 		t.Fatalf("missing node: %+v", st.Missing)
 	}
@@ -66,7 +66,7 @@ func TestAMissingExecutableIsPreflightedAndRefused(t *testing.T) {
 	}
 
 	r.fake.SetMissing(nil)
-	if st := r.svc.Workspace().Environments[r.project.ID]; len(st.Missing) != 0 {
+	if st := workspaceOf(t, r.svc).Environments[r.project.ID]; len(st.Missing) != 0 {
 		t.Errorf("found again: %+v", st.Missing)
 	}
 	if err := r.svc.Start(stopped.ID); err != nil {
@@ -96,7 +96,7 @@ func TestAMissingExecutableWhileReadingHistoryIsNamed(t *testing.T) {
 	if _, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", ""); err == nil || ErrorCode(err) == CodeExecutableMissing {
 		t.Errorf("another failure: %v", err)
 	}
-	if n := len(r.svc.Workspace().Conversations); n != 0 {
+	if n := len(workspaceOf(t, r.svc).Conversations); n != 0 {
 		t.Errorf("a failed adoption left %d conversations", n)
 	}
 }

@@ -190,11 +190,14 @@ func (s *Service) readVersions() {
 
 // Harnesses is whether each harness can run in the operator's shell
 // environment, with its version against its tested range, as the workspace
-// read carries it; nil until the start-up check has run.
-func (s *Service) Harnesses() []HarnessStatus {
-	s.mu.Lock()
+// read carries it; nil until the start-up check has run. once the service
+// has closed it is refused as unavailable.
+func (s *Service) Harnesses() ([]HarnessStatus, error) {
+	if err := s.lockOpen(); err != nil {
+		return nil, err
+	}
 	defer s.mu.Unlock()
-	return s.harnessStatusLocked()
+	return s.harnessStatusLocked(), nil
 }
 
 // harnessStatusLocked checks each harness, in name order, in the environment

@@ -32,13 +32,13 @@ func TestProjectStarIsPersistedAcrossRestart(t *testing.T) {
 	if update := <-sub.Updates(); !update.WorkspaceChanged {
 		t.Errorf("browsers were not told: %+v", update)
 	}
-	if !svc.Workspace().Projects[0].Starred {
+	if !workspaceOf(t, svc).Projects[0].Starred {
 		t.Error("memory did not move after the confirmed write")
 	}
 
 	svc.Close()
 	again := newService(t, path, allTrusted)
-	if got := again.Workspace().Projects[0]; !got.Starred || got.Name != "fixture" {
+	if got := workspaceOf(t, again).Projects[0]; !got.Starred || got.Name != "fixture" {
 		t.Errorf("after a restart: %+v", got)
 	}
 	unstarred, err := again.UpdateProject(project.ID, star(false))
@@ -60,7 +60,7 @@ func TestOldRegistryReadsAsUnstarred(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := newService(t, path, allTrusted)
-	projects := svc.Workspace().Projects
+	projects := workspaceOf(t, svc).Projects
 	if len(projects) != 1 || projects[0].ID != "p1" || projects[0].Starred {
 		t.Fatalf("projects = %+v", projects)
 	}

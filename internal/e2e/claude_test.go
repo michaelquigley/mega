@@ -37,6 +37,16 @@ const (
 // fixture is the disposable checkout a round trip runs in, named by the
 // environment variable key; with none set, the test is skipped, since it would
 // otherwise run against whatever directory it found.
+// workspaceOf reads the workspace, which only a closed service refuses.
+func workspaceOf(t testing.TB, svc *service.Service) service.Workspace {
+	t.Helper()
+	ws, err := svc.Workspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
 func fixture(t *testing.T, key string) string {
 	t.Helper()
 	dir := os.Getenv(key)
@@ -109,7 +119,7 @@ func (s *session) post(answer *answerBody) string {
 }
 
 func (s *session) view() service.ConversationView {
-	for _, conv := range s.svc.Workspace().Conversations {
+	for _, conv := range workspaceOf(s.t, s.svc).Conversations {
 		if conv.ID == s.id {
 			return conv
 		}

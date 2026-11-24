@@ -134,7 +134,11 @@ type updateProjectRequest struct {
 
 func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(BuildHeader, s.about.Interface)
-	workspace := s.svc.Workspace()
+	workspace, err := s.svc.Workspace()
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
 	view := &workspaceView{
 		Projects:      make([]*projectView, 0, len(workspace.Projects)),
 		Conversations: make([]*conversationView, 0, len(workspace.Conversations)),

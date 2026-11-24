@@ -12,10 +12,11 @@
 // not offered, and refused, before idle; cancelling lifting it on both pages;
 // at idle, Shut down offered, the title saying so and one notification; Shut
 // down ending the service with status 0; the page that asked saying when, the
-// other showing only what it last knew; and both recovering when the service
-// returns, the gate lifted. the service runs in one time zone and the pages
-// in another, UTC, as a hardened browser reports; the time the asking page
-// gives is the service's.
+// other showing only what it last knew, and a read refused because the
+// service has closed shown as the shutdown, not a read error; and both
+// recovering when the service returns, the gate lifted. the service runs in
+// one time zone and the pages in another, UTC, as a hardened browser
+// reports; the time the asking page gives is the service's.
 import { reconnectable, suite } from './lib/mega.mjs'
 
 const serviceZone = 'Asia/Kolkata'
@@ -114,6 +115,17 @@ await until('the notification', async () => (await page.evaluate(() => window.__
 const sent = await page.evaluate(() => window.__notes)
 check(sent.length === 1 && sent[0].title === 'mega · mega-check' && sent[0].body === 'Every agent is idle. Shut down from the banner when you are ready.', `one notification: ${JSON.stringify(sent)}`)
 
+// a page that reads once the service has closed, in the moment before it
+// stops answering, is refused as unavailable, as the service's own tests
+// show (TestEveryReadIsRefusedAfterClose). that moment is too short to aim at
+// from here, so from the shutdown on the other page's workspace reads are
+// given that refusal.
+let refusedReads = 0
+await other.route('**/api/workspace', (route) => {
+  refusedReads++
+  return route.fulfill({ status: 503, contentType: 'application/json', body: '{"code":"unavailable","message":"the service is shutting down"}' })
+})
+
 // Shut down ends the service cleanly.
 const askedFrom = Date.now()
 await shutDown.click()
@@ -138,6 +150,9 @@ await page.locator('.side-foot').screenshot({ path: `${t.dir}/shots/foot-shut-do
 await until('the other page loses it', async () => (await other.locator('.side-foot .stream').textContent()) !== 'Live')
 await until('the other page shows the last known gate', async () => (await banner(other).locator('strong').textContent()) === 'Last known: Every agent is idle')
 check((await banner(other).getByRole('button', { name: 'Shut down mega now' }).count()) === 0, `the other page shows only what it last knew, offering nothing: "${await other.locator('.side-foot .stream').textContent()}"`)
+await until('the other page to read during the shutdown', async () => refusedReads > 0)
+check((await other.locator('.main-error').count()) === 0 && (await banner(other).count()) === 1, `its reads refused as the closed service refuses them, it shows the shutdown and no read error: ${refusedReads} refused`)
+await other.unroute('**/api/workspace')
 await t.shot(page, 'shut-down')
 
 // the service returns: both pages recover, the gate lifted. the asking page

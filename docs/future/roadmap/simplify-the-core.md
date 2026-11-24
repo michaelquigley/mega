@@ -36,13 +36,25 @@ One card each, in this order. Each names the failure it makes impossible.
 6. **`reading-the-workspace-starts-nothing`.** A read of the workspace can no longer run anything.
 7. **`one-route-for-recorded-history`.** A failed read of history can no longer leave a gap nothing fills.
 8. **`the-page-has-one-value-for-where-it-stands`.** Two parts of the page can no longer disagree about whether it is current.
-9. **`one-kit-under-the-adapters`.** A fix to one adapter's stop rule can no longer be missing from the other two.
-10. **`one-fold-for-what-happened`.** A restart can no longer recover something different from what the service had decided. On the branch.
-11. **`the-registry-records-no-runtime-state`.** The registry and a log can no longer disagree about whether a runtime is running. On the branch, with the cutover.
+9. **Taken out on 2026-11-24.** `one-kit-under-the-adapters` changed no rule. It is the first step of `the-orchestration-framework-is-extracted` and was folded into that card.
+10. **Removed on 2026-11-24.** `one-fold-for-what-happened`.
+11. **Removed on 2026-11-24.** `the-registry-records-no-runtime-state`.
 
 Then the full-tree review resumes on `harden-requests-stops-and-restarts`, and its count per pass is compared with five.
 
 **The order was changed on 2026-11-24.** `a-failed-write-stops-mega` is built first of what remains, ahead of piece 3, and was built that day. It depends on nothing, it removes about thirty branches that handle a failed write, and every later piece is simpler to write and to review once that question has one answer. The numbers above are kept, since the journal uses them.
+
+## the plan after the review of 2026-11-24
+
+Built so far: pieces 1, 2 and 5, and the four removals listed below. What remains, in order:
+
+1. Four small defects, as one batch: `the-dialogs-suite-crashes-on-a-first-full-run`, `a-copied-event-shares-its-turn-record`, `a-service-test-writes-the-registry-behind-the-service` and `a-model-asked-for-with-a-context-suffix-reads-as-a-different-model`.
+2. Piece 3, `unread-is-output-beyond-where-you-have-read`.
+3. Piece 4, `a-turn-is-inferred-from-a-message`, in the simpler direction ruled on 2026-11-24: a turn is what the harness says it is. Michael tries it in use before it is committed. `codex-interrupt-while-a-turn-is-starting` closes with it if the direction holds.
+4. Piece 6, `reading-the-workspace-starts-nothing`, its size settled when it is specified.
+5. Pieces 7 and 8, the two for the page.
+6. `adoption-reaches-any-session-in-the-checkout`, then `an-older-log-is-read-as-todays-build-reads-it`, which waits on it.
+7. The full-tree review resumes on `harden-requests-stops-and-restarts`.
 
 ## removals from the review of 2026-11-23
 
@@ -51,6 +63,7 @@ Two pieces in, `internal/service` was the size it started at, and Michael asked 
 - **`a-first-launch-holds-nothing-back`.** A callback can no longer be held, reordered or dropped by a launch in progress. Built 2026-11-23.
 - **`a-conversation-gets-its-session-once`.** A conversation's session can no longer be known in one place and missing from another. Built 2026-11-23.
 - **`release-only-stops-a-runtime`.** A stop can no longer be recorded as two different things, and a session's own history has one way into mega. Built 2026-11-24.
+- **`reads-after-the-service-closes`.** A read can no longer show what the record does not hold after the service has closed. Built 2026-11-24.
 
 ## how each piece is run
 
@@ -63,7 +76,7 @@ Two pieces in, `internal/service` was the size it started at, and Michael asked 
 
 ## where the work lands
 
-Pieces 1 to 9 land on `main`, one at a time, like any batch. Pieces 10 and 11 are built on a branch, `simpler-core`, which Michael creates. His words: "we do this work on a branch so that we can test it locally and ensure it's solid before merging it to `main` and to the two new downstream users." The merge is a gate of its own and his, not before the cutover has run on each of his three machines.
+Every piece lands on `main`, one at a time, like any batch. The branch `simpler-core` was for pieces 10 and 11 and went with them.
 
 ## what must not change
 
@@ -83,6 +96,12 @@ This began as one spec section and one work order of seven stages. The work orde
 - **Changing the order in which a choice and its history are written.** Tidy, and not needed.
 - **Describing what does not change.** Every paraphrase of the code was slightly wrong, and each became a finding.
 - **One document for all of it.** Six stages gave a review six surfaces to find gaps between. Michael: "we might want to break some of these out into smaller chunks anyway, rather than trying to ram a big simplification spec and work order through."
+
+Three more were taken out by the review of the plan on 2026-11-24:
+
+- **The fold and the registry change, pieces 10 and 11.** They were to end rules for a failure between two writes, and start-up working state out with code of its own. `a-failed-write-stops-mega` ended the first. Piece 3 removes the start-up code that actually failed, the unread rebuild. What was left for them was three small things a start does, and they were the two heaviest pieces: a branch, new facts recorded on events, a tool to compare old and new on a real workspace, a week's soak, and a registry migration on five machines. The registry and a log can now disagree only after a crash between two writes, and both orders err toward Unsupervised. Michael: "if they're not actually likely to be problems, we just remove them from the board entirely?"
+- **A stop mega forced not clearing an error.** Decided on 2026-11-19 for the fold, and dropped with it. Any completed stop clears the mark. The one stop mega still forces with an error is on a runtime that reports the wrong session, which has never been seen, and its error row stays in the timeline.
+- **The kit under the adapters, piece 9.** It changed no rule and removed no case, and it is the start of `the-orchestration-framework-is-extracted`, a later capability. It is folded into that card.
 
 The lesson is the epic's own, applied to its plan. A finding count that does not fall is a sign the design, or its description, has too much in it, and the answer is to take something out.
 

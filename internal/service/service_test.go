@@ -85,6 +85,16 @@ func tempService(t *testing.T) *Service {
 	return newService(t, filepath.Join(t.TempDir(), "registry.yaml"), allTrusted)
 }
 
+// workspaceOf reads the workspace, which only a closed service refuses.
+func workspaceOf(t testing.TB, svc *Service) Workspace {
+	t.Helper()
+	ws, err := svc.Workspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
 func wantCode(t *testing.T, err error, code string) {
 	t.Helper()
 	if got := ErrorCode(err); got != code {
@@ -103,7 +113,7 @@ func TestRegisterValidatesCheckout(t *testing.T) {
 		_, err := svc.RegisterProject("x", checkout)
 		wantCode(t, err, CodeInvalid)
 	}
-	if got := svc.Workspace().Projects; len(got) != 0 {
+	if got := workspaceOf(t, svc).Projects; len(got) != 0 {
 		t.Errorf("a rejected registration landed: %+v", got)
 	}
 }
@@ -131,7 +141,7 @@ func TestDuplicateCheckoutConflicts(t *testing.T) {
 	}
 	_, err := svc.RegisterProject("second", dir+"/")
 	wantCode(t, err, CodeConflict)
-	if got := svc.Workspace().Projects; len(got) != 1 || got[0].Name != "first" {
+	if got := workspaceOf(t, svc).Projects; len(got) != 1 || got[0].Name != "first" {
 		t.Errorf("projects = %+v", got)
 	}
 }
@@ -149,7 +159,7 @@ func TestRegistrationSurvivesRestart(t *testing.T) {
 	}
 
 	second := newService(t, path, allTrusted)
-	got := second.Workspace().Projects
+	got := workspaceOf(t, second).Projects
 	if len(got) != 1 || got[0].ID != project.ID || got[0].Name != "renamed" || got[0].Checkout != dir {
 		t.Errorf("projects after restart = %+v", got)
 	}
@@ -217,7 +227,7 @@ func TestRemoveLeavesCheckoutAndOtherProjectsAlone(t *testing.T) {
 	}
 	wantCode(t, svc.RemoveProject(drop.ID), CodeNotFound)
 
-	ws := svc.Workspace()
+	ws := workspaceOf(t, svc)
 	if len(ws.Projects) != 1 || ws.Projects[0].ID != keep.ID {
 		t.Errorf("projects = %+v", ws.Projects)
 	}
@@ -239,11 +249,11 @@ func TestTrustNoticeIsRecomputedOnRead(t *testing.T) {
 	if !project.Untrusted {
 		t.Error("registration did not carry the notice")
 	}
-	if !svc.Workspace().Projects[0].Untrusted {
+	if !workspaceOf(t, svc).Projects[0].Untrusted {
 		t.Error("workspace did not carry the notice")
 	}
 	untrusted = false
-	if svc.Workspace().Projects[0].Untrusted {
+	if workspaceOf(t, svc).Projects[0].Untrusted {
 		t.Error("notice outlived the terminal visit")
 	}
 }

@@ -16,7 +16,9 @@ type ConversationMCP struct {
 // imports history, there is nothing to ask, and nothing is kept from an
 // earlier runtime.
 func (s *Service) MCP(conversationID string) (ConversationMCP, error) {
-	s.mu.Lock()
+	if err := s.lockOpen(); err != nil {
+		return ConversationMCP{}, err
+	}
 	defer s.mu.Unlock()
 	conv, err := s.conversationLocked(conversationID)
 	if err != nil {

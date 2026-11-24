@@ -23,4 +23,4 @@ A later import can no longer duplicate a reply. A pi turn can no longer fail bec
 
 ## what it costs
 
-Work done on a session outside mega is not shown in mega. Output mega never saw contributes nothing to unread. Piece 3 decides unread for output in mega's own log. Piece 9 inherits a smaller pi adapter.
+Work done on a session outside mega is not shown in mega. Output mega never saw contributes nothing to unread. Piece 3 decides unread for output in mega's own log.

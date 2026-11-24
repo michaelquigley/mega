@@ -36,7 +36,7 @@ func writeEnvFile(t *testing.T, checkout, activate string) {
 
 func (r *rig) envState(projectID string) EnvState {
 	r.t.Helper()
-	return r.svc.Workspace().Environments[projectID]
+	return workspaceOf(r.t, r.svc).Environments[projectID]
 }
 
 // approve approves the file as the project page shows it.
@@ -110,7 +110,7 @@ func TestEachProjectLaunchesInItsOwnEnvironment(t *testing.T) {
 
 	// the start records names and fingerprints, and no value anywhere.
 	var facts *model.EnvironmentFacts
-	for _, ev := range r.events(r.svc.Workspace().Conversations[0].ID) {
+	for _, ev := range r.events(workspaceOf(t, r.svc).Conversations[0].ID) {
 		if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarted {
 			facts = ev.Facts.Environment
 		}
@@ -151,7 +151,7 @@ func TestNoFileIsTheShellEnvironmentAndNothingMore(t *testing.T) {
 		t.Errorf("the launch's HOME is %q, not the base's", home)
 	}
 	started(rt)
-	facts := r.view(r.svc.Workspace().Conversations[0].ID).Facts.Environment
+	facts := r.view(workspaceOf(t, r.svc).Conversations[0].ID).Facts.Environment
 	if facts == nil || facts.Source != model.EnvSourceNone || len(facts.Changed) != 0 || facts.Activation != "" {
 		t.Errorf("a start with no file: %+v", facts)
 	}
@@ -182,7 +182,7 @@ func TestAFailedActivationRefusesTheLaunch(t *testing.T) {
 			t.Errorf("%s: the refusal should carry the activation's message and name the file: %v", name, err)
 		}
 	}
-	if len(r.fake.Runtimes()) != launched || len(r.svc.Workspace().Conversations) != 1 {
+	if len(r.fake.Runtimes()) != launched || len(workspaceOf(t, r.svc).Conversations) != 1 {
 		t.Error("a failed activation launched something, or left a conversation behind")
 	}
 	// the log says the start did not happen, never what the activation printed.
@@ -268,7 +268,7 @@ func TestAnUnapprovedFileIsNeverRun(t *testing.T) {
 	wantCode(t, err, CodeEnvironmentUnapproved)
 	_, err = r.svc.Paths(r.project.ID, "")
 	wantCode(t, err, CodeEnvironmentUnapproved)
-	r.svc.Workspace() // a read never resolves an unapproved file either
+	workspaceOf(t, r.svc) // a read never resolves an unapproved file either
 	time.Sleep(100 * time.Millisecond)
 	if _, err := os.Stat(ran); err == nil {
 		t.Fatal("an unapproved activation ran")
@@ -389,7 +389,7 @@ func TestApprovalAndOverrideSurviveARestartAndAnOldRegistryApprovesNothing(t *te
 		t.Errorf("an old registry: %+v", doc.Projects[0])
 	}
 	svc := newService(t, old, allTrusted)
-	if st := svc.Workspace().Environments["p1"]; st.Status != EnvUnapproved {
+	if st := workspaceOf(t, svc).Environments["p1"]; st.Status != EnvUnapproved {
 		t.Errorf("an old registry's project reads %s", st.Status)
 	}
 }

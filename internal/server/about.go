@@ -80,10 +80,20 @@ func (s *Server) getVersion(w http.ResponseWriter, r *http.Request) {
 	for name, r := range harness.Tested {
 		view.Tested[name] = r.String()
 	}
-	for _, h := range s.svc.Harnesses() {
+	harnesses, err := s.svc.Harnesses()
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	for _, h := range harnesses {
 		view.Harnesses = append(view.Harnesses, newHarnessStatusView(h))
 	}
-	if sum := s.svc.Snapshots(); sum != nil {
+	sum, err := s.svc.Snapshots()
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if sum != nil {
 		view.Snapshots = &snapshotsView{Dir: sum.Dir, Count: sum.Count}
 		if sum.Newest != nil {
 			view.Snapshots.Newest = &snapshotView{Name: sum.Newest.Name, Taken: sum.Newest.Taken, Reason: sum.Newest.Reason}

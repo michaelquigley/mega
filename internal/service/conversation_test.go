@@ -67,7 +67,11 @@ func (r *rig) start(prompt string) ConversationView {
 
 func (r *rig) view(id string) ConversationView {
 	r.t.Helper()
-	return r.svc.view(id)
+	view, err := r.svc.view(id)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return view
 }
 
 func (r *rig) events(id string) []*model.Event {
@@ -780,7 +784,7 @@ func TestAFirstLaunchWhoseSessionCannotBeSavedIsNeverLaunchedAgain(t *testing.T)
 	sentNothing(t, rt)
 	r.fake.DuringLaunch(nil)
 	r.crashed()
-	ws := r.svc.Workspace()
+	ws := workspaceOf(t, r.svc)
 	if len(ws.Conversations) != 1 || ws.Conversations[0].Runtime != model.RuntimeUnsupervised {
 		t.Fatalf("after the next start: %+v", ws.Conversations)
 	}
@@ -863,7 +867,7 @@ func TestUnkeptSessionIsNeverReplacedAfterRestart(t *testing.T) {
 	}
 
 	r.crashed()
-	ws := r.svc.Workspace()
+	ws := workspaceOf(t, r.svc)
 	if len(ws.Conversations) != 1 {
 		t.Fatalf("conversations = %+v", ws.Conversations)
 	}
@@ -963,7 +967,7 @@ func TestRemoveConversationDropsItsLogAndFreesItsSession(t *testing.T) {
 	if _, err := os.Stat(r.project.Checkout); err != nil {
 		t.Errorf("the checkout was touched: %v", err)
 	}
-	ws := r.svc.Workspace()
+	ws := workspaceOf(t, r.svc)
 	if len(ws.Projects) != 1 || len(ws.Conversations) != 1 || ws.Conversations[0].ID != kept.ID {
 		t.Errorf("workspace after removal = %+v", ws)
 	}
@@ -982,7 +986,7 @@ func TestRemoveConversationDropsItsLogAndFreesItsSession(t *testing.T) {
 
 	// a restart reads the same workspace.
 	r.restart()
-	if ws := r.svc.Workspace(); len(ws.Conversations) != 1 || ws.Conversations[0].ID != kept.ID {
+	if ws := workspaceOf(t, r.svc); len(ws.Conversations) != 1 || ws.Conversations[0].ID != kept.ID {
 		t.Errorf("after restart = %+v", ws.Conversations)
 	}
 }
@@ -1082,7 +1086,7 @@ func TestRemoveProjectDeletesItsConversationsLogs(t *testing.T) {
 		t.Errorf("the checkout was touched: %v", err)
 	}
 	r.restart()
-	if ws := r.svc.Workspace(); len(ws.Projects) != 1 || len(ws.Conversations) != 1 || ws.Conversations[0].ID != kept.ID {
+	if ws := workspaceOf(t, r.svc); len(ws.Projects) != 1 || len(ws.Conversations) != 1 || ws.Conversations[0].ID != kept.ID {
 		t.Errorf("after restart = %+v", ws)
 	}
 }

@@ -64,4 +64,4 @@ Built on 2026-11-23. `internal/service` went from 6,547 non-test lines to 6,447,
 - **An older log's `not_started` line no longer sets the error mark,** so such a conversation shows idle and is still refused a launch. Michael left it, as ruling 2.
 - **The session may not be offered for adoption.** Codex and pi list the 50 newest sessions in a checkout. The card `adoption-reaches-any-session-in-the-checkout` holds that.
 
-The last terminus review, `cb783ac469c0`, was `not_clean` on one finding in code this card did not touch, `failed-binding-exit-shows-running`: a second failed write leaves a stale `running`, which `a-failed-write-stops-mega` ends, and a forced stop clears the error, which `one-fold-for-what-happened` carries.
+The last terminus review, `cb783ac469c0`, was `not_clean` on one finding in code this card did not touch, `failed-binding-exit-shows-running`: a second failed write leaves a stale `running`, which `a-failed-write-stops-mega` ends, and a forced stop clears the error, a question Michael dropped on 2026-11-24.

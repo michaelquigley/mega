@@ -89,7 +89,7 @@ func TestAnAnswerHidesNoRequest(t *testing.T) {
 	var during []model.Request
 	var second error
 	rt.OnAnswer(func() {
-		during = r.svc.view(conv.ID).Pending
+		during = r.view(conv.ID).Pending
 		second = r.svc.Answer(conv.ID, id, harness.Answer{Decision: harness.DecisionDeny})
 	})
 	if err := r.svc.Answer(conv.ID, id, harness.Answer{Decision: harness.DecisionDeny}); err != nil {

@@ -5,9 +5,25 @@ created: 2026-11-19
 tags: [story]
 ---
 
-A turn opens on a fact: mega sent a prompt, or the adapter says the harness started one, from the harness's own marker. The service no longer takes a message it happens to see for the start of a turn.
+A turn is what the harness says it is. It opens when the harness says it has started one and closes when the harness says it has ended, from the harness's own markers. Mega opens none, and no message opens one.
 
-Fourth in the sequence of `simplify-the-core`. It builds the first of the three recommendations below; the other two are new things for the page to say and wait here.
+Fourth in the sequence of `simplify-the-core`. Michael ruled this direction on 2026-11-24, to be tried in use before it is committed. The card is rewritten as a plan when its turn comes. From "the failure that becomes impossible" down to "depends on", it is still the card as first written, which kept two ways for a turn to open.
+
+## the direction, 2026-11-24
+
+Michael: "i think A sounds like a real simplification, which is what we're trying to accomplish. i'd like to give it a try before fully committing to it."
+
+- **All three harnesses give both markers, and the adapters already see them.** Claude sends an init at the start of every turn and a result at its end. Codex sends `turn/started` and `turn/completed`. pi sends `agent_start` and its end.
+- **What it removes:**
+  - the guess that any message outside a turn starts one, which is the fault;
+  - the turn ends mega makes up, for a prompt a harness refuses and for pi's "handled" reply, since mega opened no turn to close;
+  - the flag for output after its turn, since late output is then only output;
+  - the two ordering rules the first card needed between mega's prompt and a start the adapter declares.
+- **What it costs.** A prompt appears at once, and the conversation shows as working when the harness says the turn has begun, a moment later. If a harness never starts the turn, the conversation shows the prompt and no activity, where today it would show as working without end. In that moment mega does not refuse a second prompt.
+- **`codex-interrupt-while-a-turn-is-starting` closes with it.** Its fault is an interrupt pressed before Codex has named the turn. A turn that is not open until Codex names it has nothing to interrupt in that window.
+- **Nothing new is written.** The start is a signal in memory, and no log or registry changes form. A build from before it reads the same files, so the trial can be backed out.
+- **The trial.** The implementer leaves the piece in the working tree. Michael builds it and runs it for about twenty minutes against his other projects, and it is committed or backed out on what he finds. He watches the moment between send and working on each harness, a Claude conversation waking when a background review finishes, whether Interrupt is there when he reaches for it, and what the shutdown gate takes for idle.
+- **It starts with one check.** Claude has to send its start marker for a turn it begins by itself, when a background job finishes. On Michael's workspace 68 of 834 turns began that way. If a supported build gives no marker for one, the work stops and asks.
 
 ## the failure that becomes impossible
 
@@ -77,4 +93,4 @@ Nothing. The earlier batch addressed this question for recorded history. See ite
 ## from the review of 2026-11-23 and its removals
 
 - **A turn nobody prompted is ordinary.** On Michael's workspace 68 of 834 turns ended without a prompt from mega, in 8 conversations. Most began minutes after the turn before, with a shell command or a broker's collect call: an agent waking when its background work finishes. A turn the harness starts has to show as a real turn.
-- **A runtime's exit ends a turn in the service's memory and not in the log.** When a runtime exits in the middle of a turn, the service treats the turn as over, and no turn end is recorded. The page and the paging then join that turn to the next and count the next turn's time from the old prompt. Terminus raised it on `release-only-stops-a-runtime` as `release-merges-unfinished-turn-with-next-turn`, and Michael left it on 2026-11-24 to be decided with the turn model. It is two tellings of one fact, which `one-fold-for-what-happened` exists to end.
+- **A runtime's exit ends a turn in the service's memory and not in the log.** When a runtime exits in the middle of a turn, the service treats the turn as over, and no turn end is recorded. The page and the paging then join that turn to the next and count the next turn's time from the old prompt. Terminus raised it on `release-only-stops-a-runtime` as `release-merges-unfinished-turn-with-next-turn`, and Michael left it on 2026-11-24 to be decided with the turn model. It is two tellings of one fact.

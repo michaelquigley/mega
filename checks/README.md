@@ -191,7 +191,7 @@ Where things go:
     - a release with a dialog pending, whose dialog warns that pi is ended and the gated command does not run, leaving the dialog's row "never answered". The release dialog is a confirmation: it says Release stops the runtime and the next prompt or Start brings the conversation back on the same session, with no terminal command and no copy control.
 
   It saves the pi dialog and the release warning as `shots/pi-{dialog,release-warning}.png`, the closed question's history as `shots/question-unconfirmed.png`, and the approval the keys answer, with its Allow's title written under it by the check, since the browser draws a title outside the page, as `shots/approval-key.png`.
-- **`shutdown.mjs`** (28 steps): the shutdown gate. Its service runs in `Asia/Kolkata` and its pages in UTC. It checks the following:
+- **`shutdown.mjs`** (35 steps): the shutdown gate. Its service runs in `Asia/Kolkata` and its pages in UTC. It checks the following:
   - arming from the footer, with the banner naming what it waits for by count and by name, and the request marked as the operator's;
   - a second page seeing it;
   - new work refused with the reason, on the page and by the API;
@@ -201,6 +201,7 @@ Where things go:
   - at idle, Shut down offered, the title saying so and one notification, each carrying the mega's name;
   - Shut down ending the service with status 0;
   - the page that asked saying when, in the service's zone, while the other shows only what it last knew;
+  - the other page, its workspace reads given the refusal a closed service answers in the moment before it stops, `unavailable`, showing the shutdown it last read and no read error;
   - with the footer's longest status, "Shut down from here, retrying", the mega's name beside it shown whole, saved as `shots/foot-shut-down.png`;
   - the asking page, back in touch before its first workspace read of the new service has landed, which the check holds, not reporting the old shutdown as under way; and, the new service armed from elsewhere before that read lands, showing the gate armed afresh, never the old shutdown;
   - both pages recovering when the service returns.

@@ -430,7 +430,7 @@ func TestModelListIsCachedAndChoicesAreChecked(t *testing.T) {
 		_, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", choice)
 		wantCode(t, err, CodeInvalid)
 	}
-	if n := len(r.svc.Workspace().Conversations); n != 0 {
+	if n := len(workspaceOf(t, r.svc).Conversations); n != 0 {
 		t.Errorf("refused launches left %d conversations", n)
 	}
 	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{Model: "default", Effort: "high"})

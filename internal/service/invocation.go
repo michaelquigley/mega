@@ -23,7 +23,9 @@ type Invocation struct {
 // beyond the event itself. the conversation's adapter reads the payload,
 // since what it holds is the harness's own protocol.
 func (s *Service) Invocation(conversationID string, seq int64) (Invocation, error) {
-	s.mu.Lock()
+	if err := s.lockOpen(); err != nil {
+		return Invocation{}, err
+	}
 	conv, err := s.conversationLocked(conversationID)
 	if err != nil {
 		s.mu.Unlock()

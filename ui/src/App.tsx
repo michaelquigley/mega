@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { setZone } from './zone'
-import { ApiError, armShutdown, cancelShutdown, getAbout, getHistory, getWorkspace, historyPath, readConversation, shutDown, type HistoryRead } from './api'
+import { ApiError, armShutdown, cancelShutdown, getAbout, getHistory, getWorkspace, historyPath, readConversation, shutDown, shuttingDown, type HistoryRead } from './api'
 import { isNewer } from './build'
 import { freezeClock, useWallNow } from './clock'
 import { parseHash, select, type Selection } from './selection'
@@ -130,7 +130,12 @@ export function App() {
             }
           }
         } catch (error) {
-          if (number === state.sent) {
+          if (number === state.sent && shuttingDown(error)) {
+            // the service has closed: what the page shows is last known, and
+            // the shutdown is no failed read.
+            setSynced(false)
+            ok = false
+          } else if (number === state.sent) {
             // what the page shows is now only last known, until a refresh on
             // the current connection succeeds.
             const message = error instanceof Error ? error.message : String(error)
@@ -153,11 +158,19 @@ export function App() {
   // a reconnect fetches only what the page missed: everything after the
   // newest event it has been given.
   const catchUp = useCallback(async (id: string, log: ConversationLog) => {
+    const sentOn = connection.current
     try {
       const read = await getHistory(id, { since: log.through, native: log.native })
       setLog((current) => (current && current.id === id ? caughtUp(current, read) : current))
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error))
+      if (!shuttingDown(error)) {
+        setLoadError(error instanceof Error ? error.message : String(error))
+      } else if (sentOn === connection.current) {
+        // the service has closed: as a dropped stream, the connection is
+        // over, so no workspace read sent on it can mark the page current.
+        connection.current++
+        setSynced(false)
+      }
     }
   }, [])
 

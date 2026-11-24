@@ -185,6 +185,32 @@ Michael: "give the entire roadmap a pass... order anything that is unordered. fe
 - **To horizon:** `a-directory-mega-creates-may-not-be-synced`, and three of Michael's own captures, tagged: `dfw-window-mode`, `harness-session-names` and `retired-conversations`.
 - **Pieces 9, 10 and 11 keep their old places** until the plan questions about them are answered.
 
+### P3. Pieces 10 and 11 are removed (ruled 2026-11-24)
+
+`one-fold-for-what-happened` and `the-registry-records-no-runtime-state` are gone from the board, not parked. Michael: "i'd probably lean towards A, with the modification that if they're not actually likely to be problems, we just remove them from the board entirely?"
+
+They are not likely to be. A failed write now ends mega, so the registry and a log can disagree only after a crash between two writes. At a launch the log is written first and the harness is not started until after the registry write. At an exit the log is written first, and a crash there leaves the registry saying running, which a start turns into Unsupervised. Once piece 3 lands, a start marks pending requests lost, marks a running conversation Unsupervised and finishes an interrupted mode request, and nothing else. The epic's list of what was taken out carries the reasons.
+
+**The decision that rode on piece 10 is dropped.** "A stop mega forced does not clear an error" was decided on 2026-11-19 for the fold. Any completed stop clears the mark. The one stop mega still forces with an error is on a runtime that reports the wrong session, which has never been seen. Michael: "i think A sounds reasonable."
+
+### P4. Piece 9 is folded into the horizon card it began (ruled 2026-11-24)
+
+Michael: "let's do A." `one-kit-under-the-adapters` changed no rule and removed no case, and its own card called it the first step of `the-orchestration-framework-is-extracted`. Its content is on that card now, and `an-answer-racing-a-release-retires-a-live-pi-dialog` sits beside it on horizon.
+
+### P5. Piece 4: a turn is what the harness says it is (ruled 2026-11-24, to be tried)
+
+The card kept two ways for a turn to open, mega's prompt and a start the adapter declares, with rules for when they overlap. The direction ruled is simpler: mega opens no turn, and a turn opens and closes on the harness's own markers. Michael: "i think A sounds like a real simplification, which is what we're trying to accomplish. i'd like to give it a try before fully committing to it... maybe when it lands, before committing, i'll build it and switch to it. if it still feels reasonable in use, we'll commit and continue?"
+
+The trial is in the working tree, with no branch: "there are a number of other projects working in mega that i can test with while we pause mega work during evaluation for 20 minutes." Nothing new is written by the piece, so it can be backed out. The card carries the direction and what to watch for, and is rewritten as a plan when its turn comes.
+
+### P6. `reads-after-the-service-closes` is built (2026-11-24)
+
+Michael launched it as "refuse the read". Every read is refused once the service has closed, and the copy `Close` set aside is gone. `internal/service` grew by 41 lines, to 6,263, because the card said every read before the reads had been counted and only two of thirteen used the copy. Michael accepted the lines: one rule with no exceptions.
+
+### The plan as it stands
+
+The epic's section "the plan after the review of 2026-11-24" has the order: four small defects as one batch, piece 3, piece 4 with its trial, piece 6, pieces 7 and 8, the adoption limit and then the older-log rules, and then the full-tree review.
+
 ## The gate
 
 Michael, 2026-11-23: "we also need to make sure the terminus canon is appropriately aligned, as we're getting pretty continuous `not_clean` results."

@@ -598,7 +598,9 @@ type ApprovedVersion struct {
 // scrubbed base environment, with no activation: the project's own cannot be
 // resolved while its file waits on approval, and this only reads.
 func (s *Service) ApprovedVersion(projectID string) (ApprovedVersion, error) {
-	s.mu.Lock()
+	if err := s.lockOpen(); err != nil {
+		return ApprovedVersion{}, err
+	}
 	project, err := s.projectLocked(projectID)
 	s.mu.Unlock()
 	if err != nil {

@@ -142,7 +142,7 @@ func TestStartUpResolutionIsBounded(t *testing.T) {
 	if took := time.Since(start); took > 2*time.Second {
 		t.Errorf("start-up waited %s for the resolutions", took)
 	}
-	if got := len(again.Workspace().Projects); got != 12 {
+	if got := len(workspaceOf(t, again).Projects); got != 12 {
 		t.Errorf("the workspace read %d projects while resolving", got)
 	}
 	again.background.Wait()
@@ -160,7 +160,7 @@ func TestHarnessStatusOnTheWorkspace(t *testing.T) {
 	codex := harnesstest.New(model.HarnessCodex)
 	codex.SetMissing(&harness.MissingError{Harness: model.HarnessCodex, Executable: "codex", Reason: "'codex' was not found on the project's PATH"})
 	svc := newService(t, filepath.Join(t.TempDir(), "registry.yaml"), allTrusted, claude, codex)
-	got := svc.Workspace().Harnesses
+	got := workspaceOf(t, svc).Harnesses
 	if len(got) != 2 || got[0].Name != model.HarnessClaude || !got[0].Found || got[1].Name != model.HarnessCodex || got[1].Found {
 		t.Fatalf("harnesses = %+v", got)
 	}
@@ -169,7 +169,7 @@ func TestHarnessStatusOnTheWorkspace(t *testing.T) {
 		t.Errorf("codex reason = %q", got[1].Reason)
 	}
 	codex.SetMissing(nil)
-	if got := svc.Workspace().Harnesses; !got[1].Found {
+	if got := workspaceOf(t, svc).Harnesses; !got[1].Found {
 		t.Errorf("an install is not seen until a restart: %+v", got[1])
 	}
 }

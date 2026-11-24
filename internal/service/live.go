@@ -165,17 +165,32 @@ type incarnation struct {
 	wrong bool
 }
 
+// errClosed refuses a read once Close has let the record go, in the moment
+// before the HTTP server stops: nothing is kept to answer one from.
+var errClosed = newError(CodeUnavailable, "the service is shutting down")
+
+// lockOpen takes s.mu for a read, and refuses the read once Close has let
+// the record go, leaving s.mu as it found it.
+func (s *Service) lockOpen() error {
+	s.mu.Lock()
+	if s.logsClosed {
+		s.mu.Unlock()
+		return errClosed
+	}
+	return nil
+}
+
 // liveLocked returns the conversation's live state, opening its log on first
-// use. once Close has closed the logs it opens none again: a history read or
-// a read acknowledgment in the moment before the HTTP server stops is refused
-// as unavailable, rather than read from disk past what was confirmed. callers
+// use. once Close has closed the logs it opens none again: a read
+// acknowledgment in the moment before the HTTP server stops is refused as
+// unavailable, rather than read from disk past what was confirmed. callers
 // hold s.mu.
 func (s *Service) liveLocked(conversationID string) (*live, error) {
 	if l := s.live[conversationID]; l != nil {
 		return l, nil
 	}
 	if s.logsClosed {
-		return nil, newError(CodeUnavailable, "the service is shutting down")
+		return nil, errClosed
 	}
 	log, err := events.Open(s.logPath(conversationID))
 	if err != nil {
@@ -318,10 +333,6 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 		view.State = model.RuntimeNone
 	}
 	l := s.live[conv.ID]
-	if l == nil {
-		// let go of at close: the facts as they stood then.
-		l = s.closedLive[conv.ID]
-	}
 	if l == nil {
 		// no live state ever: the log could not be opened. attention is what
 		// the registry says, so a page never holds a conversation without one.

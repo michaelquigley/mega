@@ -33,6 +33,11 @@ async function request<T>(method: string, path: string, body?: unknown, onRespon
   return parsed as T
 }
 
+// shuttingDown is a read refused as unavailable: the service has closed in
+// an orderly stop and answers nothing more before it stops. the page keeps
+// what it last read, and the refusal is the shutdown, not a failed read.
+export const shuttingDown = (error: unknown) => error instanceof ApiError && error.code === 'unavailable'
+
 // buildHeader carries, on every workspace read, the identity of the interface
 // the service now serves.
 const buildHeader = 'Mega-Interface-Build'

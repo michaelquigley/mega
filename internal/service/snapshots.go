@@ -97,14 +97,19 @@ type SnapshotSummary struct {
 }
 
 // Snapshots summarizes the configuration snapshots; nil when none are kept.
-func (s *Service) Snapshots() *SnapshotSummary {
+// once the service has closed it is refused as unavailable.
+func (s *Service) Snapshots() (*SnapshotSummary, error) {
+	if err := s.lockOpen(); err != nil {
+		return nil, err
+	}
+	s.mu.Unlock()
 	if s.snapshots == nil {
-		return nil
+		return nil, nil
 	}
 	all, err := s.snapshots.List()
 	sum := &SnapshotSummary{Dir: s.snapshots.Dir(), Count: len(all)}
 	if err == nil && len(all) > 0 {
 		sum.Newest = all[0]
 	}
-	return sum
+	return sum, nil
 }

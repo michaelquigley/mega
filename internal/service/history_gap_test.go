@@ -92,7 +92,7 @@ func TestPiRecordsBothLiveRepliesWithoutFileEntryIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "both replies to end their turn", func() bool { return !svc.view(conv.ID).TurnActive })
+	waitFor(t, "both replies to end their turn", func() bool { view, _ := svc.view(conv.ID); return !view.TurnActive })
 	evs, err := svc.Events(conv.ID, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -116,5 +116,5 @@ func TestPiRecordsBothLiveRepliesWithoutFileEntryIDs(t *testing.T) {
 	if err := svc.Release(conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "pi to exit", func() bool { return svc.view(conv.ID).Runtime == model.RuntimeNone })
+	waitFor(t, "pi to exit", func() bool { view, _ := svc.view(conv.ID); return view.Runtime == model.RuntimeNone })
 }

@@ -81,7 +81,7 @@ func TestAnActivationCannotChooseMegasPrograms(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeEnvFile(t, checkout, "export PATH=$PWD/planted:$PATH\nexport MEGA_SHIM_RECORD="+record)
-	if _, err := svc.ApproveEnvironment(project.ID, svc.Workspace().Environments[project.ID].File.Digest); err != nil {
+	if _, err := svc.ApproveEnvironment(project.ID, workspaceOf(t, svc).Environments[project.ID].File.Digest); err != nil {
 		t.Fatal(err)
 	}
 
@@ -109,7 +109,7 @@ func TestAnActivationCannotChooseMegasPrograms(t *testing.T) {
 		t.Errorf("path search did not list through git: %v", paths)
 	}
 	// the preflight checks the same programs, found the same way.
-	if st := svc.Workspace().Environments[project.ID]; len(st.Missing) != 0 {
+	if st := workspaceOf(t, svc).Environments[project.ID]; len(st.Missing) != 0 {
 		t.Errorf("the preflight: %+v", st.Missing)
 	}
 	if got, err := os.ReadFile(ran); err == nil {
@@ -290,7 +290,7 @@ func TestAShortFormApprovalNeedsApprovingAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := newService(t, filepath.Join(data, "registry.yaml"), allTrusted)
-	st := svc.Workspace().Environments["p1"]
+	st := workspaceOf(t, svc).Environments["p1"]
 	if st.Status != EnvUnapproved || st.Refusal == nil || !strings.Contains(st.Refusal.Message, "short fingerprint") {
 		t.Fatalf("a short-form approval: %s %+v", st.Status, st.Refusal)
 	}
@@ -300,7 +300,7 @@ func TestAShortFormApprovalNeedsApprovingAgain(t *testing.T) {
 	if _, err := svc.ApproveEnvironment("p1", st.File.Digest); err != nil {
 		t.Fatal(err)
 	}
-	if st := svc.Workspace().Environments["p1"]; st.Status != EnvReady || st.Approved.Digest != st.File.Digest {
+	if st := workspaceOf(t, svc).Environments["p1"]; st.Status != EnvReady || st.Approved.Digest != st.File.Digest {
 		t.Errorf("approved again: %s %+v", st.Status, st.Approved)
 	}
 }

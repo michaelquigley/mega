@@ -45,8 +45,8 @@ func TestMCPServersAreShownButNeverAttention(t *testing.T) {
 	if !view.MCPReported || len(view.MCPServers) != 3 || view.MCPServers[0].Tools[0].Name != "echo" || view.MCPServers[1].Error != "no such file" {
 		t.Fatalf("servers = %+v", view.MCPServers)
 	}
-	if view.Attention != model.AttentionIdle || len(r.svc.Workspace().NeedsYou) != 0 {
-		t.Errorf("MCP servers changed attention: %q, needs-you %v", view.Attention, r.svc.Workspace().NeedsYou)
+	if view.Attention != model.AttentionIdle || len(workspaceOf(t, r.svc).NeedsYou) != 0 {
+		t.Errorf("MCP servers changed attention: %q, needs-you %v", view.Attention, workspaceOf(t, r.svc).NeedsYou)
 	}
 	// the same list again announces nothing; a changed one replaces it.
 	rt.MCPServers(mcpServers(model.MCPConnected, model.MCPFailed, model.MCPNeedsSignIn))

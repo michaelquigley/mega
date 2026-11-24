@@ -13,7 +13,7 @@ import (
 
 func (r *rig) projectView() model.Project {
 	r.t.Helper()
-	for _, p := range r.svc.Workspace().Projects {
+	for _, p := range workspaceOf(r.t, r.svc).Projects {
 		if p.ID == r.project.ID {
 			return p
 		}

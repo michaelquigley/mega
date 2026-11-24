@@ -82,7 +82,7 @@ func TestTheStartUpCheckReadsVersions(t *testing.T) {
 	codex := harnesstest.New(model.HarnessCodex)
 	codex.SetVersion("", errors.New("printed no version"))
 	svc := newService(t, filepath.Join(t.TempDir(), "registry.yaml"), allTrusted, claude, codex)
-	got := svc.Workspace().Harnesses
+	got := workspaceOf(t, svc).Harnesses
 	if len(got) != 2 {
 		t.Fatalf("harnesses = %+v", got)
 	}
@@ -92,8 +92,8 @@ func TestTheStartUpCheckReadsVersions(t *testing.T) {
 	if x := got[1]; !x.Found || x.Version != "" || x.Standing != harness.StandingUnknown || !strings.Contains(x.Note, "could not be read") {
 		t.Errorf("codex = %+v", x)
 	}
-	if h := svc.Harnesses(); len(h) != 2 || h[0].Version != "2.1.330" {
-		t.Errorf("Harnesses() = %+v", h)
+	if h, err := svc.Harnesses(); err != nil || len(h) != 2 || h[0].Version != "2.1.330" {
+		t.Errorf("Harnesses() = %+v %v", h, err)
 	}
 }
 
@@ -132,9 +132,9 @@ func TestAnUpdateBehindTheSamePathIsReadAgain(t *testing.T) {
 	codex.SetVersion("0.166.0", nil)
 	svc := newService(t, filepath.Join(t.TempDir(), "registry.yaml"), allTrusted, claude, codex)
 	versions := func() (string, string) {
-		got := svc.Harnesses()
-		if len(got) != 2 {
-			t.Fatalf("harnesses = %+v", got)
+		got, err := svc.Harnesses()
+		if err != nil || len(got) != 2 {
+			t.Fatalf("harnesses = %+v %v", got, err)
 		}
 		return got[0].Version, got[1].Version
 	}

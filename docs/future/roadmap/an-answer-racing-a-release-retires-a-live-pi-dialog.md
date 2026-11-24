@@ -1,6 +1,6 @@
 ---
 title: an answer racing a release retires a live pi dialog
-state: researching
+state: horizon
 created: 2026-11-23
 tags: [defect]
 ---
@@ -16,4 +16,4 @@ How much it matters:
 - **It needs one operator to answer and release in the same instant.** The answer has to be on its way to the adapter when the fence lands.
 - **Release ends pi's process anyway.** A pending dialog holds pi through the close, and the adapter ends it in steps (SIGTERM, then SIGKILL). The dialog is gone with the process, and the command it gated never runs. What is wrong is only the record: `aborted`, and the card gone, before the harness settled it or exited.
 
-The stop fence and the ordering of an answer against the harness's own settlement are two of the four mechanisms `one-kit-under-the-adapters` gathers into `internal/harness`. This belongs there, with no separate fix.
+The stop fence and the ordering of an answer against the harness's own settlement are two of the four mechanisms the first step of `the-orchestration-framework-is-extracted` gathers into `internal/harness`. This belongs there, with no separate fix.

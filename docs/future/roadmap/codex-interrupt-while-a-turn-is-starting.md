@@ -14,3 +14,7 @@ Two ways to fix it:
 - **Refuse it.** While a turn start has no id, refuse the interrupt, saying the turn is still starting, and leave the service's `interrupting` unset. Smaller, but the operator presses again.
 
 Either touches `Prompt`'s path. Claude and pi should be checked for the same window.
+
+## from the review of the plan, 2026-11-24
+
+Piece 4, `a-turn-is-inferred-from-a-message`, is to be built so that a turn opens only when the harness says it has started. Under that rule no turn is open before Codex has named it, so there is nothing to interrupt in this card's window and neither fix above is needed. This card closes with piece 4 if Michael keeps that direction after trying it.

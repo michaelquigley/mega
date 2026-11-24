@@ -33,7 +33,15 @@ Michael wrote a second card for this the day after the presentation, in the inbo
 
 What that adds to the above: new projects are named as users of it, not only the three that exist.
 
-A first step is now on the board from another direction. `one-kit-under-the-adapters`, the ninth piece of `simplify-the-core`, moves the policy the three adapters share into one place under `internal/harness`. What is left in an adapter after it is the translation of one harness's protocol, which is the shape a framework would want.
+A first step was carded as `one-kit-under-the-adapters`, the ninth piece of `simplify-the-core`, and was folded into this card on 2026-11-24. It changes no rule and removes no case, so it is the start of this work and not a simplification of mega's model.
+
+It moves four things each adapter does for itself into one place under `internal/harness`: checking that a stream or a file belongs to the session asked for, refusing what would start work once a stop has begun, finding what a runtime left running, and ordering an answer against the harness's own settlement of the same request. The kit holds the order and the decision, and each adapter hands it the evidence its harness has. What is left in an adapter after it is the translation of one harness's protocol, which is the shape a framework would want.
+
+- **No rule changes.** What each adapter does today is the specification, and every adapter test passes unchanged. The three differ in what evidence their harness gives, and those differences stay.
+- **Less is duplicated than when it was carded.** Finding what a runtime left running is already shared. The session check is almost all Claude's, since Codex and pi take their id from one value. What is written three times is the stop fence and the answer ordering.
+- **One test it adds,** for a case none holds today: an answer to a pi dialog after its deadline has passed and before its timer has removed it is refused.
+- **One limit stays, recorded and not engineered around.** Codex may have settled a request while its notice is still on the pipe, and an answer written in that moment is recorded as answered though Codex ignored it. Michael declined a fourth outcome for it on 2026-11-19.
+- **The card `an-answer-racing-a-release-retires-a-live-pi-dialog` belongs with this step.**
 
 ## depends on
 

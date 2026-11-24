@@ -44,7 +44,7 @@ type trayUI interface {
 // gate is the part of the service the tray drives: the shutdown gate and the
 // workspace it reads.
 type gate interface {
-	Workspace() service.Workspace
+	Workspace() (service.Workspace, error)
 	ArmShutdown() error
 	CancelShutdown() error
 	ShutDown() error
@@ -108,17 +108,23 @@ func (f *trayFollower) show(ws service.Workspace) {
 // follow shows the workspace now and after every change the service
 // announces, until done closes. the service's own subscription is the
 // source, so the tray never says more than the service has confirmed. a
-// subscription the service drops for falling behind is taken again.
+// subscription the service drops for falling behind is taken again. a read
+// the closed service refuses leaves the tray as it was.
 func (f *trayFollower) follow(svc interface {
-	Workspace() service.Workspace
+	Workspace() (service.Workspace, error)
 	Subscribe() *service.Subscription
 }, done <-chan struct{}) {
+	show := func() {
+		if ws, err := svc.Workspace(); err == nil {
+			f.show(ws)
+		}
+	}
 	for {
 		sub := svc.Subscribe()
-		f.show(svc.Workspace())
+		show()
 		for update := range sub.Updates() {
 			if update.WorkspaceChanged {
-				f.show(svc.Workspace())
+				show()
 			}
 		}
 		sub.Close()
@@ -139,7 +145,12 @@ type trayActions struct {
 // onGateItem arms "shut down when idle" and opens the page, so the operator
 // sees what it waits for; while the gate is armed the item cancels it.
 func (a trayActions) onGateItem() {
-	if a.gate.Workspace().Gate.Armed {
+	ws, err := a.gate.Workspace()
+	if err != nil {
+		// closed; the stop under way ends the tray.
+		return
+	}
+	if ws.Gate.Armed {
 		if err := a.gate.CancelShutdown(); err != nil {
 			dl.Warnf("cancelling the shutdown from the tray: %v", err)
 		}

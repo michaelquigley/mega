@@ -50,6 +50,10 @@ type Folder struct {
 // nothing. a path typed in full is still registered wherever it is; only
 // what the picker lists is confined.
 func (s *Service) Folders(path string) (Folders, error) {
+	if err := s.lockOpen(); err != nil {
+		return Folders{}, err
+	}
+	s.mu.Unlock()
 	home, _ := os.UserHomeDir()
 	root := s.projectsRoot
 	if root == "" {

@@ -94,10 +94,20 @@ func trayService(t *testing.T) (*service.Service, *harnesstest.Harness, model.Pr
 	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID()}})
 	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"})
 	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
-	if err := svc.Read(conv.ID, svc.Workspace().Conversations[0].LastSeq); err != nil {
+	if err := svc.Read(conv.ID, workspaceOf(t, svc).Conversations[0].LastSeq); err != nil {
 		t.Fatal(err)
 	}
 	return svc, fake, project, conv
+}
+
+// workspaceOf reads the workspace, which only a closed service refuses.
+func workspaceOf(t testing.TB, svc *service.Service) service.Workspace {
+	t.Helper()
+	ws, err := svc.Workspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws
 }
 
 func requested(svc *service.Service) bool {
@@ -136,8 +146,8 @@ func TestQuitWhileBusyArmsTheGate(t *testing.T) {
 	if actions.onQuit() {
 		t.Error("Quit let dfw quit with a turn in flight")
 	}
-	if requested(svc) || !svc.Workspace().Gate.Armed || opened != 1 {
-		t.Errorf("busy: shutdown requested %v, armed %v, page opened %d", requested(svc), svc.Workspace().Gate.Armed, opened)
+	if requested(svc) || !workspaceOf(t, svc).Gate.Armed || opened != 1 {
+		t.Errorf("busy: shutdown requested %v, armed %v, page opened %d", requested(svc), workspaceOf(t, svc).Gate.Armed, opened)
 	}
 	if rt.Interrupts() != 0 || rt.Closed() {
 		t.Error("Quit interrupted or released the runtime")
@@ -156,12 +166,12 @@ func TestGateItemArmsAndCancels(t *testing.T) {
 	opened := 0
 	actions := trayActions{gate: svc, open: func() { opened++ }}
 	actions.onGateItem()
-	if !svc.Workspace().Gate.Armed || opened != 1 || requested(svc) {
-		t.Fatalf("arm: armed %v, opened %d", svc.Workspace().Gate.Armed, opened)
+	if !workspaceOf(t, svc).Gate.Armed || opened != 1 || requested(svc) {
+		t.Fatalf("arm: armed %v, opened %d", workspaceOf(t, svc).Gate.Armed, opened)
 	}
 	actions.onGateItem()
-	if svc.Workspace().Gate.Armed || opened != 1 {
-		t.Errorf("cancel: armed %v, opened %d", svc.Workspace().Gate.Armed, opened)
+	if workspaceOf(t, svc).Gate.Armed || opened != 1 {
+		t.Errorf("cancel: armed %v, opened %d", workspaceOf(t, svc).Gate.Armed, opened)
 	}
 }
 
@@ -195,7 +205,7 @@ func TestTrayFollowsNeedsYouAndTheGate(t *testing.T) {
 	}
 	wait("nothing waiting", trayIconPNG, "mega", gateArmLabel)
 	_, _, _, before := ui.last()
-	svc.Workspace() // reads change nothing on the tray.
+	workspaceOf(t, svc) // reads change nothing on the tray.
 	if _, _, _, after := ui.last(); after != before {
 		t.Error("a read re-sent the tray")
 	}
@@ -222,7 +232,7 @@ func TestTrayFollowsNeedsYouAndTheGate(t *testing.T) {
 	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
 	// answered, the reply is unread: it still needs the operator.
 	wait("answered, unread", trayIconNeedsYouPNG, "mega: 1 needs you", gateArmLabel)
-	ws := svc.Workspace()
+	ws := workspaceOf(t, svc)
 	if err := svc.Read(conv.ID, ws.Conversations[0].LastSeq); err != nil {
 		t.Fatal(err)
 	}

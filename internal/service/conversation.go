@@ -132,12 +132,14 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 	s.mu.Unlock()
 	err = s.startRuntime(conv.ID, l, false, place, facts)
 	if err != nil {
-		return s.view(conv.ID), s.explain(harnessName, place.Find, err)
+		view, _ := s.view(conv.ID)
+		return view, s.explain(harnessName, place.Find, err)
 	}
 	if err := s.send(conv.ID, prompt); err != nil {
-		return s.view(conv.ID), err
+		view, _ := s.view(conv.ID)
+		return view, err
 	}
-	return s.view(conv.ID), nil
+	return s.view(conv.ID)
 }
 
 // Prompt sends the operator's text to a conversation, starting a runtime that
@@ -797,7 +799,9 @@ func (h History) EarlierEvents() int64 { return max(h.From-1, 0) }
 // event, so a tool call never arrives without its result's turn or a reply
 // without its prompt.
 func (s *Service) History(conversationID string, q HistoryQuery) (History, error) {
-	s.mu.Lock()
+	if err := s.lockOpen(); err != nil {
+		return History{}, err
+	}
 	if _, err := s.conversationLocked(conversationID); err != nil {
 		s.mu.Unlock()
 		return History{}, err
@@ -843,7 +847,7 @@ func (s *Service) UpdateConversation(conversationID, name, label string) (Conver
 	if err != nil {
 		return ConversationView{}, err
 	}
-	return s.view(conversationID), nil
+	return s.view(conversationID)
 }
 
 // RemoveConversation takes one conversation out of the workspace and deletes
@@ -916,15 +920,19 @@ func (s *Service) dropLogsLocked(ids ...string) {
 	}
 }
 
-// view returns one conversation's current view.
-func (s *Service) view(conversationID string) ConversationView {
-	s.mu.Lock()
+// view returns one conversation's current view, for a command's reply. once
+// the service has closed it is refused as unavailable, as every read is, even
+// though the command's write may have landed just before.
+func (s *Service) view(conversationID string) (ConversationView, error) {
+	if err := s.lockOpen(); err != nil {
+		return ConversationView{}, err
+	}
 	defer s.mu.Unlock()
 	conv, err := s.conversationLocked(conversationID)
 	if err != nil {
-		return ConversationView{}
+		return ConversationView{}, err
 	}
-	return s.viewLocked(conv)
+	return s.viewLocked(conv), nil
 }
 
 // projectLocked finds a project. callers hold s.mu.

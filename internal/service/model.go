@@ -73,7 +73,9 @@ func (c *catalogs) put(name string, catalog harness.Catalog) {
 // after the first ask, and reads afresh what a new conversation there would
 // copy from the harness's settings. listing models starts no conversation.
 func (s *Service) Models(projectID, harnessName string) (Models, error) {
-	s.mu.Lock()
+	if err := s.lockOpen(); err != nil {
+		return Models{}, err
+	}
 	project, err := s.projectLocked(projectID)
 	h, ok := s.harnesses[harnessName]
 	s.mu.Unlock()

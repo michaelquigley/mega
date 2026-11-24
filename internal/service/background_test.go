@@ -32,8 +32,8 @@ func TestBackgroundIsShownButNeverAttention(t *testing.T) {
 	if len(view.Background) != 2 || view.Background[0].Description != "npm test" {
 		t.Fatalf("background = %+v", view.Background)
 	}
-	if view.Attention != model.AttentionIdle || len(r.svc.Workspace().NeedsYou) != 0 {
-		t.Errorf("background work changed attention: %q, needs-you %v", view.Attention, r.svc.Workspace().NeedsYou)
+	if view.Attention != model.AttentionIdle || len(workspaceOf(t, r.svc).NeedsYou) != 0 {
+		t.Errorf("background work changed attention: %q, needs-you %v", view.Attention, workspaceOf(t, r.svc).NeedsYou)
 	}
 	rt.Background(jobs("sleep 300"))
 	if view := r.view(conv.ID); len(view.Background) != 1 || view.Background[0].Description != "sleep 300" {
@@ -151,7 +151,7 @@ func TestOutputAfterItsTurnIsUnreadWithoutATurn(t *testing.T) {
 	if view.TurnActive || view.Attention != model.AttentionUnread || view.OutputSeq != view.LastSeq {
 		t.Errorf("after the late result: turn %v, attention %q, output %d of %d", view.TurnActive, view.Attention, view.OutputSeq, view.LastSeq)
 	}
-	if ws := r.svc.Workspace(); len(ws.NeedsYou) != 1 || ws.NeedsYou[0] != conv.ID {
+	if ws := workspaceOf(t, r.svc); len(ws.NeedsYou) != 1 || ws.NeedsYou[0] != conv.ID {
 		t.Errorf("needs-you = %v", ws.NeedsYou)
 	}
 }

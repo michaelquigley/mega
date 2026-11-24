@@ -22,7 +22,7 @@ An unread mark can no longer be lost because a write failed, or miscounted by a 
 ## what changes
 
 - **Removed:** the buffering of a turn's output until its end, the counting of output flagged as after its turn, and any remaining special handling for imported output when deciding what counts as unread.
-- **The newest output is taken from the log.** The registry's unread marker is neither read nor written. The field stays in the file until `the-registry-records-no-runtime-state` removes it.
+- **The newest output is taken from the log.** The registry's unread marker is neither read nor written. The field is no longer needed. Whether it leaves the registry's file with this piece is settled when the piece is specified.
 - **One thing the marker's write did is kept:** the workspace notification, when recorded output changes a conversation's mark or its place in the needs-you list.
 - **The canon's `bookkeeping-never-creates-attention`** is amended with it.
 

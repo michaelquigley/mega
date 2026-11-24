@@ -82,7 +82,9 @@ func (c *pathCache) listing(place harness.Place, now time.Time) []string {
 // most PathsLimit. it lists names only: it reads no file's contents, changes
 // nothing, and leaves out a symbolic link that resolves outside the checkout.
 func (s *Service) Paths(projectID, q string) ([]string, error) {
-	s.mu.Lock()
+	if err := s.lockOpen(); err != nil {
+		return nil, err
+	}
 	project, err := s.projectLocked(projectID)
 	s.mu.Unlock()
 	if err != nil {

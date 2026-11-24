@@ -55,7 +55,7 @@ func TestAdoptionReadCanBeRetriedAndTheSnapshotSuppressesLiveEchoes(t *testing.T
 	if _, err := r.adoptTerminal(); err == nil {
 		t.Fatal("adoption succeeded without a snapshot")
 	}
-	if len(r.svc.Workspace().Conversations) != 0 {
+	if len(workspaceOf(t, r.svc).Conversations) != 0 {
 		t.Fatal("an incomplete adoption was published")
 	}
 	r.terminalIsDiscoverable()
@@ -67,7 +67,7 @@ func TestAdoptionReadCanBeRetriedAndTheSnapshotSuppressesLiveEchoes(t *testing.T
 		t.Fatal(err)
 	}
 	r.completeSnapshot(conv.ID)
-	if conv.ReadSeq != conv.LastSeq || conv.Attention != model.AttentionIdle || len(r.svc.Workspace().Conversations) != 1 {
+	if conv.ReadSeq != conv.LastSeq || conv.Attention != model.AttentionIdle || len(workspaceOf(t, r.svc).Conversations) != 1 {
 		t.Fatalf("adopted conversation = %+v", conv)
 	}
 	select {
@@ -132,7 +132,7 @@ func TestAdoptionRechecksTheOriginalProjectAfterReading(t *testing.T) {
 	}
 	r.project = project
 	r.terminalIsDiscoverable()
-	if len(r.svc.Workspace().Conversations) != 0 {
+	if len(workspaceOf(t, r.svc).Conversations) != 0 {
 		t.Fatal("adoption published into a removed project")
 	}
 }
@@ -149,7 +149,7 @@ func TestAdoptionInterruptedDuringSnapshotWriteCanBeRetriedAfterRestart(t *testi
 	go r.adoptTerminal()
 	exited(t, reasons)
 	r.crashed()
-	if len(r.svc.Workspace().Conversations) != 0 {
+	if len(workspaceOf(t, r.svc).Conversations) != 0 {
 		t.Fatal("partial snapshot was published")
 	}
 	r.terminalIsDiscoverable()
@@ -158,7 +158,7 @@ func TestAdoptionInterruptedDuringSnapshotWriteCanBeRetriedAfterRestart(t *testi
 		t.Fatal(err)
 	}
 	r.completeSnapshot(conv.ID)
-	if len(r.svc.Workspace().Conversations) != 1 {
+	if len(workspaceOf(t, r.svc).Conversations) != 1 {
 		t.Fatal("more than one conversation visible")
 	}
 }

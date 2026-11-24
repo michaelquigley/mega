@@ -25,4 +25,4 @@ The workspace was 258 MB on this date.
 
 The first draft of the work order behind `simplify-the-core` took this card in as a stage: checkpoints in each log, and a start-up that reads back to the last one. Three review rounds showed what that costs: a new kind of line in the log that older builds must read safely, a name for each version of the fold, and the turn index and the list of native message ids built late because the full read no longer builds them. It is a speed feature and was cut from work whose point is to remove things. It stays here.
 
-What that work does leave behind, in `one-fold-for-what-happened`, is the function that makes this easy: one `apply(state, event)` used live and at start-up. A checkpoint is then that function's state written out, and the findings above are the list of what a design here has to answer.
+That work was to leave behind one function, `apply(state, event)`, used live and at start-up, which would have made a checkpoint that function's state written out. It was dropped from `simplify-the-core` on 2026-11-24, so a design here starts without it. The findings above are still the list of what it has to answer.

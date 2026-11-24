@@ -34,7 +34,9 @@ type Discovered struct {
 // DiscoverHeld is Discover, with the count of the sessions it left out
 // because a conversation already holds them.
 func (s *Service) DiscoverHeld(projectID, harnessName string) (Discovered, error) {
-	s.mu.Lock()
+	if err := s.lockOpen(); err != nil {
+		return Discovered{}, err
+	}
 	project, err := s.projectLocked(projectID)
 	if err != nil {
 		s.mu.Unlock()
@@ -81,7 +83,9 @@ func (s *Service) Look(projectID, harnessName, nativeID string) (harness.Look, e
 	if strings.TrimSpace(nativeID) == "" {
 		return harness.Look{}, newError(CodeInvalid, "a session id is required")
 	}
-	s.mu.Lock()
+	if err := s.lockOpen(); err != nil {
+		return harness.Look{}, err
+	}
 	project, err := s.projectLocked(projectID)
 	if err != nil {
 		s.mu.Unlock()

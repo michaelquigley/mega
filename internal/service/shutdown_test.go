@@ -41,7 +41,7 @@ func kindsOf(b Blocker) []string {
 
 func (r *rig) gate() Gate {
 	r.t.Helper()
-	return r.svc.Workspace().Gate
+	return workspaceOf(r.t, r.svc).Gate
 }
 
 // armed, the gate refuses everything that would start new work, with its own
@@ -260,7 +260,7 @@ func TestALaunchUnderWayHoldsTheGate(t *testing.T) {
 		if err := r.svc.ArmShutdown(); err != nil {
 			t.Error(err)
 		}
-		during = r.svc.Workspace().Gate
+		during = workspaceOf(t, r.svc).Gate
 		refused = r.svc.ShutDown()
 	})
 	r.start("one")

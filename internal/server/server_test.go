@@ -208,6 +208,18 @@ func TestUnavailableCarriesItsMessage(t *testing.T) {
 	}
 }
 
+// once the service has closed, in the moment before the HTTP server stops,
+// a read is refused as unavailable, not answered from what was let go.
+func TestReadsAfterCloseAreUnavailable(t *testing.T) {
+	f := start(t)
+	f.svc.Close()
+	for _, path := range []string{"/api/workspace", "/api/version"} {
+		if status, body := f.do(t, http.MethodGet, path, ""); status != http.StatusServiceUnavailable || body["code"] != service.CodeUnavailable {
+			t.Errorf("%s after close: %d %v", path, status, body)
+		}
+	}
+}
+
 func TestServerSideFaultHidesDetail(t *testing.T) {
 	// an error that carries no code is an internal fault rather than a caller
 	// error, and its detail stays in the log.

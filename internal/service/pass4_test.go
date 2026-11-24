@@ -155,7 +155,7 @@ func TestAHistoryReadChecksTheEnvironmentItRunsIn(t *testing.T) {
 	reads := len(r.fake.Reads())
 	_, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "adopted")
 	wantCode(t, err, CodeEnvironmentChanged)
-	if len(r.svc.Workspace().Conversations) != 1 {
+	if len(workspaceOf(t, r.svc).Conversations) != 1 {
 		t.Error("adoption published a conversation before the approval check")
 	}
 	if len(r.fake.Reads()) != reads {

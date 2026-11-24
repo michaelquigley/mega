@@ -91,12 +91,9 @@ type Service struct {
 	logPath     func(conversationID string) string
 	harnesses   map[string]harness.Harness
 	live        map[string]*live
-	// closedLive holds the live records let go of at close, unchanged from
-	// then: no runtime callback reaches them, and reads answered before the
-	// HTTP server stops derive everything from their facts as ever.
-	closedLive map[string]*live
-	// logsClosed is set once Close has closed the logs: none is opened again,
-	// so nothing past what was last confirmed can be read before a restart.
+	// logsClosed is set once Close has closed the logs and let the live state
+	// go: none is opened again and every read is refused (lockOpen), so
+	// nothing is kept to answer one from.
 	logsClosed bool
 	subs       map[*Subscription]struct{}
 	closed     bool
@@ -184,9 +181,12 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 }
 
 // Workspace returns the current arrangement. trust notices are recomputed on
-// each read, so a terminal visit clears the notice without a restart.
-func (s *Service) Workspace() Workspace {
-	s.mu.Lock()
+// each read, so a terminal visit clears the notice without a restart. once
+// the service has closed it is refused as unavailable.
+func (s *Service) Workspace() (Workspace, error) {
+	if err := s.lockOpen(); err != nil {
+		return Workspace{}, err
+	}
 	doc := s.reg.Snapshot()
 	conversations := make([]ConversationView, 0, len(doc.Conversations))
 	gate := Gate{Armed: s.gate.armed, ArmedAt: s.gate.armedAt}
@@ -205,7 +205,7 @@ func (s *Service) Workspace() Workspace {
 	s.resolveStaleLocked(doc.Projects, states)
 	harnesses := s.harnessStatusLocked()
 	s.mu.Unlock()
-	return Workspace{Projects: doc.Projects, Conversations: conversations, NeedsYou: needsYou(conversations), Gate: gate, Environments: states, Harnesses: harnesses}
+	return Workspace{Projects: doc.Projects, Conversations: conversations, NeedsYou: needsYou(conversations), Gate: gate, Environments: states, Harnesses: harnesses}, nil
 }
 
 // RegisterProject adds an existing checkout to the workspace. an empty name
