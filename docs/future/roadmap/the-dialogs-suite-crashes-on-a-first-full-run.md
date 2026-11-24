@@ -1,6 +1,6 @@
 ---
 title: the dialogs suite crashes on a first full run
-state: inbox
+state: researching
 created: 2026-11-24
 tags: [defect]
 ---

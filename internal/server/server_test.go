@@ -53,6 +53,7 @@ func startWith(t *testing.T, heartbeat time.Duration) *fixture {
 		// bash from a base with a temporary HOME: no start-up file of the
 		// operator's is read.
 		Resolver: noProfile(service.DefaultResolver([]string{"HOME=" + t.TempDir(), "SHELL=/bin/bash"})),
+		Exit:     func(reason error) { panic(reason) }, // no write fails here
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -197,29 +198,24 @@ func TestOversizedBodyIsRejected(t *testing.T) {
 }
 
 func TestUnavailableCarriesItsMessage(t *testing.T) {
-	// the service refuses writes this way once registry durability is uncertain;
-	// the registry has already logged it, and the operator needs the reason.
+	// the service refuses work this way while it shuts down, and the operator
+	// needs the reason.
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/projects", nil)
-	writeError(rec, req, &service.Error{Code: service.CodeUnavailable, Message: "restart required"})
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"restart required"`) {
+	writeError(rec, req, &service.Error{Code: service.CodeUnavailable, Message: "the service is shutting down"})
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"the service is shutting down"`) {
 		t.Errorf("%d %s", rec.Code, rec.Body.String())
 	}
 }
 
 func TestServerSideFaultHidesDetail(t *testing.T) {
-	f := start(t)
-	// make the registry unwritable, which is an internal fault rather than a caller error.
-	if err := os.Chmod(filepath.Dir(f.regPath), 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(filepath.Dir(f.regPath), 0o700) })
-	status, body := f.do(t, http.MethodPost, "/api/projects", createBody("a", f.checkout))
-	if status == http.StatusCreated {
-		t.Skip("directory permissions are not enforced here")
-	}
-	if status != http.StatusInternalServerError || body["code"] != "internal" || body["message"] != "internal error" {
-		t.Errorf("%d %v", status, body)
+	// an error that carries no code is an internal fault rather than a caller
+	// error, and its detail stays in the log.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/projects", nil)
+	writeError(rec, req, errors.New("reading '/home/someone/secret': permission denied"))
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), `"internal error"`) || strings.Contains(rec.Body.String(), "secret") {
+		t.Errorf("%d %s", rec.Code, rec.Body.String())
 	}
 }
 

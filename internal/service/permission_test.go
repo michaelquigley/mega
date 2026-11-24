@@ -213,26 +213,6 @@ func TestUnconfirmedSwitchLeavesTheLiveModeAsReported(t *testing.T) {
 	}
 }
 
-// a report the log cannot record leaves the last confirmed mode on screen, as
-// every unrecorded transition does; nothing switches the harness back. the
-// log fails once the request is recorded, while claude is being asked.
-func TestUnrecordedReportKeepsTheLastConfirmedMode(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	startedIn(rt, "default")
-	rt.OnMode(func() { r.closeLog(conv.ID) })
-	if outcome := r.switchTo(conv.ID, "auto"); outcome != ModeConfirmed {
-		t.Fatalf("outcome = %q", outcome)
-	}
-	if view := r.view(conv.ID); view.Facts.PermissionMode != "default" {
-		t.Errorf("an unrecorded report showed %q", view.Facts.PermissionMode)
-	}
-	if !slices.Equal(rt.Modes(), []string{"auto"}) {
-		t.Errorf("runtime switches = %v; nothing switches it back", rt.Modes())
-	}
-}
-
 func TestOneSwitchAtATime(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
@@ -306,9 +286,10 @@ func TestChoiceWithoutARuntimeIsStoredForTheNextLaunch(t *testing.T) {
 	}
 }
 
-// a stored request the log cannot record is put back and refused: a mode
-// change is never left unrecorded.
-func TestUnrecordableStoredChoiceIsPutBack(t *testing.T) {
+// a stored request whose registry write fails ends the process after its
+// event is recorded, and the next start applies it from that event: nothing
+// puts it back.
+func TestAStoredChoiceWhoseWriteFailsIsAppliedAtTheNextStart(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()
@@ -318,12 +299,22 @@ func TestUnrecordableStoredChoiceIsPutBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the runtime to exit", rt.Exited)
-	r.closeLog(conv.ID)
-	if _, err := r.svc.SetPermissionMode(conv.ID, "auto"); err == nil {
-		t.Fatal("an unrecordable request was stored")
+	r.svc.failUpdate = func() error { return errors.New("the registry could not be written") }
+	reasons := exits(r.svc)
+	go r.svc.SetPermissionMode(conv.ID, "auto")
+	exited(t, reasons)
+	r.crashed()
+	if got := r.view(conv.ID).PermissionMode; got != "auto" {
+		t.Errorf("after the next start the request is %q, want the recorded auto", got)
 	}
-	if got := r.view(conv.ID).PermissionMode; got != model.PermissionModeDefault {
-		t.Errorf("the request after the refusal = %q", got)
+	var requested []string
+	for _, ev := range r.events(conv.ID) {
+		if ev.Status == model.StatusModeRequested {
+			requested = append(requested, ev.Facts.PermissionMode)
+		}
+	}
+	if !slices.Equal(requested, []string{"auto"}) {
+		t.Errorf("mode requests recorded = %v", requested)
 	}
 }
 
@@ -395,7 +386,7 @@ func TestInterruptedStoredChoiceIsAppliedAtTheNextStart(t *testing.T) {
 	r.svc.mu.Lock()
 	l, err := r.svc.liveLocked(conv.ID)
 	if err == nil {
-		err = r.svc.record(l, &model.Event{Kind: model.EventRuntime, Status: model.StatusModeRequested, Origin: model.OriginService, Text: "the next launch passes it", Facts: &model.RuntimeFacts{PermissionMode: "plan"}})
+		r.svc.record(l, &model.Event{Kind: model.EventRuntime, Status: model.StatusModeRequested, Origin: model.OriginService, Text: "the next launch passes it", Facts: &model.RuntimeFacts{PermissionMode: "plan"}})
 	}
 	r.svc.mu.Unlock()
 	if err != nil {

@@ -19,9 +19,12 @@ import (
 	"github.com/michaelquigley/mega/internal/model"
 )
 
-// ErrUncertain marks a log that no longer accepts appends because a failed
-// append could not be rolled back, leaving unconfirmed bytes on disk.
-var ErrUncertain = errors.New("event log durability uncertain after a failed rollback, restart required")
+// syncFile and syncDir are variables so a test can fail a sync, which a real
+// descriptor does not, and see which directory syncs are made.
+var (
+	syncFile = (*os.File).Sync
+	syncDir  = durable.SyncDir
+)
 
 // Log is one conversation's JSONL event history. it has a single writer, the
 // service, and assigns each appended event the next seq. size is the confirmed
@@ -29,38 +32,27 @@ var ErrUncertain = errors.New("event log durability uncertain after a failed rol
 // kept on every append, lets a read seek to where it starts instead of
 // parsing from the top.
 type Log struct {
-	mu        sync.Mutex
-	path      string
-	file      *os.File
-	size      int64
-	last      int64
-	index     index
-	uncertain error
+	mu     sync.Mutex
+	path   string
+	file   *os.File // nil until the first append creates the log
+	closed bool     // Close has run: nothing is created or appended after it
+	size   int64
+	last   int64
+	index  index
 }
 
-// Open opens or creates the log at path. a final line with no newline can only
-// be a write torn by a crash, since each append writes its newline last, so it
-// is dropped; any other unreadable line is an error and is left in place.
+// Open opens the log at path. a log that does not exist yet is empty, and is
+// created by its first append, so opening one writes nothing. a final line
+// with no newline can only be a write torn by a crash, since each append
+// writes its newline last, so it is dropped; any other unreadable line is an
+// error and is left in place.
 func Open(path string) (*Log, error) {
-	_, statErr := os.Stat(path)
-	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		return nil, statErr
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return &Log{path: path}, nil
 	}
-	dir := filepath.Dir(path)
-	if err := durable.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
-	}
-	// appends sync the file's bytes, not the entry naming it; without this a new
-	// conversation's synced events could survive a crash while its file did not.
-	if statErr != nil {
-		if err := durable.SyncDir(dir); err != nil {
-			file.Close()
-			return nil, fmt.Errorf("syncing directory of '%s': %w", path, err)
-		}
 	}
 	info, err := file.Stat()
 	if err != nil {
@@ -86,6 +78,20 @@ func Open(path string) (*Log, error) {
 		}
 	}
 	return &Log{path: path, file: file, size: size, last: last, index: idx}, nil
+}
+
+// create makes the log's directory and file; the first append syncs the
+// entry naming it. callers hold l.mu.
+func (l *Log) create() error {
+	if err := durable.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(l.path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	l.file = file
+	return nil
 }
 
 // Remove deletes the log at path together with the directory holding it, which
@@ -132,21 +138,23 @@ func scan(file *os.File, from, limit int64, fn func(ev *model.Event, end int64) 
 	}
 }
 
-// Append assigns the next seq, stamps At when unset, and writes the event. it
-// returns only once the event is on disk, and on failure leaves the log, its
-// seq, and ev as they were, so nothing a caller confirms can be lost by a crash.
-//
-// a failed append is truncated back and can be retried. if the truncate fails
-// too, unconfirmed bytes may sit past the confirmed length: reads keep serving
-// what was confirmed, and every later append is refused with ErrUncertain until
-// a restart reopens the log, where the torn-tail rule handles the remainder.
+// Append assigns the next seq, stamps At when unset, and writes the event,
+// creating the log if it does not exist yet, and syncing its directory before
+// its first event. it returns only once the event is
+// on disk. a failure returns its error and leaves the log's seq, its confirmed
+// length and ev as they were; the bytes of a failed write may still be on
+// disk, and what follows is the caller's to decide.
 func (l *Log) Append(ev *model.Event) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.uncertain != nil {
-		return l.uncertain
+	if l.closed {
+		return fmt.Errorf("appending to event log '%s': %w", l.path, os.ErrClosed)
 	}
-
+	if l.file == nil {
+		if err := l.create(); err != nil {
+			return err
+		}
+	}
 	stamped := *ev
 	stamped.Seq = l.last + 1
 	if stamped.At.IsZero() {
@@ -156,12 +164,19 @@ func (l *Log) Append(ev *model.Event) error {
 	if err != nil {
 		return fmt.Errorf("encoding event: %w", err)
 	}
-	if err := l.writeDurable(line); err != nil {
-		if truncErr := l.file.Truncate(l.size); truncErr != nil {
-			l.uncertain = fmt.Errorf("%w: '%s': %w", ErrUncertain, l.path, errors.Join(err, truncErr))
-			dl.Errorf("%v", l.uncertain)
-			return l.uncertain
+	// a sync covers the file's bytes, not the entry naming it: before the
+	// first event the directory is synced too, whether this run created the
+	// file or found it empty, so no event lands in a file whose name a crash
+	// could still lose.
+	if l.size == 0 {
+		if err := syncDir(filepath.Dir(l.path)); err != nil {
+			return fmt.Errorf("syncing directory of '%s': %w", l.path, err)
 		}
+	}
+	if _, err := l.file.Write(line); err != nil {
+		return err
+	}
+	if err := syncFile(l.file); err != nil {
 		return err
 	}
 	l.index.note(&stamped, l.size)
@@ -169,15 +184,6 @@ func (l *Log) Append(ev *model.Event) error {
 	l.last = stamped.Seq
 	*ev = stamped
 	return nil
-}
-
-// writeDurable writes line and syncs it. a write and a sync fail the same way
-// for the caller: neither is confirmed, and both are rolled back.
-func (l *Log) writeDurable(line []byte) error {
-	if _, err := l.file.Write(line); err != nil {
-		return err
-	}
-	return l.file.Sync()
 }
 
 // LastSeq returns the seq of the newest event, or zero for an empty log.
@@ -203,7 +209,7 @@ func (l *Log) Range(from, to int64, keep func(*model.Event) bool) ([]*model.Even
 	if to <= 0 || to > l.last {
 		to = l.last
 	}
-	if from > to {
+	if from > to || l.file == nil {
 		return nil, nil
 	}
 	var found []*model.Event
@@ -246,9 +252,13 @@ func (l *Log) Tail(n int) ([]*model.Event, error) {
 	return l.Since(max(last-int64(n), 0))
 }
 
-// Close closes the underlying file.
+// Close closes the underlying file, if the log has one yet.
 func (l *Log) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.closed = true
+	if l.file == nil {
+		return nil
+	}
 	return l.file.Close()
 }

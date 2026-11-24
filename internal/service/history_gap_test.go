@@ -18,15 +18,14 @@ func TestRestartKeepsOneBoundaryWhenTheExitWasRecordedButTheRegistryStillSaysRun
 	rt := r.fake.Last()
 	started(rt)
 	finishTurn(rt, "reply", "done")
+	// the exit is recorded, and the registry write after it fails.
 	r.svc.failUpdate = func() error { return errors.New("registry write interrupted") }
+	reasons := exits(r.svc)
 	if err := r.svc.Release(conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the runtime to exit", rt.Exited)
-	if r.view(conv.ID).Runtime != model.RuntimeRunning {
-		t.Fatal("did not leave a stale running registry entry")
-	}
-	r.restart()
+	exited(t, reasons)
+	r.crashed()
 	if view := r.view(conv.ID); view.Runtime != model.RuntimeUnsupervised {
 		t.Fatalf("recovered runtime = %s", view.Runtime)
 	}

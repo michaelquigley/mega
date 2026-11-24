@@ -9,9 +9,9 @@ import (
 
 func star(starred bool) ProjectChange { return ProjectChange{Starred: &starred} }
 
-// a star is written to the registry first; memory moves only once the write
-// is confirmed, and it survives a restart.
-func TestStarIsWrittenBeforeMemoryMovesAndSurvivesARestart(t *testing.T) {
+// a star is written to the registry, browsers are told, and it survives a
+// restart.
+func TestProjectStarIsPersistedAcrossRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "registry.yaml")
 	svc := newService(t, path, allTrusted)
 	project, err := svc.RegisterProject("fixture", t.TempDir())
@@ -20,23 +20,6 @@ func TestStarIsWrittenBeforeMemoryMovesAndSurvivesARestart(t *testing.T) {
 	}
 	sub := svc.Subscribe()
 	defer sub.Close()
-
-	// a write that cannot happen leaves memory where it was.
-	dir := filepath.Dir(path)
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(dir, 0o700) })
-	_, err = svc.UpdateProject(project.ID, star(true))
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err == nil {
-		t.Skip("directory permissions are not enforced here")
-	}
-	if svc.Workspace().Projects[0].Starred {
-		t.Fatal("memory moved for an unconfirmed star")
-	}
 
 	starred, err := svc.UpdateProject(project.ID, star(true))
 	if err != nil || !starred.Starred || starred.Name != "fixture" {

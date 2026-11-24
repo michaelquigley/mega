@@ -1,6 +1,6 @@
 ---
 title: codex interrupt while a turn is starting
-state: inbox
+state: researching
 created: 2026-11-20
 tags: [defect]
 ---

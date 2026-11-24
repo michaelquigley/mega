@@ -145,10 +145,13 @@ func TestAdoptionInterruptedDuringSnapshotWriteCanBeRetriedAfterRestart(t *testi
 		}
 		return nil
 	}
-	if _, err := r.adoptTerminal(); err == nil {
+	reasons := exits(r.svc)
+	go r.adoptTerminal()
+	exited(t, reasons)
+	r.crashed()
+	if len(r.svc.Workspace().Conversations) != 0 {
 		t.Fatal("partial snapshot was published")
 	}
-	r.restart()
 	r.terminalIsDiscoverable()
 	conv, err := r.adoptTerminal()
 	if err != nil {
@@ -176,8 +179,8 @@ func TestAnAdoptionWhoseRegistryRenameSurvivesHasItsCompleteSnapshot(t *testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Model the post-rename failure: the on-disk binding survives, but
-		// the in-memory registry did not confirm it.
+		// Model the post-rename failure: the on-disk binding survives, and
+		// the write fails.
 		if err := reg.Update(func(doc *registry.Document) error {
 			doc.Conversations = append(doc.Conversations, model.Conversation{
 				ID: id, ProjectID: r.project.ID, NativeID: "terminal", Harness: model.HarnessClaude, Runtime: model.RuntimeNone, ReadSeq: 3,
@@ -186,12 +189,12 @@ func TestAnAdoptionWhoseRegistryRenameSurvivesHasItsCompleteSnapshot(t *testing.
 		}); err != nil {
 			t.Fatal(err)
 		}
-		return registry.ErrUncertain
+		return errors.New("the directory sync after the rename failed")
 	}
-	if _, err := r.adoptTerminal(); err == nil || len(r.svc.Workspace().Conversations) != 0 {
-		t.Fatal("an unconfirmed binding was reported as adopted")
-	}
-	r.restart()
+	reasons := exits(r.svc)
+	go r.adoptTerminal()
+	exited(t, reasons)
+	r.crashed()
 	r.completeSnapshot(id)
 	if conv := r.view(id); conv.NativeID != "terminal" || conv.ReadSeq != conv.LastSeq {
 		t.Fatalf("recovered adoption = %+v", conv)

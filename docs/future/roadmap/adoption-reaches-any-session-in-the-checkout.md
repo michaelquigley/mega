@@ -1,6 +1,6 @@
 ---
 title: adoption reaches any session in the checkout
-state: inbox
+state: researching
 created: 2026-11-23
 tags: [defect]
 ---

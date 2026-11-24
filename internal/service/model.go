@@ -232,15 +232,11 @@ func (s *Service) SetModel(conversationID, chosenModel, effort string) (ModeOutc
 	case errors.Is(switchErr, harness.ErrEffortRefused):
 		// the model changed and stays requested; only the effort goes back to
 		// the last one accepted.
-		if err := s.updateConversation(conversationID, func(c *model.Conversation) { c.Effort = conv.Effort }); err != nil {
-			dl.Errorf("putting back the recorded effort of '%s': %v", conversationID, err)
-		}
+		s.updateConversation(conversationID, func(c *model.Conversation) { c.Effort = conv.Effort })
 		s.changed()
 		return ModeOutcome{Outcome: ModeRefused, Message: switchErr.Error()}, nil
 	}
-	if err := s.updateConversation(conversationID, func(c *model.Conversation) { c.Model, c.Effort = conv.Model, conv.Effort }); err != nil {
-		dl.Errorf("putting back the recorded model of '%s': %v", conversationID, err)
-	}
+	s.updateConversation(conversationID, func(c *model.Conversation) { c.Model, c.Effort = conv.Model, conv.Effort })
 	return ModeOutcome{Outcome: ModeRefused, Message: switchErr.Error()}, nil
 }
 
@@ -252,7 +248,7 @@ func (s *Service) harnessModelChanged(l *live, ev *model.Event) {
 		return
 	}
 	reported := *ev.Facts
-	err := s.transition(l, ev, l.state, func() {
+	s.transition(l, ev, l.state, func() {
 		if l.facts == nil {
 			return
 		}
@@ -265,7 +261,4 @@ func (s *Service) harnessModelChanged(l *live, ev *model.Event) {
 		}
 		l.facts = &facts
 	})
-	if err != nil {
-		dl.Errorf("%v", err)
-	}
 }

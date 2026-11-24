@@ -119,23 +119,16 @@ func (s *Service) StartConversation(projectID, harnessName, name, prompt string,
 		Model:          asked.Model,
 		Effort:         asked.Effort,
 	}
-	err = s.update(func(doc *registry.Document) error {
+	s.update(func(doc *registry.Document) error {
 		doc.Conversations = append(doc.Conversations, conv)
 		return nil
 	})
-	if err != nil {
-		s.mu.Unlock()
-		return ConversationView{}, err
-	}
 	l, err := s.liveLocked(conv.ID)
 	if err != nil {
 		s.mu.Unlock()
 		return ConversationView{}, err
 	}
-	if err := s.beginStartLocked(l); err != nil {
-		s.mu.Unlock()
-		return s.view(conv.ID), err
-	}
+	s.beginStartLocked(l)
 	s.mu.Unlock()
 	err = s.startRuntime(conv.ID, l, false, place, facts)
 	if err != nil {
@@ -190,10 +183,7 @@ func (s *Service) Prompt(conversationID, text string) error {
 		s.mu.Unlock()
 		return errNoSession
 	}
-	if err := s.beginStartLocked(l); err != nil {
-		s.mu.Unlock()
-		return err
-	}
+	s.beginStartLocked(l)
 	s.mu.Unlock()
 
 	place, facts, err := s.resolveForStart(conv, l)
@@ -243,10 +233,7 @@ func (s *Service) Start(conversationID string) error {
 		s.mu.Unlock()
 		return errNoSession
 	}
-	if err := s.beginStartLocked(l); err != nil {
-		s.mu.Unlock()
-		return err
-	}
+	s.beginStartLocked(l)
 	s.mu.Unlock()
 
 	place, facts, err := s.resolveForStart(conv, l)
@@ -312,12 +299,9 @@ func (s *Service) idleCheckLocked(conversationID string) (model.Conversation, *l
 }
 
 // beginStartLocked shows a start under way and holds off other starts until it ends. callers hold s.mu.
-func (s *Service) beginStartLocked(l *live) error {
-	if err := s.transition(l, &model.Event{Status: model.StatusStarting}, StateStarting, nil); err != nil {
-		return err
-	}
+func (s *Service) beginStartLocked(l *live) {
+	s.transition(l, &model.Event{Status: model.StatusStarting}, StateStarting, nil)
 	l.busy = true
-	return nil
 }
 
 // startRuntime launches a runtime for the conversation, after
@@ -386,11 +370,8 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		if l.inc == inc {
 			l.inc = nil
 		}
-		if s.failedLaunch(l, err) {
-			if updateErr := s.updateConversation(conversationID, func(c *model.Conversation) { c.Runtime = model.RuntimeNone }); updateErr != nil {
-				dl.Errorf("recording that '%s' did not start: %v", conversationID, updateErr)
-			}
-		}
+		s.failedLaunch(l, err)
+		s.updateConversation(conversationID, func(c *model.Conversation) { c.Runtime = model.RuntimeNone })
 		s.mu.Unlock()
 		return err
 	}
@@ -414,21 +395,14 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 			// a request raised while launching died with the launch.
 			s.retireRequestsLocked(l)
 		}
-		// like an unrecorded stop, an unrecorded failure leaves the conversation
-		// recorded running, so a restart settles it rather than this run
-		// claiming what its log could not confirm.
-		if s.failedLaunch(l, err) {
-			if updateErr := s.updateConversation(conversationID, func(c *model.Conversation) { c.Runtime = model.RuntimeNone }); updateErr != nil {
-				dl.Errorf("recording that '%s' did not start: %v", conversationID, updateErr)
-			}
-		}
+		s.failedLaunch(l, err)
+		s.updateConversation(conversationID, func(c *model.Conversation) { c.Runtime = model.RuntimeNone })
 		return fmt.Errorf("starting runtime for '%s': %w", conversationID, err)
 	}
 	// a new session is the conversation's once the registry holds it, and
 	// only then: a conversation whose session is not recorded never gets one.
-	bindErr := error(nil)
 	if nativeID != "" {
-		bindErr = s.updateConversation(conversationID, func(c *model.Conversation) { c.NativeID = nativeID })
+		s.updateConversation(conversationID, func(c *model.Conversation) { c.NativeID = nativeID })
 	}
 	if l.inc != inc {
 		if refused != nil {
@@ -443,12 +417,6 @@ func (s *Service) startRuntime(conversationID string, l *live, idle bool, place 
 		// launching: recorded and stopped now, and no prompt follows.
 		s.beginStopLocked(l, refused)
 		return newError(CodeConflict, refused.Text)
-	}
-	if bindErr != nil {
-		// the conversation could not record its session, so it never holds
-		// one: stop the runtime rather than run one the registry does not know.
-		s.beginStopLocked(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("the session could not be recorded; stopping it: %v", bindErr)})
-		return bindErr
 	}
 	if s.closed {
 		s.beginStopLocked(l, &model.Event{Status: model.StatusStopping})
@@ -478,9 +446,7 @@ func (s *Service) prepareLaunchLocked(conv model.Conversation, l *live, env *mod
 	if !ok {
 		return nil, harness.Spec{}, nil, newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", conv.Harness))
 	}
-	if err := s.updateConversation(conv.ID, func(c *model.Conversation) { c.Runtime = model.RuntimeRunning }); err != nil {
-		return nil, harness.Spec{}, nil, err
-	}
+	s.updateConversation(conv.ID, func(c *model.Conversation) { c.Runtime = model.RuntimeRunning })
 	inc := &incarnation{exited: make(chan struct{}), launched: make(chan struct{})}
 	l.inc = inc
 	// the recorded request goes with every launch, so a release and a resume
@@ -516,10 +482,7 @@ func (s *Service) send(conversationID, text string) error {
 	}
 	uuid := registry.NewUUID()
 	ev := &model.Event{Kind: model.EventUser, Origin: model.OriginManaged, Text: text, NativeID: uuid}
-	if err := s.record(l, ev); err != nil {
-		s.mu.Unlock()
-		return err
-	}
+	s.record(l, ev)
 	s.beginTurnLocked(l, ev.At)
 	l.instructedAt = ev.At
 	s.changed()
@@ -534,11 +497,8 @@ func (s *Service) send(conversationID, text string) error {
 			if s.live[conversationID] == l && l.turnActive && l.turnStartedAt.Equal(ev.At) {
 				end := &model.Event{Kind: model.EventTurnEnd, Status: model.TurnError, Origin: model.OriginManaged, Text: fmt.Sprintf("the harness refused the prompt: %v", err)}
 				end.Turn = s.turnRecordLocked(l)
-				if recordErr := s.record(l, end); recordErr != nil {
-					dl.Errorf("%v", recordErr)
-				} else {
-					s.turnEndedLocked(l)
-				}
+				s.record(l, end)
+				s.turnEndedLocked(l)
 			}
 			s.mu.Unlock()
 		}
@@ -572,15 +532,9 @@ func (s *Service) Answer(conversationID, requestID string, answer harness.Answer
 		s.mu.Unlock()
 		return newError(CodeNotPending, fmt.Sprintf("request '%s' is not pending", requestID))
 	}
-	if l.reserved[requestID] == answerInFlight {
+	if l.answering[requestID] {
 		s.mu.Unlock()
 		return newError(CodeConflict, fmt.Sprintf("request '%s' is already being answered", requestID))
-	}
-	if _, settled := l.unrecorded(requestID); settled {
-		// answered, or settled by the harness, and still listed only because
-		// that could not be recorded: the harness holds it no more.
-		s.mu.Unlock()
-		return newError(CodeNotPending, fmt.Sprintf("request '%s' was settled, but that could not be recorded, so it is shown as last recorded and takes no further answer", requestID))
 	}
 	if l.runtime == nil {
 		// raised while its runtime is still launching: nothing can carry an
@@ -601,7 +555,7 @@ func (s *Service) Answer(conversationID, requestID string, answer harness.Answer
 	}
 	// the request stays listed until its resolution is recorded, reserved
 	// against a second answer meanwhile.
-	l.reserved[requestID] = answerInFlight
+	l.answering[requestID] = true
 	rt := l.runtime
 	s.mu.Unlock()
 
@@ -609,43 +563,32 @@ func (s *Service) Answer(conversationID, requestID string, answer harness.Answer
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// the request is settled once: as the harness settled it while the answer
-	// was on its way, if it did and that could not be recorded, else by the
-	// answer's result.
+	// the request is settled once, by the answer's result, unless the harness
+	// settled it while the answer was on its way.
 	listed := slices.ContainsFunc(l.pending, func(r *model.Request) bool { return r.ID == requestID })
-	outcome, settled := l.unrecorded(requestID)
-	if !settled {
-		delete(l.reserved, requestID)
-		if errors.Is(err, harness.ErrInvalidAnswer) {
-			// refused without settling: the request is still pending, and a
-			// fitting answer or a dismissal still reaches it.
-			return newError(CodeInvalid, err.Error())
-		}
+	delete(l.answering, requestID)
+	if errors.Is(err, harness.ErrInvalidAnswer) {
+		// refused without settling: the request is still pending, and a
+		// fitting answer or a dismissal still reaches it.
+		return newError(CodeInvalid, err.Error())
+	}
+	if listed {
+		outcome := model.OutcomeAborted
 		switch {
 		case err == nil:
 			outcome = model.OutcomeAnswered
 		case errors.Is(err, harness.ErrUnconfirmed):
 			outcome = model.OutcomeUnconfirmed
-		default:
-			outcome = model.OutcomeAborted
 		}
-	}
-	var recordErr error
-	if listed {
-		recordErr = s.settleLocked(l, req, outcome)
+		s.settleLocked(l, req, outcome)
 	}
 	switch {
 	case err == nil:
-		// taken: one whose settlement cannot be recorded says so.
-		return recordErr
-	case recordErr != nil:
-		dl.Errorf("%v", recordErr)
-	}
-	switch {
+		return nil
 	case errors.Is(err, harness.ErrUnconfirmed):
 		// sent, and never confirmed: the operator is told in its words.
 		return newError(CodeHarnessFailed, err.Error())
-	case listed && !settled && !errors.Is(err, harness.ErrNotPending):
+	case listed && !errors.Is(err, harness.ErrNotPending):
 		return fmt.Errorf("delivering answer to '%s': %w", conversationID, err)
 	}
 	// the harness settled it first, for example on an interrupt, or the
@@ -653,31 +596,18 @@ func (s *Service) Answer(conversationID, requestID string, answer harness.Answer
 	return newError(CodeNotPending, fmt.Sprintf("request '%s' was settled before the answer arrived", requestID))
 }
 
-// answerInFlight reserves a request whose answer is on its way to the
-// harness. otherwise a reservation is the outcome of a settlement that
-// could not be recorded yet (live.unrecorded).
-const answerInFlight = "in flight"
-
 // settleLocked is the one move of a request out of the pending set, for an
 // answer and for the harness's own settlement alike: it records the
-// resolution and only then takes the request out. one whose resolution
-// cannot be recorded stays listed, as the last confirmed state, and nothing
-// is broadcast, as after any durability fault; but the harness holds it no
-// more, so it is never answerable again: an answer gets not_pending without
-// reaching the harness, and its outcome is kept for the runtime's retirement
-// to record. an interrupt under way with no turn running ends once the
-// harness holds no request: nothing is left for it to stop. callers hold s.mu.
-func (s *Service) settleLocked(l *live, req *model.Request, outcome string) error {
-	if err := s.resolve(l, req, outcome); err != nil {
-		l.reserved[req.ID] = outcome
-		return err
-	}
+// resolution and then takes the request out. an interrupt under way with no
+// turn running ends once no request is pending: nothing is left for it to
+// stop. callers hold s.mu.
+func (s *Service) settleLocked(l *live, req *model.Request, outcome string) {
+	s.resolve(l, req, outcome)
 	l.takePending(req.ID)
-	if !l.turnActive && !l.holdsRequests() {
+	if !l.turnActive && len(l.pending) == 0 {
 		l.interrupting = false
 	}
 	s.changed()
-	return nil
 }
 
 func validateAnswer(req *model.Request, answer *harness.Answer) error {
@@ -731,10 +661,10 @@ func (s *Service) Interrupt(conversationID string) error {
 		s.mu.Unlock()
 		return newError(CodeConflict, "the conversation has no runtime")
 	}
-	// an interrupt with a turn, or a request the harness still holds, to stop
-	// is under way while either is outstanding: until the turn ends, the
-	// harness holds no request with no turn running, or the runtime exits.
-	if l.turnActive || l.holdsRequests() {
+	// an interrupt with a turn, or a pending request, to stop is under way
+	// while either is outstanding: until the turn ends, no request is pending
+	// with no turn running, or the runtime exits.
+	if l.turnActive || len(l.pending) > 0 {
 		l.interrupting = true
 		s.changed()
 	}
@@ -803,21 +733,17 @@ func (s *Service) Resume(conversationID string) error {
 	return nil
 }
 
-// markUnreadLocked advances the unread marker to seq, as a confirmed registry
-// write that memory follows. callers hold s.mu.
-func (s *Service) markUnreadLocked(l *live, seq int64, at time.Time) error {
-	err := s.updateConversation(l.id, func(c *model.Conversation) {
+// markUnreadLocked advances the unread marker to seq, as a registry write that
+// memory follows. callers hold s.mu.
+func (s *Service) markUnreadLocked(l *live, seq int64, at time.Time) {
+	s.updateConversation(l.id, func(c *model.Conversation) {
 		if seq > c.OutputSeq {
 			c.OutputSeq = seq
 		}
 	})
-	if err != nil {
-		return err
-	}
 	if conv, err := s.conversationLocked(l.id); err == nil && conv.OutputSeq == seq {
 		l.outputAt = at
 	}
-	return nil
 }
 
 // Events returns the conversation's recorded events after seq.
@@ -958,9 +884,8 @@ func (s *Service) RemoveConversation(id string) error {
 // busyReasonLocked says why a conversation cannot be removed, or returns "" if
 // it can. a conversation with a runtime in any state is refused: starting,
 // running, stopping, or unsupervised, since an orphan from before a
-// restart may still be working. a stop the log could not record leaves the
-// conversation recorded running, and that is refused too until a restart
-// settles it. the reason reads after the conversation's name. callers hold s.mu.
+// restart may still be working. the reason reads after the conversation's
+// name. callers hold s.mu.
 func (s *Service) busyReasonLocked(conv model.Conversation) string {
 	l := s.live[conv.ID]
 	switch {

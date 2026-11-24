@@ -40,6 +40,9 @@ type Options struct {
 	// search reaches (config path_search.directories), absolute. none keeps
 	// the search to the checkout.
 	SearchDirs []string
+	// Exit ends the process at the first write to the record, the registry
+	// or an event log, that fails, given why. it does not return. required.
+	Exit func(reason error)
 }
 
 // Workspace is the arrangement as the service last confirmed it.
@@ -73,6 +76,8 @@ type Service struct {
 	// failRecord, when a test sets it, runs before each event is appended and
 	// fails the append with what it returns. it runs under s.mu.
 	failRecord func(*model.Event) error
+	// exit ends the process at a failed write (Options.Exit).
+	exit func(reason error)
 	// shutdownDone: an orderly Shutdown has finished, which Close announces.
 	shutdownDone bool
 
@@ -126,7 +131,11 @@ type Service struct {
 // returning: requests that were pending are resolved lost, and conversations
 // whose runtime was not seen to exit become unsupervised.
 func New(reg *registry.Registry, opts Options) (*Service, error) {
+	if opts.Exit == nil {
+		return nil, errors.New("the service needs a way to exit at a failed write")
+	}
 	s := &Service{
+		exit:        opts.Exit,
 		reg:         reg,
 		isUntrusted: opts.IsUntrusted,
 		logPath:     opts.EventLogPath,
@@ -339,29 +348,41 @@ func (s *Service) Subscribe() *Subscription {
 }
 
 // update writes through the registry and announces the confirmed change.
-// callers hold s.mu. a registry whose durability is uncertain refuses the write
-// as unavailable rather than as an internal fault, since it has already logged
-// the condition once. nothing was confirmed, so nothing is announced.
+// callers hold s.mu. it returns fn's own refusal, with nothing written, and
+// refuses every write once the service has closed. a write that fails never
+// returns: it ends the process (failed).
 func (s *Service) update(fn func(*registry.Document) error) error {
 	if s.logsClosed {
 		// closed: the data directory may already be the next instance's, so
 		// nothing more is written, whatever was still in flight.
 		return newError(CodeUnavailable, "the service has closed; nothing more is written")
 	}
-	if s.failUpdate != nil {
-		if err := s.failUpdate(); err != nil {
-			return err
+	var refused error
+	err := s.reg.Update(func(doc *registry.Document) error {
+		if refused = fn(doc); refused != nil {
+			return refused
 		}
-	}
-	err := s.reg.Update(fn)
-	if errors.Is(err, registry.ErrUncertain) {
-		return newError(CodeUnavailable, err.Error())
+		if s.failUpdate != nil {
+			return s.failUpdate()
+		}
+		return nil
+	})
+	if refused != nil {
+		return refused
 	}
 	if err != nil {
-		return err
+		s.failed(err)
 	}
 	s.publish(Update{WorkspaceChanged: true})
 	return nil
+}
+
+// failed is the one answer to a write to the record that failed: the process
+// ends there, as a crash would leave it, and the next start settles what it
+// left. nothing is stopped or told on the way out. it never returns.
+func (s *Service) failed(err error) {
+	s.exit(err)
+	panic(fmt.Sprintf("the exit at a failed write returned: %v", err))
 }
 
 // publish delivers to every subscriber without blocking. callers hold s.mu, so

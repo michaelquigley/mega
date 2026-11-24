@@ -278,7 +278,7 @@ func TestInterruptedFillIsAppliedOnceFromItsRecord(t *testing.T) {
 	r.svc.mu.Lock()
 	l, err := r.svc.liveLocked(conv.ID)
 	if err == nil {
-		err = r.svc.record(l, &model.Event{Kind: model.EventRuntime, Status: model.StatusChoiceFilled, Origin: model.OriginService, Text: filledFromReport, Facts: &model.RuntimeFacts{Model: "gpt-b", Effort: "low"}})
+		r.svc.record(l, &model.Event{Kind: model.EventRuntime, Status: model.StatusChoiceFilled, Origin: model.OriginService, Text: filledFromReport, Facts: &model.RuntimeFacts{Model: "gpt-b", Effort: "low"}})
 	}
 	r.svc.mu.Unlock()
 	if err != nil {

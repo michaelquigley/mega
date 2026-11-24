@@ -213,20 +213,15 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 	if _, err := s.liveLocked(conv.ID); err != nil {
 		return ConversationView{}, err
 	}
-	if err := s.update(func(doc *registry.Document) error {
+	s.update(func(doc *registry.Document) error {
 		doc.Conversations = append(doc.Conversations, conv)
 		return nil
-	}); err != nil {
-		// The rename may have survived even if its directory sync failed.
-		// Keep the complete log so either result is safe after restart.
-		s.live[conv.ID].log.Close()
-		delete(s.live, conv.ID)
-		return ConversationView{}, err
-	}
+	})
 	return s.viewLocked(conv), nil
 }
 
 // writeSnapshot completes the log before the conversation is published.
+// callers hold s.mu.
 func (s *Service) writeSnapshot(conv *model.Conversation, snapshot []*model.Event) error {
 	log, err := events.Open(s.logPath(conv.ID))
 	if err != nil {
@@ -240,9 +235,7 @@ func (s *Service) writeSnapshot(conv *model.Conversation, snapshot []*model.Even
 		}
 		ev = ev.Clone()
 		ev.Origin = model.OriginNative
-		if err := s.appendEvent(conv.ID, log, ev); err != nil {
-			return err
-		}
+		s.appendEvent(conv.ID, log, ev)
 		seen[ev.NativeID] = true
 	}
 	conv.ReadSeq = log.LastSeq()

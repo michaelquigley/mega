@@ -6,8 +6,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/michaelquigley/df/dl"
-
 	"github.com/michaelquigley/mega/internal/events"
 	"github.com/michaelquigley/mega/internal/harness"
 	"github.com/michaelquigley/mega/internal/model"
@@ -81,9 +79,8 @@ type ConversationView struct {
 // and nowhere else: it dies with the runtime and is never rebuilt from the log.
 //
 // two kinds of state live here. state, turnActive, facts and pending are what
-// browsers see, and change only once the event behind them is recorded. runtime,
-// inc, busy and releasing describe the process and the operations on it, and
-// follow the process whether or not the log could record anything.
+// browsers see, and change once the event behind them is recorded. runtime,
+// inc, busy and releasing describe the process and the operations on it.
 type live struct {
 	id        string
 	log       *events.Log
@@ -118,7 +115,7 @@ type live struct {
 	facts        *model.RuntimeFacts
 	pending      []*model.Request
 	pendingAt    map[string]time.Time // when each pending request was recorded
-	reserved     map[string]string    // listed requests no answer may reach: answerInFlight, or a settled outcome not yet recorded
+	answering    map[string]bool      // listed requests whose answer is on its way to the harness
 	interrupting bool                 // an interrupt has begun, and a turn or a request is still outstanding
 
 	// fault follows whether the last runtime ended badly or failed to launch.
@@ -189,7 +186,7 @@ func (s *Service) liveLocked(conversationID string) (*live, error) {
 		log.Close()
 		return nil, err
 	}
-	l := &live{id: conversationID, log: log, seen: make(map[string]bool), pendingAt: make(map[string]time.Time), reserved: make(map[string]string)}
+	l := &live{id: conversationID, log: log, seen: make(map[string]bool), pendingAt: make(map[string]time.Time), answering: make(map[string]bool)}
 	var outputSeq int64
 	if conv, err := s.conversationLocked(conversationID); err == nil {
 		outputSeq = conv.OutputSeq
@@ -234,36 +231,37 @@ func (l *live) hasRecorded(ev *model.Event) bool {
 
 // record appends an event and announces it. an event whose native identity is
 // already in the log is skipped, including an echo of a snapshot message. callers hold s.mu.
-func (s *Service) record(l *live, ev *model.Event) error {
+func (s *Service) record(l *live, ev *model.Event) {
 	if l.hasRecorded(ev) {
-		return nil
+		return
 	}
 	if ev.Origin == "" {
 		ev.Origin = model.OriginService
 	}
-	if err := s.appendEvent(l.id, l.log, ev); err != nil {
-		return err
-	}
+	s.appendEvent(l.id, l.log, ev)
 	if ev.NativeID != "" {
 		l.seen[ev.NativeID] = true
 	}
 	s.publish(Update{ConversationID: l.id, Event: ev})
-	return nil
 }
 
-func (s *Service) appendEvent(id string, log *events.Log, ev *model.Event) error {
+// appendEvent writes one event to a log. once the service has closed nothing
+// more is written, as update refuses, whatever was still in flight. a write
+// that fails never returns: it ends the process (failed). callers hold s.mu.
+func (s *Service) appendEvent(id string, log *events.Log, ev *model.Event) {
+	if s.logsClosed {
+		return
+	}
+	var err error
 	if s.failRecord != nil {
-		if err := s.failRecord(ev); err != nil {
-			return fmt.Errorf("recording event for '%s': %w", id, err)
-		}
+		err = s.failRecord(ev)
 	}
-	if err := log.Append(ev); err != nil {
-		if errors.Is(err, events.ErrUncertain) {
-			return newError(CodeUnavailable, err.Error())
-		}
-		return fmt.Errorf("recording event for '%s': %w", id, err)
+	if err == nil {
+		err = log.Append(ev)
 	}
-	return nil
+	if err != nil {
+		s.failed(fmt.Errorf("recording event for '%s': %w", id, err))
+	}
 }
 
 // changed tells subscribers to re-read the workspace after a change that lives
@@ -273,23 +271,17 @@ func (s *Service) changed() {
 }
 
 // transition is the only way the displayed runtime state changes. it records
-// the runtime event first, and only once that succeeds shows the new state,
-// applies apply (which may be nil) and announces the change. an unrecorded
-// transition leaves the last confirmed state showing; whatever the caller does
-// to the process goes ahead regardless, and a restart settles what the log
-// could not record. callers hold s.mu.
-func (s *Service) transition(l *live, ev *model.Event, state string, apply func()) error {
+// the runtime event first, then shows the new state, applies apply (which may
+// be nil) and announces the change. callers hold s.mu.
+func (s *Service) transition(l *live, ev *model.Event, state string, apply func()) {
 	ev.Kind = model.EventRuntime
-	if err := s.record(l, ev); err != nil {
-		return err
-	}
+	s.record(l, ev)
 	l.state = state
 	l.noteRuntime(ev.Status)
 	if apply != nil {
 		apply()
 	}
 	s.changed()
-	return nil
 }
 
 // noteRuntime follows the runtime fault for attention, in recording order.
@@ -303,31 +295,19 @@ func (l *live) noteRuntime(status string) {
 }
 
 // failedLaunch records a launch that failed, whatever failed, as one error.
-// like every transition it is shown only once recorded: if the log cannot
-// record it, the last confirmed starting stays on screen and the log's sticky
-// refusal of later writes says a restart is needed. it reports whether the
-// failure was recorded. callers hold s.mu.
-func (s *Service) failedLaunch(l *live, reason error) bool {
-	ev := &model.Event{Status: model.StatusError, Text: fmt.Sprintf("the launch failed: %s", recordable(reason))}
-	if err := s.transition(l, ev, "", nil); err != nil {
-		dl.Errorf("%v", err)
-		return false
-	}
-	return true
+// callers hold s.mu.
+func (s *Service) failedLaunch(l *live, reason error) {
+	s.transition(l, &model.Event{Status: model.StatusError, Text: fmt.Sprintf("the launch failed: %s", recordable(reason))}, "", nil)
 }
 
 // beginStopLocked asks the current runtime to stop, once: interrupt if work or
-// a request is outstanding, then close input. the stopping state is shown only
-// if its event is recorded, but the process is stopped either way, because a
-// storage fault must never trap a running agent. callers hold s.mu.
+// a request is outstanding, then close input. callers hold s.mu.
 func (s *Service) beginStopLocked(l *live, ev *model.Event) {
 	if l.runtime == nil || l.releasing {
 		return
 	}
 	l.releasing = true
-	if err := s.transition(l, ev, StateStopping, nil); err != nil {
-		dl.Errorf("stopping '%s' could not be recorded; stopping it anyway: %v", l.id, err)
-	}
+	s.transition(l, ev, StateStopping, nil)
 	go releaseRuntime(l.runtime, l.turnActive || len(l.pending) > 0)
 }
 
@@ -434,24 +414,6 @@ func recordedAttention(conv model.Conversation) string {
 // new session, once.
 var errNoSession = newError(CodeConflict, "this conversation has no recorded session, so mega will not launch it; remove it, and if the harness made a session, adopt it under 'Adopt a session'")
 
-// unrecorded is the outcome the harness settled a request with, if that
-// could not be recorded yet: the request stays listed, as last confirmed,
-// but no answer reaches it. callers hold s.mu.
-func (l *live) unrecorded(requestID string) (string, bool) {
-	state := l.reserved[requestID]
-	return state, state != "" && state != answerInFlight
-}
-
-// holdsRequests is whether the harness still holds any pending request: one
-// it settled is no longer the harness's to settle or an interrupt's to stop.
-// callers hold s.mu.
-func (l *live) holdsRequests() bool {
-	return slices.ContainsFunc(l.pending, func(r *model.Request) bool {
-		_, settled := l.unrecorded(r.ID)
-		return !settled
-	})
-}
-
 // takePending removes a request from the pending set. callers hold s.mu.
 func (l *live) takePending(requestID string) (*model.Request, bool) {
 	i := slices.IndexFunc(l.pending, func(r *model.Request) bool { return r.ID == requestID })
@@ -461,25 +423,17 @@ func (l *live) takePending(requestID string) (*model.Request, bool) {
 	req := l.pending[i]
 	l.pending = slices.Delete(l.pending, i, i+1)
 	delete(l.pendingAt, requestID)
-	delete(l.reserved, requestID)
+	delete(l.answering, requestID)
 	return req, true
 }
 
 // resolve records a request's resolution. callers hold s.mu.
-func (s *Service) resolve(l *live, req *model.Request, outcome string) error {
-	return s.record(l, &model.Event{
+func (s *Service) resolve(l *live, req *model.Request, outcome string) {
+	s.record(l, &model.Event{
 		Kind: model.EventRequestResolved,
 		Text: outcome,
 		Req:  &model.Request{ID: req.ID, Kind: req.Kind, Outcome: outcome},
 	})
-}
-
-// resolveOrLog records a resolution where no one is waiting on the result.
-// callers hold s.mu.
-func (s *Service) resolveOrLog(l *live, req *model.Request, outcome string) {
-	if err := s.resolve(l, req, outcome); err != nil {
-		dl.Errorf("%v", err)
-	}
 }
 
 // conversationLocked finds a recorded conversation. callers hold s.mu.
@@ -492,7 +446,9 @@ func (s *Service) conversationLocked(id string) (model.Conversation, error) {
 	return model.Conversation{}, newError(CodeNotFound, fmt.Sprintf("no conversation '%s'", id))
 }
 
-// updateConversation changes one recorded conversation. callers hold s.mu.
+// updateConversation changes one recorded conversation. it refuses only a
+// conversation that does not exist, and any write once the service has
+// closed. callers hold s.mu.
 func (s *Service) updateConversation(id string, fn func(*model.Conversation)) error {
 	return s.update(func(doc *registry.Document) error {
 		i := slices.IndexFunc(doc.Conversations, func(c model.Conversation) bool { return c.ID == id })
@@ -524,9 +480,8 @@ func (k *sink) relays() bool {
 }
 
 // Event records what the runtime reported. a transition the browser sees (a
-// turn starting or ending, the runtime's facts) takes effect only once its
-// event is recorded, so a log that cannot confirm it leaves the last confirmed
-// view standing.
+// turn starting or ending, the runtime's facts) takes effect once its event
+// is recorded.
 func (k *sink) Event(ev *model.Event) {
 	s := k.s
 	s.mu.Lock()
@@ -554,10 +509,7 @@ func (k *sink) Event(ev *model.Event) {
 		// the turn's own record of what it asked for and ran with.
 		ev.Turn = s.turnRecordLocked(l)
 	}
-	if err := s.record(l, ev); err != nil {
-		dl.Errorf("%v", err)
-		return
-	}
+	s.record(l, ev)
 	switch ev.Kind {
 	case model.EventUser, model.EventAssistant, model.EventToolUse, model.EventToolResult:
 		// a user message the runtime reports opens a turn too. output the
@@ -587,9 +539,7 @@ func (k *sink) Event(ev *model.Event) {
 		case ev.AfterTurn && ev.Seq > 0 && !l.turnActive:
 			// output of a turn that has already ended: unread at once, as a
 			// turn's end would make it.
-			if err := s.markUnreadLocked(l, ev.Seq, ev.At); err != nil {
-				dl.Errorf("recording the output of '%s': %v", l.id, err)
-			}
+			s.markUnreadLocked(l, ev.Seq, ev.At)
 		case l.turnActive && ev.Seq > 0:
 			l.turnOutput, l.turnOutputAt = ev.Seq, ev.At
 		}
@@ -609,17 +559,14 @@ func (s *Service) turnEndedLocked(l *live) {
 
 // endTurnLocked makes the ended turn's newest agent output the conversation's
 // OutputSeq, so it reads as unread. the registry is the record: memory follows
-// only a confirmed write. a turn with no agent output changes nothing.
-// callers hold s.mu.
+// the write. a turn with no agent output changes nothing. callers hold s.mu.
 func (s *Service) endTurnLocked(l *live) {
 	seq, at := l.turnOutput, l.turnOutputAt
 	l.turnOutput, l.turnOutputAt = 0, time.Time{}
 	if seq == 0 {
 		return
 	}
-	if err := s.markUnreadLocked(l, seq, at); err != nil {
-		dl.Errorf("recording the output of '%s': %v", l.id, err)
-	}
+	s.markUnreadLocked(l, seq, at)
 }
 
 // started shows the runtime running once it reports the session it holds, and
@@ -676,9 +623,7 @@ func (k *sink) started(ev *model.Event) {
 	if l.releasing || l.refused != nil {
 		state = l.state
 	}
-	if err := s.transition(l, ev, state, func() { l.facts = facts }); err != nil {
-		dl.Errorf("%v", err)
-	}
+	s.transition(l, ev, state, func() { l.facts = facts })
 }
 
 // MCPServers replaces the runtime's list of MCP servers. like background
@@ -741,10 +686,7 @@ func (k *sink) Delta(text string) {
 	}
 }
 
-// Request makes a request answerable only once its event is recorded. one the
-// log cannot record never joins the pending set: no card offers it, nothing
-// answers it on the operator's behalf, and the harness keeps waiting until an
-// interrupt or release aborts it.
+// Request makes a request answerable once its event is recorded.
 func (k *sink) Request(kind string, payload any) string {
 	s := k.s
 	s.mu.Lock()
@@ -758,10 +700,7 @@ func (k *sink) Request(kind string, payload any) string {
 	// pending set keeps the service's.
 	published := req.Clone()
 	recorded := &model.Event{Kind: model.EventRequest, Origin: model.OriginManaged, Text: kind, Req: &published}
-	if err := s.record(l, recorded); err != nil {
-		dl.Errorf("request '%s' for '%s' could not be recorded and is not answerable: %v", req.ID, l.id, err)
-		return req.ID
-	}
+	s.record(l, recorded)
 	l.pending = append(l.pending, req)
 	l.pendingAt[req.ID] = recorded.At
 	s.changed()
@@ -775,17 +714,12 @@ func (k *sink) Resolved(requestID, outcome string) {
 	if !k.current() {
 		return
 	}
-	// the resolution leaves the pending set only once it is recorded. one that
-	// cannot be recorded stays listed, and an answer to it reaches the runtime,
-	// which refuses it as no longer pending.
 	l := k.l
 	i := slices.IndexFunc(l.pending, func(r *model.Request) bool { return r.ID == requestID })
 	if i < 0 {
 		return
 	}
-	if err := s.settleLocked(l, l.pending[i], outcome); err != nil {
-		dl.Errorf("%v", err)
-	}
+	s.settleLocked(l, l.pending[i], outcome)
 }
 
 // Exited settles everything the runtime left: its pending requests are
@@ -794,13 +728,6 @@ func (k *sink) Resolved(requestID, outcome string) {
 // released with no turn in flight has stopped as asked even if it reports a
 // failure status: claude 2.1.318 exits 1 when input closes after an
 // interrupted turn. the status is kept in the text.
-//
-// the dead process is always let go. if the stop cannot be recorded, the view
-// keeps its last confirmed state and nothing is announced: requests whose abort
-// was not recorded stay listed, and take no further answer, so none reaches a
-// runtime that replaces this one (retireRequestsLocked), and the conversation
-// stays recorded running, so a restart
-// reports it unsupervised rather than claiming a stop it never confirmed.
 func (k *sink) Exited(err error) {
 	s := k.s
 	s.mu.Lock()
@@ -812,7 +739,7 @@ func (k *sink) Exited(err error) {
 	l := k.l
 	released := l.releasing
 	l.runtime, l.inc, l.releasing = nil, nil, false
-	confirmed := s.retireRequestsLocked(l)
+	s.retireRequestsLocked(l)
 	ev := &model.Event{Status: model.StatusStopped}
 	switch {
 	case errors.Is(err, harness.ErrLeftRunning):
@@ -837,46 +764,24 @@ func (k *sink) Exited(err error) {
 	case err != nil:
 		ev.Status, ev.Text = model.StatusError, fmt.Sprintf("the runtime exited: %v", err)
 	}
-	if !confirmed {
-		dl.Errorf("the stop of '%s' could not be recorded; it stays recorded running", l.id)
-		return
-	}
-	if err := s.transition(l, ev, "", func() {
+	s.transition(l, ev, "", func() {
 		l.turnActive, l.turnStartedAt, l.facts, l.background = false, time.Time{}, nil, nil
 		l.mcp, l.mcpReported = nil, false
 		l.turnAsked, l.turnRan = model.TurnSettings{}, nil
 		l.interrupting = false
-	}); err != nil {
-		dl.Errorf("the stop of '%s' could not be recorded; it stays recorded running: %v", l.id, err)
-		return
-	}
+	})
 	// the turn ended with its runtime: what it had produced is counted now,
 	// as a turn's end would count it, and nothing is left for a later turn.
 	s.endTurnLocked(l)
-	if err := s.updateConversation(l.id, func(c *model.Conversation) { c.Runtime = model.RuntimeNone }); err != nil {
-		dl.Errorf("recording that '%s' stopped: %v", l.id, err)
-	}
+	s.updateConversation(l.id, func(c *model.Conversation) { c.Runtime = model.RuntimeNone })
 }
 
 // retireRequestsLocked settles every request a runtime that has ended left
-// pending, through settleLocked: as aborted, or as the settlement that could
-// not be recorded before, so the history says what the operator was told.
-// one whose settlement cannot be recorded stays listed as last recorded, and
-// takes no further answer, so none reaches a runtime that replaces this one.
-// it reports whether every settlement was recorded. callers hold s.mu.
-func (s *Service) retireRequestsLocked(l *live) bool {
-	confirmed := true
+// pending as aborted, through settleLocked. callers hold s.mu.
+func (s *Service) retireRequestsLocked(l *live) {
 	for _, req := range slices.Clone(l.pending) {
-		outcome, settled := l.unrecorded(req.ID)
-		if !settled {
-			outcome = model.OutcomeAborted
-		}
-		if err := s.settleLocked(l, req, outcome); err != nil {
-			dl.Errorf("%v", err)
-			confirmed = false
-		}
+		s.settleLocked(l, req, model.OutcomeAborted)
 	}
-	return confirmed
 }
 
 // only is whether err is target alone: target itself, or errors joined whose

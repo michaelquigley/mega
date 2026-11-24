@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"slices"
 	"testing"
 	"time"
 
@@ -164,44 +163,9 @@ func TestAHistoryReadChecksTheEnvironmentItRunsIn(t *testing.T) {
 	}
 }
 
-// a request whose abort could not be recorded when its runtime exited stays
-// listed as last recorded, and takes no further answer: none reaches the
-// runtime that replaces it.
-func TestADeadRuntimesRequestTakesNoFurtherAnswer(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	id := rt.Ask(model.RequestPermission, map[string]any{"tool": "Bash", "input": map[string]any{"command": "echo"}})
-	r.svc.failRecord = func(ev *model.Event) error {
-		if ev.Kind == model.EventRequestResolved {
-			r.svc.failRecord = nil
-			return errors.New("the log could not be written")
-		}
-		return nil
-	}
-	rt.Exit(nil)
-	if pending := r.view(conv.ID).Pending; !slices.ContainsFunc(pending, func(req model.Request) bool { return req.ID == id }) {
-		t.Fatalf("an abort that could not be recorded hid the request: %+v", pending)
-	}
-	if err := r.svc.Start(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	next := r.fake.Last()
-	if next == rt {
-		t.Fatal("no new runtime")
-	}
-	reached := 0
-	next.OnAnswer(func() { reached++ })
-	wantCode(t, r.svc.Answer(conv.ID, id, harness.Answer{Decision: harness.DecisionDeny}), CodeNotPending)
-	if reached != 0 {
-		t.Errorf("an answer to the dead runtime's request reached its replacement %d times", reached)
-	}
-}
-
-// a turn's output whose unread marker the registry refused is counted at the
-// next start, from the log, which recorded it: the marker is derived from
-// the log, and nothing retries the write meanwhile.
+// a turn's output whose unread marker could not be written is counted at the
+// next start, from the log, which recorded it: the marker is derived from the
+// log.
 func TestAnUnreadMarkerTheRegistryRefusedIsReconciledAtStart(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
@@ -209,27 +173,17 @@ func TestAnUnreadMarkerTheRegistryRefusedIsReconciledAtStart(t *testing.T) {
 	started(rt)
 	r.readAll(conv.ID)
 	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "the answer", NativeID: "a-1"})
-	refused := 0
-	r.svc.failUpdate = func() error {
-		refused++
-		return errors.New("the registry could not be written")
-	}
-	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
-	r.svc.failUpdate = nil
-	if refused == 0 {
-		t.Fatal("the turn's end wrote nothing to the registry")
-	}
-	if view := r.view(conv.ID); view.OutputSeq != 0 {
-		t.Fatalf("the refused marker was kept: %d", view.OutputSeq)
-	}
-	if err := r.svc.Release(conv.ID); err != nil {
+	r.svc.failUpdate = func() error { return errors.New("the registry could not be written") }
+	reasons := exits(r.svc)
+	go rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	exited(t, reasons)
+	r.crashed()
+	if err := r.svc.Resume(conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the release", func() bool { return r.view(conv.ID).State == model.RuntimeNone })
-	r.restart()
 	out := seqOf(r.events(conv.ID), "a-1")
 	if view := r.view(conv.ID); view.OutputSeq != out || view.Attention != model.AttentionUnread {
-		t.Errorf("after the restart: output seq %d (want %d), attention %q", view.OutputSeq, out, view.Attention)
+		t.Errorf("after the next start: output seq %d (want %d), attention %q", view.OutputSeq, out, view.Attention)
 	}
 }
 
@@ -247,15 +201,13 @@ func TestLateOutputsMarkerIsRebuiltFromTheLog(t *testing.T) {
 	finishTurn(rt, "a-1", "done")
 	r.readAll(conv.ID)
 	r.svc.failUpdate = func() error { return errors.New("the registry could not be written") }
-	rt.Emit(&model.Event{Kind: model.EventToolResult, Text: "the background command finished", NativeID: "late-1", AfterTurn: true})
-	r.svc.failUpdate = nil
+	reasons := exits(r.svc)
+	go rt.Emit(&model.Event{Kind: model.EventToolResult, Text: "the background command finished", NativeID: "late-1", AfterTurn: true})
+	exited(t, reasons)
+	r.crashed() // nothing ends the turn the late output would open
 	late := seqOf(r.events(conv.ID), "late-1")
-	if late == 0 || r.view(conv.ID).OutputSeq == late {
-		t.Fatalf("the refused marker: late output %d, output seq %d", late, r.view(conv.ID).OutputSeq)
-	}
-	r.restart() // a crash: nothing ends the turn the late output would open
-	if view := r.view(conv.ID); view.OutputSeq != late {
-		t.Errorf("after the restart: output seq %d, want the late output's %d", view.OutputSeq, late)
+	if view := r.view(conv.ID); late == 0 || view.OutputSeq != late {
+		t.Errorf("after the next start: output seq %d, want the late output's %d", view.OutputSeq, late)
 	}
 }
 

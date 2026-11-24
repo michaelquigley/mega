@@ -203,9 +203,7 @@ func (s *Service) applyFillLocked(conversationID string, filled model.TurnSettin
 		Text:   source,
 		Facts:  &model.RuntimeFacts{Model: fill.Model, Effort: fill.Effort, PermissionMode: fill.Mode},
 	}
-	if err := s.record(l, ev); err != nil {
-		return fmt.Errorf("recording the fill of '%s': %w", conversationID, err)
-	}
+	s.record(l, ev)
 	return s.updateConversation(conversationID, func(c *model.Conversation) {
 		if c.Model == "" {
 			c.Model = fill.Model
@@ -248,7 +246,7 @@ func (s *Service) fillChoicesLocked() {
 		reported, earlier := lastReported(conv.Harness, evs)
 		if earlier != nil {
 			// a fill recorded before an interruption: applied again, recorded once.
-			if err := s.updateConversation(conv.ID, func(c *model.Conversation) {
+			s.updateConversation(conv.ID, func(c *model.Conversation) {
 				if c.Model == "" {
 					c.Model = earlier.Model
 				}
@@ -258,9 +256,7 @@ func (s *Service) fillChoicesLocked() {
 				if c.PermissionMode == "" {
 					c.PermissionMode = earlier.Mode
 				}
-			}); err != nil {
-				dl.Errorf("filling '%s' from its recorded fill: %v", conv.ID, err)
-			}
+			})
 			continue
 		}
 		if reported == (model.TurnSettings{}) {

@@ -98,8 +98,8 @@ func (s *Service) SetPermissionMode(conversationID, mode string) (ModeOutcome, e
 		// no runtime: the request is all there is to change, and no harness is
 		// asked. the operator's gesture is recorded as a mode_requested event,
 		// a request and never a report of what runs; the next launch's init is
-		// the report. a request the log cannot record is put back.
-		err := s.requestModeLocked(conversationID, conv.PermissionMode, mode, "the next launch passes it")
+		// the report.
+		err := s.requestModeLocked(conversationID, mode, "the next launch passes it")
 		s.mu.Unlock()
 		if err != nil {
 			return ModeOutcome{}, err
@@ -111,7 +111,7 @@ func (s *Service) SetPermissionMode(conversationID, mode string) (ModeOutcome, e
 	}
 	// the request is recorded and written before claude is asked, as with no
 	// runtime; claude's confirmation is its own mode_changed report.
-	if err := s.requestModeLocked(conversationID, conv.PermissionMode, mode, "asked of Claude"); err != nil {
+	if err := s.requestModeLocked(conversationID, mode, "asked of Claude"); err != nil {
 		s.mu.Unlock()
 		return ModeOutcome{}, err
 	}
@@ -134,44 +134,30 @@ func (s *Service) SetPermissionMode(conversationID, mode string) (ModeOutcome, e
 	}
 	// refused: the request goes back to what it was before, recorded as the
 	// request was.
-	if err := s.requestModeLocked(conversationID, mode, conv.PermissionMode, fmt.Sprintf("Claude refused %s, so the request goes back", mode)); err != nil {
-		dl.Errorf("putting back the requested permission mode of '%s': %v", conversationID, err)
-	}
+	s.requestModeLocked(conversationID, conv.PermissionMode, fmt.Sprintf("Claude refused %s, so the request goes back", mode))
 	return ModeOutcome{Outcome: ModeRefused, Message: switchErr.Error()}, nil
 }
 
 // requestModeLocked records and writes a requested mode, whether or not a
 // runtime runs, and when a refusal puts one back: a service-origin
-// mode_requested event first, then the registry, so the request is never
-// stored unrecorded. the event is a request, never a report of what runs.
+// mode_requested event first, then the registry, so the registry never holds
+// a request the log does not. the event is a request, never a report of what
+// runs.
 // interrupted between the two, the next start applies the request from its
-// event (settleModeRequestLocked). a registry write that fails is recorded
-// too, by a second event putting the request back, so the log's last word is
-// again what the registry holds. callers hold s.mu, across both writes.
-func (s *Service) requestModeLocked(conversationID, before, mode, text string) error {
+// event (settleModeRequestLocked). callers hold s.mu, across both writes.
+func (s *Service) requestModeLocked(conversationID, mode, text string) error {
 	l, err := s.liveLocked(conversationID)
 	if err != nil {
 		return err
 	}
-	requested := func(mode, text string) error {
-		return s.record(l, &model.Event{
-			Kind:   model.EventRuntime,
-			Status: model.StatusModeRequested,
-			Origin: model.OriginService,
-			Text:   text,
-			Facts:  &model.RuntimeFacts{PermissionMode: mode},
-		})
-	}
-	if err := requested(mode, text); err != nil {
-		return err
-	}
-	if err := s.updateConversation(conversationID, func(c *model.Conversation) { c.PermissionMode = mode }); err != nil {
-		if backErr := requested(before, "the request could not be stored, so it stays as it was"); backErr != nil {
-			return fmt.Errorf("the request was recorded but could not be stored; the next start applies it: %w", err)
-		}
-		return err
-	}
-	return nil
+	s.record(l, &model.Event{
+		Kind:   model.EventRuntime,
+		Status: model.StatusModeRequested,
+		Origin: model.OriginService,
+		Text:   text,
+		Facts:  &model.RuntimeFacts{PermissionMode: mode},
+	})
+	return s.updateConversation(conversationID, func(c *model.Conversation) { c.PermissionMode = mode })
 }
 
 // settleModeRequestLocked finishes a mode request a crash interrupted
@@ -196,27 +182,21 @@ func (s *Service) settleModeRequestLocked(conv model.Conversation, l *live) {
 	if mode == "" || mode == conv.PermissionMode || !slices.Contains(model.PermissionModes, mode) {
 		return
 	}
-	if err := s.updateConversation(conv.ID, func(c *model.Conversation) { c.PermissionMode = mode }); err != nil {
-		dl.Errorf("applying the recorded mode request of '%s': %v", conv.ID, err)
-		return
-	}
+	s.updateConversation(conv.ID, func(c *model.Conversation) { c.PermissionMode = mode })
 	dl.Infof("applied the mode request '%s' recorded for '%s' before the last stop", mode, conv.ID)
 }
 
 // harnessModeChanged records a permission mode the runtime reported, in the
 // order it reported them: a switch claude confirmed, early or late, or a
 // change claude made itself, such as leaving plan mode. it is the one writer
-// of the live mode, and like every transition it shows only once recorded; a
-// log that cannot record it keeps the last confirmed mode on screen. the
+// of the live mode, and like every transition it shows once recorded. the
 // recorded choice is left alone. callers hold s.mu.
 func (s *Service) harnessModeChanged(l *live, ev *model.Event) {
 	mode := ""
 	if ev.Facts != nil {
 		mode = ev.Facts.PermissionMode
 	}
-	if err := s.transition(l, ev, l.state, func() { l.setMode(mode) }); err != nil {
-		dl.Errorf("%v", err)
-	}
+	s.transition(l, ev, l.state, func() { l.setMode(mode) })
 }
 
 // setMode replaces the shown facts with a copy carrying mode, as the harness

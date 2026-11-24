@@ -4,9 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/michaelquigley/mega/internal/harness"
 	"github.com/michaelquigley/mega/internal/model"
@@ -29,41 +27,6 @@ func TestReleaseFencesTheRuntimeBeforeItReturns(t *testing.T) {
 	}
 	if rt.Fences() == 0 {
 		t.Error("Release returned before fencing the runtime")
-	}
-}
-
-// a request the harness settled, whose resolution could not be recorded,
-// stays listed as the last confirmed state, and nothing is broadcast, as
-// after any durability fault; but it is never answerable: no answer reaches
-// the harness.
-func TestAnUnrecordedSettlementLeavesNothingAnswerable(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	id := rt.Ask(model.RequestPermission, map[string]any{"tool": "Bash", "input": map[string]any{"command": "echo"}})
-	r.closeLog(conv.ID)
-	sub := r.svc.Subscribe()
-	defer sub.Close()
-	rt.Settle(id, model.OutcomeAborted)
-	select {
-	case update := <-sub.Updates():
-		t.Errorf("an unrecorded settlement was broadcast: %+v", update)
-	case <-time.After(100 * time.Millisecond):
-	}
-	view := r.view(conv.ID)
-	if !slices.ContainsFunc(view.Pending, func(req model.Request) bool { return req.ID == id }) {
-		t.Fatalf("the last confirmed request is gone: %+v", view.Pending)
-	}
-	reached := 0
-	rt.OnAnswer(func() { reached++ })
-	err := r.svc.Answer(conv.ID, id, harness.Answer{Decision: harness.DecisionDeny})
-	wantCode(t, err, CodeNotPending)
-	if err == nil || !strings.Contains(err.Error(), "could not be recorded") {
-		t.Errorf("the refusal does not say why: %v", err)
-	}
-	if reached != 0 {
-		t.Errorf("an answer to a settled request reached the harness %d times", reached)
 	}
 }
 
@@ -129,122 +92,27 @@ func TestAnUnconfirmedAnswerIsSettledOnceAndSaidSo(t *testing.T) {
 	}
 }
 
-// a settlement whose record failed keeps its outcome: when the runtime's exit
-// retires what is still listed, once the log takes appends again, it records
-// that outcome, not aborted, so the history says what the operator was told.
-func TestAnExitRecordsAnUnrecordedSettlementAsItWas(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	id := rt.Ask(model.RequestQuestion, map[string]any{"questions": []any{map[string]any{"question": "Which?", "options": []any{map[string]any{"label": "A"}}}}})
-	r.closeLog(conv.ID)
-	rt.Settle(id, model.OutcomeUnconfirmed)
-	if pending := r.view(conv.ID).Pending; len(pending) != 1 {
-		t.Fatalf("the unrecorded settlement is not listed as last confirmed: %+v", pending)
-	}
-	r.reopenLog(conv.ID)
-	rt.Exit(nil)
-	var outcomes []string
-	for _, ev := range r.events(conv.ID) {
-		if ev.Kind == model.EventRequestResolved && ev.Req.ID == id {
-			outcomes = append(outcomes, ev.Req.Outcome)
-		}
-	}
-	if !slices.Equal(outcomes, []string{model.OutcomeUnconfirmed}) {
-		t.Errorf("resolutions recorded: %v", outcomes)
-	}
-}
-
-// an answer the harness took, and settled itself, whose settlement cannot be
-// recorded is not reported delivered as if all were well: the caller hears
-// that it could not be recorded, and the request stays listed as last
-// confirmed, taking no further answer.
-func TestADeliveredAnswerWhoseSettlementIsNotRecordedSaysSo(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	id := rt.Ask(model.RequestQuestion, map[string]any{"questions": []any{map[string]any{"question": "Which?", "options": []any{map[string]any{"label": "A"}}}}})
-	rt.SettleAnswers(model.OutcomeAnswered, nil)
-	r.looked(conv.ID, id, `"question":"Which?"`)
-	rt.OnAnswer(func() { r.closeLog(conv.ID) })
-	if err := r.svc.Answer(conv.ID, id, harness.Answer{Answers: map[string]string{"Which?": "A"}}); err == nil {
-		t.Error("an answer whose settlement was not recorded is reported delivered")
-	}
-	if pending := r.view(conv.ID).Pending; len(pending) != 1 || pending[0].ID != id {
-		t.Errorf("the last confirmed request is gone: %+v", pending)
-	}
-	wantCode(t, r.svc.Answer(conv.ID, id, harness.Answer{Answers: map[string]string{"Which?": "A"}}), CodeNotPending)
-	if delivered := rt.Deliveries(); len(delivered) != 1 {
-		t.Errorf("delivered %d times", len(delivered))
-	}
-}
-
-// a settlement the harness reports while an answer is on its way, and that
-// could not be recorded, stands when the answer returns: it is recorded as
-// it was settled, not as the answer's own result, and the request takes no
-// further answer.
-func TestAnAnswerKeepsASettlementThatCrossedIt(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	id := rt.Ask(model.RequestQuestion, map[string]any{"questions": []any{map[string]any{"question": "Which?", "options": []any{map[string]any{"label": "A"}}}}})
-	rt.OnAnswer(func() {
-		rt.OnAnswer(nil)
-		r.closeLog(conv.ID)
-		rt.Settle(id, model.OutcomeExpired)
-		r.reopenLog(conv.ID)
-	})
-	r.looked(conv.ID, id, `"question":"Which?"`)
-	wantCode(t, r.svc.Answer(conv.ID, id, harness.Answer{Answers: map[string]string{"Which?": "A"}}), CodeNotPending)
-	var outcomes []string
-	for _, ev := range r.events(conv.ID) {
-		if ev.Kind == model.EventRequestResolved && ev.Req.ID == id {
-			outcomes = append(outcomes, ev.Req.Outcome)
-		}
-	}
-	if !slices.Equal(outcomes, []string{model.OutcomeExpired}) {
-		t.Errorf("resolutions recorded: %v", outcomes)
-	}
-	if pending := r.view(conv.ID).Pending; len(pending) != 0 {
-		t.Errorf("still listed: %+v", pending)
-	}
-}
-
-// a resume whose recovered output cannot be recorded unread stays
-// unsupervised and says so, so a retry counts it; it never clears the state
-// that would have counted it.
+// a resume whose acknowledgment cannot be written ends the process, and the
+// next start finds the conversation still unsupervised, to be resumed again.
 func TestAResumeThatCannotRecordAcknowledgmentStaysUnsupervised(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	finishTurn(r.fake.Last(), "a-1", "done")
 	r.readAll(conv.ID)
 	r.restart()
-	r.fake.SetHistory(conv.NativeID, []*model.Event{
-		{Kind: model.EventAssistant, Text: "done", NativeID: "a-1"},
-		{Kind: model.EventAssistant, Text: "finished unobserved", NativeID: "o-1"},
-	})
-	failed := false
-	r.svc.failUpdate = func() error {
-		if failed {
-			return nil
-		}
-		failed = true
-		return errors.New("the registry could not be written")
-	}
-	if err := r.svc.Resume(conv.ID); err == nil {
-		t.Error("a resume that could not record the acknowledgment reported success")
-	}
+	r.svc.failUpdate = func() error { return errors.New("the registry could not be written") }
+	reasons := exits(r.svc)
+	go r.svc.Resume(conv.ID)
+	exited(t, reasons)
+	r.crashed()
 	if view := r.view(conv.ID); view.Runtime != model.RuntimeUnsupervised {
-		t.Fatalf("after the failed resume: %q", view.Runtime)
+		t.Fatalf("after the next start: %q", view.Runtime)
 	}
 	if err := r.svc.Resume(conv.ID); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.attention(conv.ID); got != model.AttentionIdle {
-		t.Errorf("after the retry: %q", got)
+		t.Errorf("after the resume: %q", got)
 	}
 }
 

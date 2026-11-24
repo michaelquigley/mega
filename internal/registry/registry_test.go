@@ -160,14 +160,6 @@ func TestWriteFailureLeavesMemoryAndFileAlone(t *testing.T) {
 	if string(before) != string(after) {
 		t.Error("file changed on a failed write")
 	}
-
-	// a failure before the rename changed nothing, so a retry is honest.
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := add("p2"); err != nil {
-		t.Fatalf("retry after a failure before the rename was refused: %v", err)
-	}
 }
 
 func TestUpdateLeavesNoTempFiles(t *testing.T) {
@@ -228,29 +220,25 @@ func TestNewIDIsDirectorySafeAndDistinct(t *testing.T) {
 	}
 }
 
-func TestFailedDirectorySyncAfterRenameIsSticky(t *testing.T) {
+// a directory sync that fails after the rename is returned, and memory keeps
+// the last confirmed document, though the file may already hold the change.
+func TestAFailedDirectorySyncIsReturned(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "registry.yaml")
 	reg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	addProject := func(id string) error {
-		return reg.Update(func(d *Document) error {
-			d.Projects = append(d.Projects, model.Project{ID: id, Name: id, Checkout: "/tmp/" + id})
-			return nil
-		})
-	}
-
 	ioErr := errors.New("input/output error")
 	syncDir = func(string) error { return ioErr }
 	t.Cleanup(func() { syncDir = durable.SyncDir })
 
-	err = addProject("p1")
-	if !errors.Is(err, ErrUncertain) || !errors.Is(err, ioErr) {
-		t.Fatalf("expected ErrUncertain wrapping the sync error, got %v", err)
+	err = reg.Update(func(d *Document) error {
+		d.Projects = append(d.Projects, model.Project{ID: "p1", Name: "p1", Checkout: "/tmp/p1"})
+		return nil
+	})
+	if !errors.Is(err, ioErr) {
+		t.Fatalf("expected the sync error, got %v", err)
 	}
-	// the rename landed but was never confirmed, so memory keeps the last
-	// confirmed document while the file may already hold the change.
 	if doc := reg.Snapshot(); len(doc.Projects) != 0 {
 		t.Fatalf("memory advanced past an unconfirmed write: %+v", doc)
 	}
@@ -260,22 +248,6 @@ func TestFailedDirectorySyncAfterRenameIsSticky(t *testing.T) {
 	}
 	if len(onDisk.Snapshot().Projects) != 1 {
 		t.Fatalf("file does not hold the renamed document")
-	}
-
-	// a working sync does not lift the refusal; only a restart does.
-	syncDir = durable.SyncDir
-	if err := addProject("p2"); !errors.Is(err, ErrUncertain) {
-		t.Fatalf("later update was not refused: %v", err)
-	}
-	if doc := reg.Snapshot(); len(doc.Projects) != 0 {
-		t.Errorf("refused update changed memory: %+v", doc)
-	}
-	again, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(again.Snapshot().Projects) != 1 {
-		t.Errorf("refused update changed the file")
 	}
 }
 

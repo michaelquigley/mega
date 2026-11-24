@@ -11,7 +11,6 @@ import (
 	"slices"
 
 	"github.com/michaelquigley/df/dd"
-	"github.com/michaelquigley/df/dl"
 
 	"github.com/michaelquigley/mega/internal/durable"
 	"github.com/michaelquigley/mega/internal/model"
@@ -41,20 +40,15 @@ func (d *Document) clone() *Document {
 	}
 }
 
-// ErrUncertain marks a registry that no longer accepts changes because one
-// landed on disk without its directory sync succeeding.
-var ErrUncertain = errors.New("registry durability uncertain after a failed directory sync, restart required")
-
-// syncDir is a variable so a test can force the one failure that leaves the
-// file changed.
+// syncDir is a variable so a test can force the failure that leaves the file
+// changed.
 var syncDir = durable.SyncDir
 
 // Registry is the on-disk authority for projects and conversations. it is not
 // safe for concurrent use; the service is its only caller and serializes access.
 type Registry struct {
-	path      string
-	doc       *Document
-	uncertain error
+	path string
+	doc  *Document
 }
 
 // Load reads the registry at path. a missing file is an empty registry and is
@@ -76,19 +70,12 @@ func (r *Registry) Snapshot() *Document {
 }
 
 // Update applies fn to a copy and writes the result. the in-memory state only
-// advances once the file is durable, so what callers read is always what a
-// restart would read.
-//
-// a failure before the rename leaves the file and memory as they were, and a
-// retry is honest. a failure of the directory sync after the rename is not: the
-// file may hold a change that was never confirmed. memory keeps the last
-// confirmed document and reads continue, but every later update is refused with
-// ErrUncertain so nothing builds on an uncertain base until a restart reads
-// whatever reached the disk.
+// advances once the file and the directory naming it are synced, so what
+// callers read is always what a restart would read. an error from fn is
+// returned as it is, with nothing written. a write that fails returns its
+// error and decides nothing more: after a failed directory sync the file may
+// hold the change, and what follows is the caller's to decide.
 func (r *Registry) Update(fn func(*Document) error) error {
-	if r.uncertain != nil {
-		return r.uncertain
-	}
 	next := r.doc.clone()
 	if err := fn(next); err != nil {
 		return err
@@ -97,9 +84,7 @@ func (r *Registry) Update(fn func(*Document) error) error {
 		return fmt.Errorf("writing registry '%s': %w", r.path, err)
 	}
 	if err := syncDir(filepath.Dir(r.path)); err != nil {
-		r.uncertain = fmt.Errorf("%w: '%s': %w", ErrUncertain, r.path, err)
-		dl.Errorf("%v", r.uncertain)
-		return r.uncertain
+		return fmt.Errorf("syncing the directory of registry '%s': %w", r.path, err)
 	}
 	r.doc = next
 	return nil

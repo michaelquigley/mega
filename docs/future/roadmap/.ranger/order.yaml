@@ -14,17 +14,28 @@ horizon:
   - hand-off-between-conversations.md
   - re-entry-briefing.md
   - updating-harnesses-from-mega.md
+  - a-directory-mega-creates-may-not-be-synced.md
+  - dfw-window-mode.md
+  - harness-session-names.md
+  - retired-conversations.md
 researching:
   - simplify-the-core.md
+  - reads-after-the-service-closes.md
+  - the-dialogs-suite-crashes-on-a-first-full-run.md
+  - a-copied-event-shares-its-turn-record.md
+  - a-service-test-writes-the-registry-behind-the-service.md
   - unread-is-output-beyond-where-you-have-read.md
   - a-turn-is-inferred-from-a-message.md
-  - a-failed-write-stops-mega.md
+  - codex-interrupt-while-a-turn-is-starting.md
   - reading-the-workspace-starts-nothing.md
   - one-route-for-recorded-history.md
   - the-page-has-one-value-for-where-it-stands.md
   - one-kit-under-the-adapters.md
+  - an-answer-racing-a-release-retires-a-live-pi-dialog.md
   - one-fold-for-what-happened.md
   - the-registry-records-no-runtime-state.md
+  - adoption-reaches-any-session-in-the-checkout.md
+  - an-older-log-is-read-as-todays-build-reads-it.md
   - harden-requests-stops-and-restarts.md
   - answering-a-question-moves-the-last-instructed-pointer.md
   - keyboard-shortcut-pop-open.md
@@ -37,11 +48,12 @@ researching:
   - project-mcp-servers-and-hooks-run-without-approval.md
   - codex-approval-policy.md
   - codex-discovery-e2e-reads-its-own-thread.md
-  - reads-after-the-service-closes.md
   - mega-on-macos-and-windows.md
 evaluating:
+  - a-failed-write-stops-mega.md
   - release-only-stops-a-runtime.md
   - a-conversation-gets-its-session-once.md
+  - a-first-launch-holds-nothing-back.md
   - megas-history-may-have-a-gap.md
   - a-codex-question-is-a-message.md
   - a-model-switch-on-an-idle-runtime-is-untested.md

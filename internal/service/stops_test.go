@@ -2,7 +2,6 @@ package service
 
 import (
 	"errors"
-	"slices"
 	"testing"
 
 	"github.com/michaelquigley/mega/internal/harness"
@@ -103,25 +102,6 @@ func TestAnAnswerHidesNoRequest(t *testing.T) {
 	if len(rt.Deliveries()) != 1 || len(r.view(conv.ID).Pending) != 0 {
 		t.Errorf("deliveries %+v, pending %+v", rt.Deliveries(), r.view(conv.ID).Pending)
 	}
-
-	// an answer whose resolution cannot be recorded leaves the request listed.
-	rt.OnAnswer(nil)
-	unrecorded := rt.Ask(model.RequestPermission, map[string]any{"tool": "Bash", "input": map[string]any{"command": "echo again"}})
-	r.closeLog(conv.ID)
-	if err := r.svc.Answer(conv.ID, unrecorded, harness.Answer{Decision: harness.DecisionDeny}); err == nil {
-		t.Error("an unrecorded answer reported success")
-	}
-	if pending := r.view(conv.ID).Pending; !slices.ContainsFunc(pending, func(req model.Request) bool { return req.ID == unrecorded }) {
-		t.Errorf("an answer that could not be recorded hid its request: %+v", pending)
-	}
-	// listed, it is never answerable again: the harness has it no more, and a
-	// second answer never reaches it.
-	reached := 0
-	rt.OnAnswer(func() { reached++ })
-	wantCode(t, r.svc.Answer(conv.ID, unrecorded, harness.Answer{Decision: harness.DecisionDeny}), CodeNotPending)
-	if reached != 0 {
-		t.Errorf("a second answer to a delivered request reached the harness %d times", reached)
-	}
 }
 
 // an interrupt is under way while a turn or a request is outstanding. one
@@ -155,31 +135,6 @@ func TestAnInterruptEndsWhenNothingIsLeftOutstanding(t *testing.T) {
 	rt.Settle(after, model.OutcomeUnconfirmed)
 	if view := r.view(conv.ID); view.Interrupting || len(view.Pending) != 0 {
 		t.Errorf("with nothing left outstanding, an interrupt is still shown under way: interrupting %v, pending %+v", view.Interrupting, view.Pending)
-	}
-}
-
-// a request the harness has settled, whose record failed, stays listed as
-// last confirmed but is no longer the harness's to stop: with no turn running
-// and only such a request listed, an interrupt is not shown under way, since
-// nothing would ever end it.
-func TestAnInterruptHasNothingToStopInARequestTheHarnessSettled(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	finishTurn(rt, "a-1", "done")
-	id := rt.Ask(model.RequestQuestion, map[string]any{"questions": []any{map[string]any{"question": "Which?", "options": []any{map[string]any{"label": "A"}}}}})
-	r.closeLog(conv.ID)
-	rt.Settle(id, model.OutcomeUnconfirmed)
-	if err := r.svc.Interrupt(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	view := r.view(conv.ID)
-	if view.Interrupting {
-		t.Error("an interrupt with nothing to stop is shown under way")
-	}
-	if len(view.Pending) != 1 || view.Pending[0].ID != id {
-		t.Errorf("the last confirmed request is gone: %+v", view.Pending)
 	}
 }
 

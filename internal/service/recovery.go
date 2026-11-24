@@ -16,8 +16,8 @@ import (
 // conversation still recorded running was never seen to exit, so it becomes
 // unsupervised until the operator resumes it. native history is not imported
 // here, because an orphaned runtime may still be writing. the unread marker
-// is derived from the log, which is the record: a marker the registry
-// refused when a turn ended is counted here, from the turn the log holds.
+// is derived from the log, which is the record: a marker a crash kept from
+// the registry when a turn ended is counted here, from the turn the log holds.
 func (s *Service) recover() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -33,22 +33,18 @@ func (s *Service) recover() error {
 		if err != nil {
 			return err
 		}
-		if err := s.loseUnresolvedLocked(l, evs); err != nil {
-			return err
-		}
+		s.loseUnresolvedLocked(l, evs)
 		if seq, at := finishedOutput(evs); seq > conv.OutputSeq {
 			outputs[conv.ID] = seq
 			l.outputAt = at
 		}
 		if conv.Runtime == model.RuntimeRunning {
 			if !lostSinceStart(evs) {
-				if err := s.record(l, &model.Event{
+				s.record(l, &model.Event{
 					Kind:   model.EventRuntime,
 					Status: model.StatusUnsupervised,
 					Text:   "the service restarted without seeing this runtime exit; supervision is lost and execution is uncertain",
-				}); err != nil {
-					return err
-				}
+				})
 			}
 			orphaned = append(orphaned, conv.ID)
 		}
@@ -56,7 +52,7 @@ func (s *Service) recover() error {
 	if len(orphaned) == 0 && len(outputs) == 0 {
 		return nil
 	}
-	return s.update(func(doc *registry.Document) error {
+	s.update(func(doc *registry.Document) error {
 		for i := range doc.Conversations {
 			c := &doc.Conversations[i]
 			if slices.Contains(orphaned, c.ID) {
@@ -68,6 +64,7 @@ func (s *Service) recover() error {
 		}
 		return nil
 	})
+	return nil
 }
 
 // lostSinceStart covers a restart between writing an unsupervised line and
@@ -136,7 +133,7 @@ func finishedOutput(evs []*model.Event) (int64, time.Time) {
 // loseUnresolvedLocked resolves every request the log shows without a
 // resolution. this reads history only to close it out; the pending set itself
 // is never rebuilt from the log. callers hold s.mu.
-func (s *Service) loseUnresolvedLocked(l *live, evs []*model.Event) error {
+func (s *Service) loseUnresolvedLocked(l *live, evs []*model.Event) {
 	var open []*model.Request
 	for _, ev := range evs {
 		if ev.Req == nil {
@@ -150,15 +147,8 @@ func (s *Service) loseUnresolvedLocked(l *live, evs []*model.Event) error {
 		}
 	}
 	for _, req := range open {
-		if err := s.record(l, &model.Event{
-			Kind: model.EventRequestResolved,
-			Text: model.OutcomeLost,
-			Req:  &model.Request{ID: req.ID, Kind: req.Kind, Outcome: model.OutcomeLost},
-		}); err != nil {
-			return err
-		}
+		s.resolve(l, req, model.OutcomeLost)
 	}
-	return nil
 }
 
 // Shutdown releases every runtime the way a release does and waits, until ctx

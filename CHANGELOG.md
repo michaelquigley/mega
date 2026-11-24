@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+CHANGE: **A write mega cannot make stops mega.** (2026-11-24) When the registry or a conversation's log cannot be written, mega logs why and exits at once, as if it had crashed. It no longer runs on refusing changes until a restart. Nothing is stopped on the way out: an agent at work goes on unwatched, and the page shows mega as unreachable, with the reason in mega's log. The next start treats it as the start after a crash. A conversation that was running is Unsupervised, and a request that was waiting is lost. A failed configuration snapshot still stops nothing.
+
 CHANGE: **Release only stops a runtime.** (2026-11-24) Its confirmation says the runtime stops and that the next prompt or Start brings the conversation back on the same session. It no longer offers a command to continue the session in a terminal, or advice about closing one. Mega does not support working a session outside it while a conversation holds it, and neither marks nor shows work done there: leave the session alone outside mega to keep it intact in mega. To bring work done outside into mega, remove the conversation and adopt its session again.
 
 CHANGE: **A conversation whose first launch failed is not launched again.** (2026-11-23) Whatever failed, the launch records one error, and a prompt or Start is refused with a message to remove the conversation and, if the harness made a session, adopt it under "Adopt a session". Before, a launch proven to have failed before any session existed could be retried in the same conversation. A conversation whose session never reached the registry is treated the same way: its session is no longer resumed, and can be adopted when discovery lists it. A failed launch of a conversation that has a session is recorded as an error, where before it could say "did not start", and can be launched again as before.
@@ -26,15 +28,13 @@ FIX: **A turn's line names what that turn ran with, even when output from the tu
 
 FIX: **Late Codex output from a turn this runtime saw end no longer opens a turn.** (2026-11-20) The adapter now recognizes it. With no turn active it counts as unread at once, as a background command's output does, where before it opened a turn nothing would end. Arriving during the next turn, it is not taken for that turn's work: a late tool call shows no spinner, and neither a late message nor text streamed for its turn touches the streaming reply. Output from a turn the runtime never saw end, such as one that ended before a resume, is not yet recognized.
 
-FIX: **A request whose settlement mega could not write down is recorded as it was settled when its runtime ends.** (2026-11-20) It was recorded as aborted, whatever the operator had been told.
-
 FIX: **An interrupt no longer stays shown under way once nothing is left to stop.** (2026-11-20) Pressed with no turn running while a request was still being settled, as a Codex answer awaiting its reply, it stayed shown until the next prompt.
 
 FIX: **Nothing starts once a shutdown has begun, or in an environment file that changed while it was read.** (2026-11-19) A launch checks again after the version check. Adoption checks before reading native history. A shutdown that began meanwhile refuses it, and a shutdown waits for a launch already under way. An environment file changed meanwhile refuses it with `environment_changed`, as an edit before the start always did.
 
 FIX: **A conversation's unread output is no longer lost to a failed registry write.** (2026-11-19) When a turn's end could not record its output as unread, the output stayed read for good. mega now counts it from the conversation's log at its next start, including the output of a Codex background command that finishes after its turn.
 
-FIX: **An answer to a request whose runtime has ended is refused.** (2026-11-19) A request left by a runtime that ended, whose abort could not be recorded, now takes no further answer, so none reaches the runtime that replaces it. A request Codex or pi settles while its answer is on the way is now shown as settled, not answered.
+FIX: **A request Codex or pi settles while its answer is on the way is shown as settled, not answered.** (2026-11-19)
 
 FIX: **Another session's history or output never reaches a conversation.** (2026-11-19) A history read back from Claude Code, Codex or pi is refused if it holds another session than the one asked for, and Codex output for another thread is left, even before Codex has confirmed which thread it opened.
 
@@ -44,7 +44,7 @@ FIX: **Releasing a Claude conversation now says when something it started is lef
 
 FIX: **A refused prompt no longer leaves a conversation working.** (2026-11-19) When Codex or pi refuses a prompt outright, the turn mega opened for it now ends, saying why, and the next prompt is taken. A runtime that turns out to be on another session than its conversation's no longer adds anything to that conversation before it is stopped, and a Claude runtime is checked at every report, not only its first, and a Codex command still running is no longer imported as a failed result.
 
-FIX: **A wrong answer to a pi dialog no longer removes the dialog.** (2026-11-19) An answer pi refuses, such as a choice it did not offer, is now refused with its reason and the dialog stays, to be answered properly or dismissed. A request mega could not record as settled stays on the page as it was last recorded, and an answer to it is refused, saying that the settlement could not be recorded.
+FIX: **A wrong answer to a pi dialog no longer removes the dialog.** (2026-11-19) An answer pi refuses, such as a choice it did not offer, is now refused with its reason and the dialog stays, to be answered properly or dismissed.
 
 FIX: **An answer no longer lets work go on after you stop a turn.** (2026-11-19) Once you have pressed Interrupt or Release, Allow, Allow for the session, and an answer to a question, pi's dialogs included, are held on the card and refused by mega, saying the turn is stopping. Deny and Dismiss still work, so an interrupt pi holds for a dialog still ends when you dismiss it. Codex can no longer start a turn from an answer just after a stop.
 

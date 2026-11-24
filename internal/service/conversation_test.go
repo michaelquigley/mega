@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michaelquigley/mega/internal/events"
 	"github.com/michaelquigley/mega/internal/harness"
 	"github.com/michaelquigley/mega/internal/harness/harnesstest"
 	"github.com/michaelquigley/mega/internal/model"
@@ -47,6 +46,13 @@ func newRig(t *testing.T) *rig {
 func (r *rig) restart() {
 	r.t.Helper()
 	r.svc.Close()
+	r.svc = newService(r.t, r.path, allTrusted, r.fake)
+}
+
+// crashed starts another service over the same registry and logs after the
+// last one ended at a failed write (exits), which is never closed.
+func (r *rig) crashed() {
+	r.t.Helper()
 	r.svc = newService(r.t, r.path, allTrusted, r.fake)
 }
 
@@ -623,191 +629,11 @@ func TestDuplicateNativeIdentityIsRecordedOnce(t *testing.T) {
 	}
 }
 
-func TestUnrecordedRequestIsNotAnswerable(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	r.svc.mu.Lock()
-	r.svc.live[conv.ID].log.Close() // the next append fails
-	r.svc.mu.Unlock()
-	id := rt.Ask(model.RequestPermission, nil)
-	if pending := r.view(conv.ID).Pending; len(pending) != 0 {
-		t.Errorf("an unrecorded request is pending: %+v", pending)
-	}
-	wantCode(t, r.svc.Answer(conv.ID, id, harness.Answer{Decision: harness.DecisionDeny}), CodeNotPending)
-	if len(rt.Deliveries()) != 0 {
-		t.Error("an unrecorded request was answered")
-	}
-}
-
-func TestUnrecordedTransitionsLeaveTheConfirmedView(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	r.svc.mu.Lock()
-	r.svc.live[conv.ID].log.Close() // every later append fails
-	r.svc.mu.Unlock()
-	started(rt)
-	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
-	view := r.view(conv.ID)
-	if !view.TurnActive || view.Facts != nil {
-		t.Errorf("unrecorded transitions changed the view: turn active %v, facts %+v", view.TurnActive, view.Facts)
-	}
-}
-
-func TestUnrecordedStopKeepsTheConfirmedViewAndRestartsUnsupervised(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	id := rt.Ask(model.RequestPermission, nil)
-	sub := r.svc.Subscribe()
-	defer sub.Close()
-	r.svc.mu.Lock()
-	r.svc.live[conv.ID].log.Close() // the abort and the stop cannot be recorded
-	r.svc.mu.Unlock()
-	rt.Exit(nil)
-
-	view := r.view(conv.ID)
-	if view.State != StateRunning || view.Runtime != model.RuntimeRunning || len(view.Pending) != 1 {
-		t.Errorf("view after an unrecorded stop = %+v", view)
-	}
-	select {
-	case update := <-sub.Updates():
-		t.Errorf("an unrecorded stop was announced: %+v", update)
-	default:
-	}
-	wantCode(t, r.svc.Answer(conv.ID, id, harness.Answer{Decision: harness.DecisionDeny}), CodeNotPending)
-	if len(rt.Deliveries()) != 0 {
-		t.Error("an answer reached a runtime that had exited")
-	}
-
-	r.restart()
-	if view := r.view(conv.ID); view.Runtime != model.RuntimeUnsupervised {
-		t.Errorf("after restart the conversation records %q", view.Runtime)
-	}
-}
-
 // closeLog makes every later append fail, as a degraded event log does.
 func (r *rig) closeLog(id string) {
 	r.svc.mu.Lock()
 	defer r.svc.mu.Unlock()
 	r.svc.live[id].log.Close()
-}
-
-// reopenLog gives a conversation its log back after closeLog, as a log whose
-// failed append was truncated back takes appends again.
-func (r *rig) reopenLog(id string) {
-	r.t.Helper()
-	r.svc.mu.Lock()
-	defer r.svc.mu.Unlock()
-	log, err := events.Open(r.svc.logPath(id))
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	r.svc.live[id].log = log
-}
-
-func TestUnrecordedReleaseStillStopsTheProcessOnce(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one") // the turn stays active, so a release interrupts
-	rt := r.fake.Last()
-	started(rt)
-	rt.HoldOnClose()
-	sub := r.svc.Subscribe()
-	defer sub.Close()
-	r.closeLog(conv.ID)
-
-	if err := r.svc.Release(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "input to close", rt.Closed)
-	if view := r.view(conv.ID); view.State != StateRunning {
-		t.Errorf("an unrecorded stopping changed the state to %q", view.State)
-	}
-	select {
-	case update := <-sub.Updates():
-		t.Errorf("an unrecorded stopping was announced: %+v", update)
-	default:
-	}
-
-	// neither a second release nor shutdown asks the process to stop again.
-	if err := r.svc.Release(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	r.svc.Shutdown(ctx)
-	time.Sleep(20 * time.Millisecond)
-	if n := rt.Interrupts(); n != 1 {
-		t.Errorf("the process was asked to stop %d times", n)
-	}
-	wantCode(t, r.svc.Prompt(conv.ID, "two"), CodeUnavailable)
-}
-
-func TestUnrecordedWrongSessionStillStopsTheRuntime(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	r.closeLog(conv.ID)
-	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: "someone-else"}})
-	waitFor(t, "the mismatched runtime to stop", rt.Exited)
-	if view := r.view(conv.ID); view.Facts != nil || view.State == StateRunning {
-		t.Errorf("the mismatched runtime was shown running: %+v", view)
-	}
-}
-
-func TestUnrecordedLaunchFailureKeepsStartingAndClearsBusy(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	finishTurn(rt, "a-1", "done")
-	if err := r.svc.Release(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the runtime to exit", rt.Exited)
-
-	r.svc.mu.Lock()
-	l := r.svc.live[conv.ID]
-	r.svc.mu.Unlock()
-	sub := r.svc.Subscribe()
-	defer sub.Close()
-	// the log breaks after starting is recorded and before the failure is: drop
-	// what was announced so far, then close it.
-	r.fake.OnLaunch(func() {
-		for len(sub.Updates()) > 0 {
-			<-sub.Updates()
-		}
-		l.log.Close()
-	})
-	r.fake.FailLaunch(errors.New("no node"))
-	launches := len(r.fake.Runtimes())
-
-	if err := r.svc.Prompt(conv.ID, "two"); err == nil {
-		t.Fatal("expected the launch to fail")
-	}
-	view := r.view(conv.ID)
-	if view.State != StateStarting {
-		t.Errorf("state = %q, want the last confirmed starting", view.State)
-	}
-	select {
-	case update := <-sub.Updates():
-		t.Errorf("an unrecorded launch failure was announced: %+v", update)
-	default:
-	}
-	r.svc.mu.Lock()
-	busy, runtime := l.busy, l.runtime
-	r.svc.mu.Unlock()
-	if busy || runtime != nil || len(r.fake.Runtimes()) != launches {
-		t.Errorf("busy %v, runtime %v, launches %d -> %d", busy, runtime, launches, len(r.fake.Runtimes()))
-	}
-
-	// the conversation stays recorded running, so a restart settles it.
-	r.fake.OnLaunch(nil)
-	r.restart()
-	if view := r.view(conv.ID); view.Runtime != model.RuntimeUnsupervised {
-		t.Errorf("after restart the conversation records %q", view.Runtime)
-	}
 }
 
 func TestDiscoverHidesAdoptedSessionsAndAdoptImportsWithoutRuntime(t *testing.T) {
@@ -936,35 +762,33 @@ func TestUserMessageFromTheRuntimeOpensATurn(t *testing.T) {
 	wantCode(t, r.svc.Prompt(conv.ID, "two"), CodeConflict)
 }
 
-// a first launch whose session could not be saved stops its runtime, and the
-// conversation never gets that session: it is refused, across a restart too,
-// and the session is offered for adoption.
+// a first launch whose session cannot be saved ends the process, and the
+// conversation never gets that session: the next start finds it unsupervised,
+// it is refused after a resume, and the session is offered for adoption.
 func TestAFirstLaunchWhoseSessionCannotBeSavedIsNeverLaunchedAgain(t *testing.T) {
 	r := newRig(t)
+	reasons := exits(r.svc)
 	r.fake.DuringLaunch(func(rt *harnesstest.Runtime) {
 		started(rt)
 		r.svc.mu.Lock()
 		r.svc.failUpdate = func() error { return errors.New("registry write failed") }
 		r.svc.mu.Unlock()
 	})
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unsaved", "one", LaunchChoice{})
-	if err == nil {
-		t.Fatal("the binding write should fail")
-	}
+	go r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unsaved", "one", LaunchChoice{})
+	exited(t, reasons)
 	rt := r.fake.Last()
-	waitFor(t, "the runtime to stop", rt.Exited)
+	sentNothing(t, rt)
 	r.fake.DuringLaunch(nil)
-	r.svc.mu.Lock()
-	r.svc.failUpdate = nil
-	r.svc.mu.Unlock()
-	if got := kinds(r.events(conv.ID)); !slices.Contains(got, "runtime:error") {
-		t.Errorf("events = %v", got)
+	r.crashed()
+	ws := r.svc.Workspace()
+	if len(ws.Conversations) != 1 || ws.Conversations[0].Runtime != model.RuntimeUnsupervised {
+		t.Fatalf("after the next start: %+v", ws.Conversations)
 	}
-	r.restart()
-	if err := r.svc.Resume(conv.ID); err != nil {
+	id := ws.Conversations[0].ID
+	if err := r.svc.Resume(id); err != nil {
 		t.Fatal(err)
 	}
-	r.sessionOnlyTheLogHolds(conv.ID, rt.NativeID())
+	r.sessionOnlyTheLogHolds(id, rt.NativeID())
 }
 
 // a session the log shows started and the registry does not hold, as after a
@@ -1018,41 +842,37 @@ func (r *rig) sessionOnlyTheLogHolds(id, session string) {
 	}
 }
 
-// both stores fail to keep the session a first launch created: the log
-// cannot record its start and the registry cannot bind it. after a restart and
-// a resume, the conversation must not start another session in its place.
+// a first launch whose binding write fails for real ends the process; after
+// the next start and a resume, the conversation is refused a prompt and no
+// fresh session takes the unkept one's place.
 func TestUnkeptSessionIsNeverReplacedAfterRestart(t *testing.T) {
 	r := newRig(t)
 	dir := filepath.Dir(r.path)
-	svc := r.svc
 	r.fake.OnLaunch(func() {
-		svc.mu.Lock()
-		for _, l := range svc.live {
-			l.log.Close()
-		}
-		svc.mu.Unlock()
 		if err := os.Chmod(dir, 0o500); err != nil {
 			t.Error(err)
 		}
 	})
 	t.Cleanup(func() { os.Chmod(dir, 0o700) })
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unkept", "one", LaunchChoice{})
-	if err == nil {
-		t.Skip("directory permissions are not enforced here")
-	}
-	first := r.fake.Last()
-	waitFor(t, "the unbindable runtime to stop", first.Exited)
+	reasons := exits(r.svc)
+	go r.svc.StartConversation(r.project.ID, model.HarnessClaude, "unkept", "one", LaunchChoice{})
+	exited(t, reasons)
 	r.fake.OnLaunch(nil)
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
-	r.restart()
+	r.crashed()
+	ws := r.svc.Workspace()
+	if len(ws.Conversations) != 1 {
+		t.Fatalf("conversations = %+v", ws.Conversations)
+	}
+	conv := ws.Conversations[0]
 	if err := r.svc.Resume(conv.ID); err != nil {
 		t.Fatal(err)
 	}
 	launches := len(r.fake.Runtimes())
-	err = r.svc.Prompt(conv.ID, "two")
+	err := r.svc.Prompt(conv.ID, "two")
 	wantCode(t, err, CodeConflict)
 	if err == nil || !strings.Contains(err.Error(), "Adopt a session") {
 		t.Errorf("refusal = %v", err)
@@ -1167,6 +987,8 @@ func TestRemoveConversationDropsItsLogAndFreesItsSession(t *testing.T) {
 	}
 }
 
+// a removal whose registry write fails ends the process before the log is
+// deleted: the next start still has the conversation and its history.
 func TestRemoveConversationKeepsItsLogWhenTheRegistryWriteFails(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
@@ -1182,15 +1004,16 @@ func TestRemoveConversationKeepsItsLogWhenTheRegistryWriteFails(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o700) })
 
-	if err := r.svc.RemoveConversation(conv.ID); err == nil {
-		t.Skip("directory permissions are not enforced here")
-	}
+	reasons := exits(r.svc)
+	go r.svc.RemoveConversation(conv.ID)
+	exited(t, reasons)
 	if _, err := os.Stat(filepath.Join(dir, "conversations", conv.ID, "events.jsonl")); err != nil {
 		t.Errorf("the log went with an unconfirmed removal: %v", err)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	r.crashed()
 	if evs := r.events(conv.ID); len(evs) == 0 {
 		t.Error("the conversation lost its history")
 	}
@@ -1209,16 +1032,8 @@ func TestRemoveProjectRefusedWhileAnyConversationHasARuntime(t *testing.T) {
 	}
 	wantCode(t, r.svc.RemoveProject(r.project.ID), CodeConflict) // stopping
 
-	// the stop cannot be recorded, so the conversation stays recorded running.
-	r.closeLog(conv.ID)
-	rt.Exit(nil)
-	waitFor(t, "the runtime to exit", rt.Exited)
-	if view := r.view(conv.ID); view.Runtime != model.RuntimeRunning {
-		t.Fatalf("runtime after an unrecorded stop = %q", view.Runtime)
-	}
-	wantCode(t, r.svc.RemoveProject(r.project.ID), CodeConflict)
-
-	// a restart settles it as unsupervised, which is refused until resumed.
+	// a restart before the stop is seen settles it as unsupervised, which is
+	// refused until resumed.
 	r.restart()
 	wantCode(t, r.svc.RemoveProject(r.project.ID), CodeConflict)
 	if err := r.svc.Resume(conv.ID); err != nil {

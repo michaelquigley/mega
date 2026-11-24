@@ -41,6 +41,7 @@ func TestTheServiceSnapshotsTheConfiguration(t *testing.T) {
 			Harnesses:    []harness.Harness{fake},
 			Resolver:     testResolver(t),
 			Snapshots:    store,
+			Exit:         func(reason error) { panic(reason) },
 		})
 		if err != nil {
 			t.Fatal(err)

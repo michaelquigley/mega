@@ -1,6 +1,6 @@
 ---
 title: a service test writes the registry behind the service
-state: inbox
+state: researching
 created: 2026-11-23
 tags: [defect]
 ---
@@ -14,3 +14,7 @@ The test calls `Registry.Update` itself while a goroutine the service started is
 `make test` does not run the race detector, so the gate does not see it. An implementer reported it twice on 2026-11-23 while building `a-first-launch-holds-nothing-back`, and the design agent reproduced it the same day.
 
 `reading-the-workspace-starts-nothing` is about these background resolutions, and its larger size removes some of them. The one a registration starts stays in both sizes, so this does not go away with that piece.
+
+## from 2026-11-24
+
+The implementer of `a-failed-write-stops-mega` met it again and measured it: the race detector reports it two runs in three on `4a962cd`. Two fixes in the test would do: take the service's lock around the write, or wait on the service's background work before it. A second card it captured for the same race, `a-service-test-races-with-background-resolution`, duplicates this one.

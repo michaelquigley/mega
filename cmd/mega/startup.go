@@ -113,6 +113,7 @@ func start(cfg *config.Config) (*instance, error) {
 		Snapshots:    snapshotStore(cfg),
 		SearchDirs:   cfg.PathSearch.Directories,
 		ProjectsRoot: cfg.ProjectsRoot,
+		Exit:         exitAtFailedWrite,
 	})
 	if err != nil {
 		lock.Release()
@@ -141,6 +142,15 @@ func (i *instance) stop() {
 	defer cancel()
 	i.svc.Shutdown(ctx)
 	i.svc.Close()
+}
+
+// exitAtFailedWrite ends mega at the first write to the record that fails,
+// the way a crash would leave things: no runtime is released, no page is
+// told, and the next start settles what this one left. the reason is in
+// mega's log.
+func exitAtFailedWrite(reason error) {
+	dl.Errorf("a write to the record failed, so mega exits now without stopping its runtimes: %v", reason)
+	os.Exit(1)
 }
 
 // release lets the data directory go once nothing more will be written.

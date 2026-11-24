@@ -61,6 +61,7 @@ func countingService(t *testing.T, path string, resolver *countingResolver, harn
 		EventLogPath: func(id string) string { return filepath.Join(logs, id, "events.jsonl") },
 		Harnesses:    harnesses,
 		Resolver:     resolver,
+		Exit:         func(reason error) { panic(reason) },
 	})
 	if err != nil {
 		t.Fatal(err)

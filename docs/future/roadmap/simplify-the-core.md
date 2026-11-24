@@ -42,6 +42,8 @@ One card each, in this order. Each names the failure it makes impossible.
 
 Then the full-tree review resumes on `harden-requests-stops-and-restarts`, and its count per pass is compared with five.
 
+**The order was changed on 2026-11-24.** `a-failed-write-stops-mega` is built first of what remains, ahead of piece 3, and was built that day. It depends on nothing, it removes about thirty branches that handle a failed write, and every later piece is simpler to write and to review once that question has one answer. The numbers above are kept, since the journal uses them.
+
 ## removals from the review of 2026-11-23
 
 Two pieces in, `internal/service` was the size it started at, and Michael asked for a review of the model, of what had landed, and of this plan. Its rulings are in `docs/future/simplify-the-core-inventory.md`. A removal it finds is a card of its own, built before the next numbered piece:

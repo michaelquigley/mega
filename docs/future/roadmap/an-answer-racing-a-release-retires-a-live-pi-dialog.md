@@ -1,6 +1,6 @@
 ---
 title: an answer racing a release retires a live pi dialog
-state: inbox
+state: researching
 created: 2026-11-23
 tags: [defect]
 ---

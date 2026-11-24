@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/michaelquigley/mega/internal/durable"
 	"github.com/michaelquigley/mega/internal/model"
 )
 
@@ -119,15 +120,17 @@ func TestReopenContinuesSeq(t *testing.T) {
 	}
 }
 
-func TestFailedAppendRollsBack(t *testing.T) {
+// a write that lands partly and fails is returned, and nothing of it is
+// confirmed: the seq stays, no read serves it, and a reopen drops what
+// reached the disk as a torn tail.
+func TestAFailedWriteIsReturnedAndNotConfirmed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	log := openLog(t, path)
 	appendTexts(t, log, "a")
 	sizeBefore := log.size
 
-	// a sync failure cannot be produced on a real descriptor, but it shares the
-	// write's rollback path. a file size limit just past the confirmed length
-	// makes the write land partly and then fail, while the truncate still works.
+	// a file size limit just past the confirmed length makes the write land
+	// partly and then fail.
 	signal.Ignore(syscall.SIGXFSZ)
 	t.Cleanup(func() { signal.Reset(syscall.SIGXFSZ) })
 	var limit syscall.Rlimit
@@ -143,82 +146,111 @@ func TestFailedAppendRollsBack(t *testing.T) {
 	if restoreErr := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &limit); restoreErr != nil {
 		t.Fatal(restoreErr)
 	}
-	if err == nil || errors.Is(err, ErrUncertain) {
-		t.Fatalf("expected an ordinary write failure, got %v", err)
+	if err == nil {
+		t.Fatal("a failed write was not returned")
 	}
-
 	if log.LastSeq() != 1 || log.size != sizeBefore || ev.Seq != 0 {
-		t.Fatalf("failed append advanced the log: last=%d size=%d seq=%d", log.LastSeq(), log.size, ev.Seq)
+		t.Fatalf("a failed append advanced the log: last=%d size=%d seq=%d", log.LastSeq(), log.size, ev.Seq)
 	}
-	if info, err := os.Stat(path); err != nil || info.Size() != sizeBefore {
-		t.Fatalf("partial write was not truncated back: %v %v", info, err)
+	if evs, err := log.Since(0); err != nil || !reflect.DeepEqual(texts(evs), []string{"a"}) {
+		t.Errorf("reads = %v, %v", texts(evs), err)
 	}
-	appendTexts(t, log, "b")
-	evs, err := log.Since(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := texts(evs); !reflect.DeepEqual(got, []string{"a", "b"}) || evs[1].Seq != 2 {
-		t.Errorf("got %v, second seq %d", got, evs[1].Seq)
+	log.Close()
+	if evs, err := openLog(t, path).Since(0); err != nil || !reflect.DeepEqual(texts(evs), []string{"a"}) {
+		t.Errorf("after a reopen = %v, %v", texts(evs), err)
 	}
 }
 
-func TestFailedRollbackIsSticky(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "events.jsonl")
-	log := openLog(t, path)
+// a sync that fails is returned as a write's failure is, and the event is not
+// confirmed, though its line reached the file.
+func TestAFailedSyncIsReturnedAndNotConfirmed(t *testing.T) {
+	log := openLog(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	appendTexts(t, log, "a")
-
-	// stand in for a write that landed before failing: a complete line past the
-	// confirmed length, which no read may serve.
-	other, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		t.Fatal(err)
+	syncFile = func(*os.File) error { return errors.New("injected sync failure") }
+	t.Cleanup(func() { syncFile = (*os.File).Sync })
+	ev := &model.Event{Kind: model.EventUser, Origin: model.OriginManaged, Text: "unconfirmed"}
+	if err := log.Append(ev); err == nil {
+		t.Fatal("a failed sync was not returned")
 	}
-	if _, err := other.WriteString(`{"seq":2,"kind":"user","origin":"managed","text":"unconfirmed"}` + "\n"); err != nil {
-		t.Fatal(err)
+	if log.LastSeq() != 1 || ev.Seq != 0 {
+		t.Fatalf("a failed sync advanced the log: last=%d seq=%d", log.LastSeq(), ev.Seq)
 	}
-	other.Close()
-
-	// a read-only descriptor fails both the write and the truncate.
-	writable := log.file
-	readOnly, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	log.file = readOnly
-	err = log.Append(&model.Event{Kind: model.EventUser, Origin: model.OriginManaged, Text: "lost"})
-	log.file = writable
-	readOnly.Close()
-	if !errors.Is(err, ErrUncertain) {
-		t.Fatalf("expected ErrUncertain, got %v", err)
-	}
-
-	evs, err := log.Since(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := texts(evs); !reflect.DeepEqual(got, []string{"a"}) {
-		t.Errorf("reads served past the confirmed length: %v", got)
-	}
-	if tail, err := log.Tail(5); err != nil || !reflect.DeepEqual(texts(tail), []string{"a"}) {
-		t.Errorf("tail = %v, %v", texts(tail), err)
-	}
-
-	// a working descriptor does not lift the refusal; only a reopen does.
-	if err := log.Append(&model.Event{Kind: model.EventUser, Text: "b"}); !errors.Is(err, ErrUncertain) {
-		t.Fatalf("later append was not refused: %v", err)
-	}
-	if log.LastSeq() != 1 {
-		t.Errorf("last seq = %d", log.LastSeq())
+	if evs, err := log.Since(0); err != nil || !reflect.DeepEqual(texts(evs), []string{"a"}) {
+		t.Errorf("reads served past the confirmed length: %v, %v", texts(evs), err)
 	}
 }
 
-func TestOpenCreatesNestedDirectories(t *testing.T) {
+// opening a log that does not exist writes nothing; its first append
+// creates it, nested directories and all, and once it is closed nothing
+// creates it again.
+func TestTheFirstAppendCreatesTheLog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "conversations", "c1", "events.jsonl")
 	log := openLog(t, path)
+	if _, err := os.Stat(filepath.Dir(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("opening wrote its directory: %v", err)
+	}
+	if evs, err := log.Since(0); err != nil || len(evs) != 0 || log.LastSeq() != 0 {
+		t.Errorf("an absent log reads %v, %v, last %d", texts(evs), err, log.LastSeq())
+	}
 	appendTexts(t, log, "a")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
+	}
+
+	unused := filepath.Join(filepath.Dir(path), "..", "c2", "events.jsonl")
+	closed := openLog(t, unused)
+	closed.Close()
+	if err := closed.Append(&model.Event{Kind: model.EventUser, Text: "late"}); err == nil {
+		t.Error("a closed log took an append")
+	}
+	if _, err := os.Stat(filepath.Dir(unused)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a closed log was created: %v", err)
+	}
+}
+
+// the first event syncs the directory naming the log, whether the append
+// created the file or found it empty, as a crash after its creation, or a
+// failed sync of its directory, leaves it; later events sync no directory.
+func TestTheFirstEventSyncsTheLogsDirectory(t *testing.T) {
+	var synced []string
+	syncDir = func(dir string) error { synced = append(synced, dir); return nil }
+	t.Cleanup(func() { syncDir = durable.SyncDir })
+
+	created := filepath.Join(t.TempDir(), "c1", "events.jsonl")
+	log := openLog(t, created)
+	appendTexts(t, log, "a", "b")
+	if !reflect.DeepEqual(synced, []string{filepath.Dir(created)}) {
+		t.Errorf("a created log synced %v", synced)
+	}
+
+	synced = nil
+	empty := filepath.Join(t.TempDir(), "events.jsonl")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	log = openLog(t, empty)
+	appendTexts(t, log, "a", "b")
+	if !reflect.DeepEqual(synced, []string{filepath.Dir(empty)}) {
+		t.Errorf("an empty log found at open synced %v", synced)
+	}
+}
+
+// a directory sync that fails confirms nothing and writes nothing, so the
+// next open finds the log still empty and its first event syncs again.
+func TestAFailedDirectorySyncConfirmsNothing(t *testing.T) {
+	syncDir = func(string) error { return errors.New("injected directory sync failure") }
+	t.Cleanup(func() { syncDir = durable.SyncDir })
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	log := openLog(t, path)
+	ev := &model.Event{Kind: model.EventUser, Origin: model.OriginManaged, Text: "unconfirmed"}
+	if err := log.Append(ev); err == nil {
+		t.Fatal("a failed directory sync was not returned")
+	}
+	if log.LastSeq() != 0 || ev.Seq != 0 {
+		t.Errorf("a failed directory sync advanced the log: last=%d seq=%d", log.LastSeq(), ev.Seq)
+	}
+	if info, err := os.Stat(path); err != nil || info.Size() != 0 {
+		t.Errorf("a failed directory sync left the file %v, %v; want it empty", info, err)
 	}
 }
 
@@ -335,7 +367,7 @@ func TestRemoveDeletesTheLogAndItsDirectory(t *testing.T) {
 	appendTexts(t, log, "one")
 	log.Close()
 	keep := filepath.Join(root, "conversations", "c2", "events.jsonl")
-	openLog(t, keep)
+	appendTexts(t, openLog(t, keep), "two")
 
 	if err := Remove(path); err != nil {
 		t.Fatal(err)

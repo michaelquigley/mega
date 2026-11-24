@@ -540,6 +540,7 @@ func newE2EServiceResolving(t *testing.T, h harness.Harness, resolver service.Re
 		Resolver:     resolver,
 		EventLogPath: func(id string) string { return filepath.Join(data, "conversations", id, "events.jsonl") },
 		Harnesses:    []harness.Harness{h},
+		Exit:         func(reason error) { panic(reason) }, // no write fails here
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -76,6 +76,7 @@ func trayService(t *testing.T) (*service.Service, *harnesstest.Harness, model.Pr
 	svc, err := service.New(reg, service.Options{
 		EventLogPath: func(id string) string { return filepath.Join(dir, "conversations", id, "events.jsonl") },
 		Harnesses:    []harness.Harness{fake},
+		Exit:         func(reason error) { panic(reason) }, // no write fails here
 	})
 	if err != nil {
 		t.Fatal(err)

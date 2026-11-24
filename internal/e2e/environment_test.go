@@ -143,6 +143,7 @@ func TestEachProjectRunsInItsOwnEnvironment(t *testing.T) {
 	svc, err := service.New(reg, service.Options{
 		EventLogPath: func(id string) string { return filepath.Join(data, "conversations", id, "events.jsonl") },
 		Harnesses:    []harness.Harness{newClaudeHarness(t), codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})},
+		Exit:         func(reason error) { panic(reason) }, // no write fails here
 	})
 	if err != nil {
 		t.Fatal(err)

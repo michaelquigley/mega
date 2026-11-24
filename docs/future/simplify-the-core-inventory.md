@@ -164,6 +164,27 @@ The canon was brought in step first: the transcript sentence left `exact-id-resu
 
 Still to review from the landed work: the rules for older logs under ruling 2, which wait on `adoption-reaches-any-session-in-the-checkout`.
 
+## The plan, reviewed
+
+Begun 2026-11-24, with the three removals built and `internal/service` at 6,419 non-test lines. Five questions, one at a time: the order, pieces 10 and 11, piece 9, piece 4, and where the small parked cards go.
+
+### P1. Piece 5 goes first (ruled 2026-11-24)
+
+Michael: "yes... let's go ahead and fix that next." `a-failed-write-stops-mega` is built ahead of piece 3. The service held about thirty branches that handle a failed write, two uncertain states, the mark for a settlement that could not be recorded, and fifteen tests named for one. The card settles one thing its first form left open: a failed write is met in one place, the service's two write wrappers, and the process is ended by a function `cmd/mega` supplies, so the stores still only return an error.
+
+**Built 2026-11-24.** `internal/service` is at 6,222 non-test lines, against 6,638 when the review began. Terminus raised one thing three times that this piece made visible: a command that finishes after `Close` changes memory and writes nothing. Michael left it for `reads-after-the-service-closes`, which is to be built next.
+
+### P2. The board, put in order (2026-11-24)
+
+Michael: "give the entire roadmap a pass... order anything that is unordered. feel free to propose the next item to build." Every card in a ranked lane now has a position, and the inbox is empty.
+
+- **Proposed next:** `reads-after-the-service-closes`, as "refuse the read". It removes the copy `Close` sets aside for late reads, and makes the finding terminus raised three times on piece 5 unreachable.
+- **Then three small defects,** which could go as one batch: the flaky `dialogs` suite, the shared turn record, and the test that writes the registry behind the service.
+- **Parked findings now have cards:** `a-copied-event-shares-its-turn-record` for the turn record, and `codex-interrupt-while-a-turn-is-starting` placed after piece 4, where its window lives. `an-answer-racing-a-release-retires-a-live-pi-dialog` sits after piece 9.
+- **Ruling 2 has its card,** `an-older-log-is-read-as-todays-build-reads-it`, placed after `adoption-reaches-any-session-in-the-checkout`, which it waits on.
+- **To horizon:** `a-directory-mega-creates-may-not-be-synced`, and three of Michael's own captures, tagged: `dfw-window-mode`, `harness-session-names` and `retired-conversations`.
+- **Pieces 9, 10 and 11 keep their old places** until the plan questions about them are answered.
+
 ## The gate
 
 Michael, 2026-11-23: "we also need to make sure the terminus canon is appropriately aligned, as we're getting pretty continuous `not_clean` results."

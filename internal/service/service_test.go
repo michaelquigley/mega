@@ -1,9 +1,11 @@
 package service
 
 import (
+	"fmt"
 	"github.com/michaelquigley/mega/internal/environ"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,14 +28,56 @@ func newService(t *testing.T, registryPath string, checker UntrustedChecker, har
 		EventLogPath: func(id string) string { return filepath.Join(logs, id, "events.jsonl") },
 		Harnesses:    harnesses,
 		Resolver:     testResolver(t),
+		// a test that means a write to fail says so (exits); any other is a
+		// fault in the test.
+		Exit: func(reason error) { panic(fmt.Sprintf("a write failed in a test that expects none: %v", reason)) },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(svc.Close)
+	t.Cleanup(func() {
+		if _, ended := ended.Load(svc); !ended {
+			svc.Close()
+		}
+	})
 	// the start-up work in the background settles before a test begins.
 	svc.background.Wait()
 	return svc
+}
+
+// ended holds each service a test has let end at a failed write: it is never
+// closed, as a process that ended is not.
+var ended sync.Map
+
+// exits stands in for the end of the process at a failed write, so a test
+// can watch it: the caller that met the failure stops there for good, holding
+// whatever it held, the service's lock included, so nothing in the service
+// that needs it goes on. the reason arrives on the channel returned. the
+// service is never closed after; a test goes on with a new one over the same
+// data (crashed).
+func exits(svc *Service) <-chan error {
+	reasons := make(chan error, 1)
+	ended.Store(svc, true)
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	svc.exit = func(reason error) {
+		reasons <- reason
+		select {}
+	}
+	return reasons
+}
+
+// exited waits for the process to end at a failed write, as exits watches
+// it, and returns why.
+func exited(t *testing.T, reasons <-chan error) error {
+	t.Helper()
+	select {
+	case reason := <-reasons:
+		return reason
+	case <-time.After(2 * time.Second):
+		t.Fatal("the service did not exit at the failed write")
+		return nil
+	}
 }
 
 func tempService(t *testing.T) *Service {
@@ -139,6 +183,7 @@ func TestRemoveLeavesCheckoutAndOtherProjectsAlone(t *testing.T) {
 	svc, err := New(reg, Options{
 		EventLogPath: func(id string) string { return filepath.Join(filepath.Dir(path), "conversations", id, "events.jsonl") },
 		Resolver:     testResolver(t),
+		Exit:         func(reason error) { panic(reason) },
 	})
 	if err != nil {
 		t.Fatal(err)
