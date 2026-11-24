@@ -282,20 +282,12 @@ func TestClaudeRoundTrip(t *testing.T) {
 	}
 	s.waitFor("the runtime to exit", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
 
-	// A transcript read after release leaves the timeline as recorded.
-	before, err := svc.Events(s.id, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.NativeTranscript(s.id); err != nil {
-		t.Fatal(err)
-	}
 	after, err := svc.Events(s.id, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(after) != len(before) || !after[len(after)-1].Gap {
-		t.Fatal("the transcript read changed the timeline or release left no gap")
+	if last := after[len(after)-1]; last.Status != model.StatusStopped {
+		t.Errorf("release ended with %s %q", last.Status, last.Text)
 	}
 	recorded := make(map[string]bool)
 	for _, ev := range after {
@@ -330,13 +322,13 @@ func TestClaudeRoundTrip(t *testing.T) {
 	t.Logf("session %s", conv.NativeID)
 }
 
-// TestClaudeInterruptedTurnRemainsUnchangedOnTranscriptRead interrupts a turn with an approval
-// pending, which is never answered, then releases, prompts a resumed run and
-// releases again. claude writes "No response requested." to its transcript
-// for the interrupted turn in that resumed run, and the live stream never
-// delivers it. The transcript view shows the known replies as assistant
-// speech. Opening it leaves the timeline and attention as they stood.
-func TestClaudeInterruptedTurnRemainsUnchangedOnTranscriptRead(t *testing.T) {
+// TestClaudeInterruptedTurnStaysOutOfSpeechOnAdoption interrupts a turn with
+// an approval pending, which is never answered, then releases, prompts a
+// resumed run and releases again. claude writes "No response requested." to
+// its transcript for the interrupted turn in that resumed run, and the live
+// stream never delivers it. Adopting the session again shows the known
+// replies as assistant speech, and that message as none.
+func TestClaudeInterruptedTurnStaysOutOfSpeechOnAdoption(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	h := newClaudeHarness(t)
 	svc := newE2EService(t, h)
@@ -379,18 +371,11 @@ func TestClaudeInterruptedTurnRemainsUnchangedOnTranscriptRead(t *testing.T) {
 	}
 	s.waitFor("the runtime to exit again", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
 
-	before := s.view()
-	messages, err := svc.NativeTranscript(s.id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	messages := s.replaceConversationByAdopting(project.ID, model.HarnessClaude, conv.NativeID)
 	var speech strings.Builder
 	for _, ev := range messages {
-		if ev.Kind != model.EventUser && ev.Kind != model.EventAssistant {
-			t.Errorf("transcript showed bookkeeping: %s", ev.Kind)
-		}
 		if strings.Contains(ev.Text, "No response requested.") {
-			t.Error("transcript showed Claude's synthetic interruption message")
+			t.Error("the snapshot showed Claude's synthetic interruption message as speech")
 		}
 		if ev.Kind == model.EventAssistant {
 			speech.WriteString(ev.Text)
@@ -399,12 +384,8 @@ func TestClaudeInterruptedTurnRemainsUnchangedOnTranscriptRead(t *testing.T) {
 	}
 	for _, marker := range []string{"ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b", "BETA-START-9e1f"} {
 		if !strings.Contains(speech.String(), marker) {
-			t.Errorf("transcript assistant speech lacks %q", marker)
+			t.Errorf("the snapshot's assistant speech lacks %q", marker)
 		}
-	}
-	after := s.view()
-	if before.LastSeq != after.LastSeq || before.OutputSeq != after.OutputSeq || before.ReadSeq != after.ReadSeq || before.Attention != after.Attention {
-		t.Fatal("reading the transcript changed the timeline or attention")
 	}
 	shutdown(t, svc, s)
 }
@@ -569,6 +550,34 @@ func newE2EServiceResolving(t *testing.T, h harness.Harness, resolver service.Re
 
 // shutdown releases every runtime the way serve does and checks each was seen
 // to stop.
+// replaceConversationByAdopting removes a released conversation and adopts
+// its session into a new one, as the operator brings a session's own history
+// into mega, and returns the prompts and replies of the adoption's snapshot.
+// the managed timeline goes with the removed conversation, and from here the
+// test session is the adopted conversation.
+func (s *session) replaceConversationByAdopting(projectID, harnessName, nativeID string) []*model.Event {
+	s.t.Helper()
+	if err := s.svc.RemoveConversation(s.id); err != nil {
+		s.t.Fatal(err)
+	}
+	adopted, err := s.svc.Adopt(projectID, harnessName, nativeID, "e2e adopted")
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	s.id = adopted.ID
+	evs, err := s.svc.Events(s.id, 0)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	var speech []*model.Event
+	for _, ev := range evs {
+		if ev.Origin == model.OriginNative && (ev.Kind == model.EventUser || ev.Kind == model.EventAssistant) {
+			speech = append(speech, ev)
+		}
+	}
+	return speech
+}
+
 func shutdown(t *testing.T, svc *service.Service, s *session) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

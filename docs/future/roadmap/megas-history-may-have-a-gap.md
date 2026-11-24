@@ -13,9 +13,9 @@ On 2026-11-19 Michael said, "so far, i rarely take harnesses out of mega. so thi
 
 On 2026-11-20 he accepted the design: "let's give it a try, yes."
 
-- After a terminal handoff, the timeline marks the interval mega could not see. With a known session id, **More** and the gap row both open the read-only native transcript. With an unknown id, the gap stays visible and the operator gets the existing **Adopt a session** guidance. Work done in the terminal stays there.
+- Mega does not show work done on a session outside it. As first built, a terminal handoff left a gap mark and a read-only native transcript view. Both were removed on 2026-11-24 by `release-only-stops-a-runtime`: Release only stops a runtime, and the terminal handoff is not supported.
 - Adoption brings in one initial snapshot. Later starts and resumes skip the import.
-- After lost supervision the conversation shows **Unsupervised** until the operator chooses **Resume**, available even when the session id is unknown. The gap leaves the outcome of any unwitnessed work unknown. The next launch uses the exact session id.
+- After lost supervision the conversation shows **Unsupervised** until the operator chooses **Resume**, available even when the session id is unknown. The Unsupervised line marks where mega lost sight, and the outcome of any unwitnessed work stays unknown. The next launch uses the exact session id.
 
 ## the failure that becomes impossible
 
@@ -23,4 +23,4 @@ A later import can no longer duplicate a reply. A pi turn can no longer fail bec
 
 ## what it costs
 
-Reading an exchange from the terminal takes one extra action. Output mega never saw contributes nothing to unread. Piece 3 decides unread for output in mega's own log. Piece 9 inherits a smaller pi adapter.
+Work done on a session outside mega is not shown in mega. Output mega never saw contributes nothing to unread. Piece 3 decides unread for output in mega's own log. Piece 9 inherits a smaller pi adapter.

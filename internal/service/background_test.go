@@ -1,7 +1,6 @@
 package service
 
 import (
-	"slices"
 	"testing"
 	"time"
 
@@ -91,9 +90,8 @@ func TestBackgroundClearsOnExitAndIsAbsentAfterARestart(t *testing.T) {
 
 // a codex background command recorded live after its turn, under the
 // identities its history maps to, is not recorded again when the conversation
-// is released and resumed: the import's tool call and result for it are the
-// same native identities, already seen.
-func TestBackgroundCompletionIsNotImportedByTranscriptReadsOrLaunch(t *testing.T) {
+// is released and started again: a start reads no history.
+func TestBackgroundCompletionIsNotImportedByALaunch(t *testing.T) {
 	r, codex := modelRig(t)
 	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one", LaunchChoice{})
 	if err != nil {
@@ -115,13 +113,10 @@ func TestBackgroundCompletionIsNotImportedByTranscriptReadsOrLaunch(t *testing.T
 		{Kind: model.EventToolResult, ToolUseID: "exec-1", Text: "", NativeID: "exec-1/result"},
 	})
 	before := len(r.events(conv.ID))
-	if _, err := r.svc.NativeTranscript(conv.ID); err != nil {
-		t.Fatal(err)
-	}
 	if err := r.svc.Start(conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	if got := codex.Reads(); !slices.Equal(got, []string{conv.NativeID}) {
+	if got := codex.Reads(); len(got) != 0 {
 		t.Errorf("history reads = %v", got)
 	}
 	for _, ev := range r.events(conv.ID)[before:] {

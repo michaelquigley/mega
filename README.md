@@ -74,7 +74,7 @@ Install pi as [pi.dev](https://pi.dev) says, and set up its model in pi itself. 
 - **Your own logins.** Each harness runs as you, with your login, settings and permission rules.
 - **Permissions as each harness has them.** mega never relaxes a harness's permissions, never accepts a trust dialog for you, and never approves anything for you. Every approval waits for your answer.
 - **What mega stores, and where:**
-  - **The workspace,** in `~/.local/share/mega/`: the projects you registered and each conversation’s timeline. It contains the adoption snapshot, if there was one, and the prompts, replies and actions mega witnessed. A handoff or loss of supervision leaves a gap. Open **View native transcript** to read the exact bound session’s prompts and replies.
+  - **The workspace,** in `~/.local/share/mega/`: the projects you registered and each conversation’s timeline. It contains the adoption snapshot, if there was one, and the prompts, replies and actions mega witnessed. Work done on the session outside mega is not shown; adopting the session again brings it in.
   - **Project environments** are recorded by variable names and fingerprints, never values.
   - **Its log,** when it runs with no terminal: `~/.local/state/mega/mega.log`.
   - **Each harness's own sessions** stay in that harness's own store.

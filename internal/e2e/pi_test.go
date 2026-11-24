@@ -99,7 +99,7 @@ func dialogTitle(req model.Request) string {
 // TestPiRoundTrip: a conversation copies pi's own model and thinking level,
 // a marker turn, the extension's plain question answered, the extension's
 // gate on a command answered after a delay with the turn waiting, a release,
-// a native transcript read, and an exact-id launch that remembers.
+// an exact-id launch that remembers, and the session adopted again.
 func TestPiRoundTrip(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_PI_FIXTURE")
 	h := newPiHarness()
@@ -156,26 +156,11 @@ func TestPiRoundTrip(t *testing.T) {
 		t.Errorf("late answer: %q", code)
 	}
 
-	// A transcript read after release leaves the timeline as recorded.
+	// a release, seen to exit.
 	if err := svc.Release(s.id); err != nil {
 		t.Fatal(err)
 	}
 	s.waitFor("the runtime to exit", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
-	before, err := svc.Events(s.id, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	messages, err := svc.NativeTranscript(s.id)
-	if err != nil || len(messages) == 0 {
-		t.Fatalf("reading native transcript: %d messages, %v", len(messages), err)
-	}
-	after, err := svc.Events(s.id, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(after) != len(before) || !after[len(after)-1].Gap {
-		t.Fatal("the transcript read changed the timeline or release left no gap")
-	}
 
 	// the exact-id resume remembers the whole conversation.
 	s.prompt(piReturnPrompt)
@@ -183,6 +168,15 @@ func TestPiRoundTrip(t *testing.T) {
 	s.expectReply("ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b", "GAMMA-5e6f", "DELTA-7a8b", "RPC-RETURN-c3d4")
 	if facts := s.view().Facts; facts == nil || facts.Session != conv.NativeID {
 		t.Errorf("resumed session = %+v, bound to %s", facts, conv.NativeID)
+	}
+
+	// released, the session adopted again brings its speech in.
+	if err := svc.Release(s.id); err != nil {
+		t.Fatal(err)
+	}
+	s.waitFor("the runtime to exit again", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
+	if messages := s.replaceConversationByAdopting(project.ID, model.HarnessPi, conv.NativeID); len(messages) == 0 {
+		t.Fatal("the adoption's snapshot has no prompts or replies")
 	}
 	shutdown(t, svc, s)
 	t.Logf("session %s", conv.NativeID)

@@ -74,32 +74,29 @@ func TestAMissingExecutableIsPreflightedAndRefused(t *testing.T) {
 	}
 }
 
-// reading native history with an executable missing names the condition,
-// never an internal error: a raw exec failure is checked against the harness.
+// reading native history for an adoption with an executable missing names
+// the condition, never an internal error: a raw exec failure is checked
+// against the harness.
 func TestAMissingExecutableWhileReadingHistoryIsNamed(t *testing.T) {
 	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	finishTurn(rt, "a-1", "done")
-	if err := r.svc.Release(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the release", rt.Exited)
+	r.fake.SetSessions([]harness.Session{{NativeID: "terminal-1", Preview: "from the terminal"}})
 
 	r.fake.FailHistory(&exec.Error{Name: "node", Err: exec.ErrNotFound})
 	r.fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "node", Reason: "'node' was not found on the project's PATH"})
-	_, err := r.svc.NativeTranscript(conv.ID)
+	_, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "")
 	wantCode(t, err, CodeExecutableMissing)
 	if err == nil || !strings.Contains(err.Error(), "node") {
-		t.Errorf("transcript: %v", err)
+		t.Errorf("adoption: %v", err)
 	}
 
 	// a history failure that is not a missing executable passes through as
 	// it was.
 	r.fake.SetMissing(nil)
 	r.fake.FailHistory(errors.New("the transcript is unreadable"))
-	if _, err := r.svc.NativeTranscript(conv.ID); err == nil || ErrorCode(err) == CodeExecutableMissing {
+	if _, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", ""); err == nil || ErrorCode(err) == CodeExecutableMissing {
 		t.Errorf("another failure: %v", err)
+	}
+	if n := len(r.svc.Workspace().Conversations); n != 0 {
+		t.Errorf("a failed adoption left %d conversations", n)
 	}
 }

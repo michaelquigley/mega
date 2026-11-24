@@ -128,12 +128,12 @@ func (c *changingResolver) Resolve(ctx context.Context, dir, activate string) (*
 	return res, err
 }
 
-// the transcript view and adoption read native history by running the harness in
-// the project's environment: a file that changes while that environment is
-// resolved refuses the read, as it refuses a launch.
+// adoption reads native history by running the harness in the project's
+// environment: a file that changes while that environment is resolved
+// refuses the read, as it refuses a launch.
 func TestAHistoryReadChecksTheEnvironmentItRunsIn(t *testing.T) {
 	r := newRig(t)
-	conv := r.stoppedWithSession()
+	r.stoppedWithSession()
 	fresh := helperFresh
 	helperFresh = 0
 	t.Cleanup(func() { helperFresh = fresh })
@@ -144,16 +144,6 @@ func TestAHistoryReadChecksTheEnvironmentItRunsIn(t *testing.T) {
 	}}
 	r.svc.resolver = resolver
 
-	resolver.when = func() bool { return true }
-	reads := len(r.fake.Reads())
-	_, err := r.svc.NativeTranscript(conv.ID)
-	wantCode(t, err, CodeEnvironmentChanged)
-	if len(r.fake.Reads()) != reads {
-		t.Error("the transcript read ran in an environment whose file changed")
-	}
-
-	writeEnvFile(t, r.project.Checkout, "export MEGA_MARKER="+markerOne)
-	r.approve(r.project.ID)
 	r.fake.SetSessions([]harness.Session{{NativeID: "terminal-1", Preview: "from the terminal"}})
 	r.fake.SetHistory("terminal-1", []*model.Event{{Kind: model.EventUser, Text: "from the terminal", NativeID: "t-1"}})
 	// Resolve discovery in the approved environment. Change the file during
@@ -163,8 +153,8 @@ func TestAHistoryReadChecksTheEnvironmentItRunsIn(t *testing.T) {
 		resolutions++
 		return resolutions == 2
 	}
-	reads = len(r.fake.Reads())
-	_, err = r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "adopted")
+	reads := len(r.fake.Reads())
+	_, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "adopted")
 	wantCode(t, err, CodeEnvironmentChanged)
 	if len(r.svc.Workspace().Conversations) != 1 {
 		t.Error("adoption published a conversation before the approval check")
@@ -266,19 +256,6 @@ func TestLateOutputsMarkerIsRebuiltFromTheLog(t *testing.T) {
 	r.restart() // a crash: nothing ends the turn the late output would open
 	if view := r.view(conv.ID); view.OutputSeq != late {
 		t.Errorf("after the restart: output seq %d, want the late output's %d", view.OutputSeq, late)
-	}
-}
-
-func TestTranscriptFailureLeavesTheConversationIntact(t *testing.T) {
-	r := newRig(t)
-	conv := r.stoppedWithSession()
-	before := r.view(conv.ID)
-	r.fake.FailHistory(errors.New("the session could not be read"))
-	if _, err := r.svc.NativeTranscript(conv.ID); err == nil {
-		t.Fatal("a failed transcript read succeeded")
-	}
-	if after := r.view(conv.ID); after.Attention != before.Attention || after.LastSeq != before.LastSeq || after.ReadSeq != before.ReadSeq {
-		t.Fatalf("failed read changed the conversation: %+v", after)
 	}
 }
 

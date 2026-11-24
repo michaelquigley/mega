@@ -1,12 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { getNativeTranscript, type TranscriptMessage } from '../api'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useWallNow } from '../clock'
 import { place, useLatest } from '../latest'
 import type { ConversationLog } from '../log'
 import type { Conversation, Project } from '../types'
 import { waitingLabel, type Waiting } from '../waiting'
-import { Dialog } from './Dialog'
-import { Markdown } from './Markdown'
 import { EventList } from './EventList'
 import { IconButton } from './Icon'
 import { InputPanel } from './InputPanel'
@@ -47,8 +44,6 @@ export function ConversationView(props: ConversationViewProps) {
   const { conversation, project, log, loading, loadingEarlier, onEarlier, onShowNative, stale, onRemoved, heldBy, onFollowing } = props
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [transcript, setTranscript] = useState(false)
-  const openTranscript = conversation.native_id ? () => setTranscript(true) : undefined
   const showNative = log?.native ?? false
   const articleRef = useRef<HTMLElement>(null)
 
@@ -169,7 +164,6 @@ export function ConversationView(props: ConversationViewProps) {
         projectId={project.id}
         conversationId={conversation.id}
         harness={conversation.harness}
-        onTranscript={openTranscript}
         inFlight={
           conversation.turn_asked && conversation.turn_ran
             ? { asked: conversation.turn_asked, ran: conversation.turn_ran, differs: conversation.turn_differs }
@@ -189,16 +183,12 @@ export function ConversationView(props: ConversationViewProps) {
         showNative={showNative}
         onShowNative={onShowNative}
         onRemoved={onRemoved}
-        onTranscript={openTranscript}
         newer={newer}
         onLatest={toLatest}
         dock={dockRef}
         isFollowing={isFollowing}
         heldBy={heldBy}
       />
-      {transcript && (
-        <NativeTranscript conversationId={conversation.id} harness={conversation.harness} onClose={() => setTranscript(false)} />
-      )}
     </article>
   )
 }
@@ -234,36 +224,5 @@ function TimedLoading({ waiting }: { waiting: Waiting }) {
     <p className="muted loading" role="status">
       Loading history: {waitingLabel(waiting, now)}
     </p>
-  )
-}
-
-function NativeTranscript({ conversationId, harness, onClose }: { conversationId: string; harness: string; onClose: () => void }) {
-  const [result, setResult] = useState<TranscriptMessage[] | Error | null>(null)
-  useEffect(() => {
-    let current = true
-    void getNativeTranscript(conversationId).then(
-      (messages) => { if (current) setResult(messages) },
-      (failure: unknown) => { if (current) setResult(failure instanceof Error ? failure : new Error(String(failure))) },
-    )
-    return () => { current = false }
-  }, [conversationId])
-
-  return (
-    <Dialog title="Native transcript" onClose={onClose}>
-      {result === null && <p role="status">Reading native transcript…</p>}
-      {result instanceof Error && <p role="alert">Transcript unavailable. {result.message}</p>}
-      {Array.isArray(result) && (result.length === 0 ? (
-        <p>No messages to show.</p>
-      ) : (
-        <div className="transcript-messages">
-          {result.map(({ speaker, text }, index) => (
-            <div key={index} className={`message ${speaker}`}>
-              <span className="who">{speaker === 'user' ? 'You' : harnessLabel(harness)}</span>
-              <Markdown text={text} />
-            </div>
-          ))}
-        </div>
-      ))}
-    </Dialog>
   )
 }

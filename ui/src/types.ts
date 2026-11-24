@@ -369,7 +369,6 @@ export interface ConversationEvent {
   origin: 'managed' | 'native' | 'service'
   text?: string
   native_id?: string
-  gap?: boolean
   status?: string
   tool?: string
   tool_use_id?: string

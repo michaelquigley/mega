@@ -743,9 +743,9 @@ func (s *Service) Interrupt(conversationID string) error {
 	return rt.Interrupt()
 }
 
-// Release stops the conversation's runtime for a terminal handoff: interrupt
-// if work or a request is outstanding, then close input. the conversation
-// reports stopping until the runtime is seen to exit.
+// Release stops the conversation's runtime: interrupt if work or a request
+// is outstanding, then close input. the conversation reports stopping until
+// the runtime is seen to exit.
 func (s *Service) Release(conversationID string) error {
 	s.mu.Lock()
 	if _, err := s.conversationLocked(conversationID); err != nil {
@@ -758,7 +758,6 @@ func (s *Service) Release(conversationID string) error {
 		return newError(CodeConflict, "the conversation has no runtime to release")
 	}
 	rt := l.runtime
-	l.handoff = true
 	s.beginStopLocked(l, &model.Event{Status: model.StatusStopping})
 	s.mu.Unlock()
 	// the stop is fenced before Release returns: nothing the runtime is asked

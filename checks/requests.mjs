@@ -503,6 +503,14 @@ check(
     (await warning.textContent()).includes('the command the dialog gates does not run'),
   'the release dialog warns that pi is ended and the gated command does not run',
 )
+const confirmation = await releaseDialog.textContent()
+check(
+  confirmation.includes('Release stops the runtime. The next prompt or Start brings the conversation back on the same session.') &&
+    !confirmation.includes('terminal') &&
+    (await releaseDialog.locator('.command').count()) === 0 &&
+    (await releaseDialog.getByRole('button', { name: /Copy/ }).count()) === 0,
+  'the release dialog is a confirmation: it says what Release does, and offers no terminal command',
+)
 await releaseDialog.screenshot({ path: `${t.dir}/shots/pi-release-warning.png` })
 await releaseDialog.getByRole('button', { name: 'Release', exact: true }).click()
 await until('pi ended', async () => (await convOf(Pi)).state === 'none', 30000)

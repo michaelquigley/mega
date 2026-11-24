@@ -130,23 +130,30 @@ await p.run(async () => {
   check(resumeImports.length === 0, `the exact-id resume imported ${resumeImports.length} events, want zero`)
   summary.imports.resume = resumeImports
 
-  // Release so the transcript includes the completed exchange and the
-  // bookkeeping Claude wrote for the interrupt and model switch.
+  // Release so the session holds the completed exchange and the bookkeeping
+  // Claude wrote for the interrupt and model switch.
   await p.release(id)
-  const transcript = await p.api('GET', `/api/conversations/${id}/native-transcript`)
-  must(transcript.status === 200 && Array.isArray(transcript.body?.messages), 'the exact session’s native transcript answered with messages')
-  const { messages } = transcript.body
-  const knownReply = messages.some(({ speaker, text }) => speaker === 'assistant' && text.includes('DELTA-7a8b'))
-  const syntheticSpeech = messages.some(({ text }) => text.includes('No response requested.') || text === 'assistant/synthetic')
-  const localCommandSpeech = messages.some(({ text }) => /<local-command-|<command-name>\/model<\/command-name>|user\/local-command|^Set model to\b/m.test(text))
-  check(knownReply, 'the native transcript contains the known assistant reply DELTA-7a8b')
-  check(!syntheticSpeech, 'the native transcript omits Claude’s synthetic interruption from speech')
-  check(!localCommandSpeech, 'the native transcript omits Claude’s local model command from speech')
-  summary.transcript = { messages: messages.length, known_reply: knownReply, synthetic_speech: syntheticSpeech, local_command_speech: localCommandSpeech }
 
-  // every turn's line.
+  // every turn's line, read before the conversation is removed.
   summary.turns = await p.turns(id)
   summary.versions = await p.started(id)
   summary.version = summary.versions.length === 1 ? summary.versions[0] : summary.versions
   check(summary.versions.length === 1, `every start reported one version: ${summary.versions.join(', ')}`)
+
+  // the session's own history comes into mega one way, by adoption: the
+  // conversation is removed, and its session discovered and adopted again.
+  const removed = await p.api('DELETE', `/api/conversations/${id}`)
+  must(removed.status === 204, `the conversation was removed${removed.status === 204 ? '' : `: ${removed.status} ${JSON.stringify(removed.body)}`}`)
+  const found = await p.api('GET', `/api/projects/${project.id}/discover?harness=claude`)
+  must(found.status === 200 && (found.body.sessions ?? []).some((s) => s.native_id === session), `discovery lists session ${session}`)
+  const adopted = await p.api('POST', `/api/projects/${project.id}/adopt`, { harness: 'claude', native_id: session, name: 'versions probe, adopted' })
+  must(adopted.status === 201, `adopted session ${session}${adopted.status === 201 ? '' : `: ${adopted.status} ${JSON.stringify(adopted.body)}`}`)
+  const messages = (await p.events(adopted.body.id)).filter((e) => e.origin === 'native' && (e.kind === 'user' || e.kind === 'assistant'))
+  const knownReply = messages.some(({ kind, text }) => kind === 'assistant' && text?.includes('DELTA-7a8b'))
+  const syntheticSpeech = messages.some(({ text = '' }) => text.includes('No response requested.') || text === 'assistant/synthetic')
+  const localCommandSpeech = messages.some(({ text = '' }) => /<local-command-|<command-name>\/model<\/command-name>|user\/local-command|^Set model to\b/m.test(text))
+  check(knownReply, 'the adoption’s snapshot contains the known assistant reply DELTA-7a8b')
+  check(!syntheticSpeech, 'the adoption’s snapshot omits Claude’s synthetic interruption from speech')
+  check(!localCommandSpeech, 'the adoption’s snapshot omits Claude’s local model command from speech')
+  summary.snapshot = { conversation: adopted.body.id, messages: messages.length, known_reply: knownReply, synthetic_speech: syntheticSpeech, local_command_speech: localCommandSpeech }
 })

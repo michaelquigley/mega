@@ -2,11 +2,13 @@
 
 ## Unreleased
 
+CHANGE: **Release only stops a runtime.** (2026-11-24) Its confirmation says the runtime stops and that the next prompt or Start brings the conversation back on the same session. It no longer offers a command to continue the session in a terminal, or advice about closing one. Mega does not support working a session outside it while a conversation holds it, and neither marks nor shows work done there: leave the session alone outside mega to keep it intact in mega. To bring work done outside into mega, remove the conversation and adopt its session again.
+
 CHANGE: **A conversation whose first launch failed is not launched again.** (2026-11-23) Whatever failed, the launch records one error, and a prompt or Start is refused with a message to remove the conversation and, if the harness made a session, adopt it under "Adopt a session". Before, a launch proven to have failed before any session existed could be retried in the same conversation. A conversation whose session never reached the registry is treated the same way: its session is no longer resumed, and can be adopted when discovery lists it. A failed launch of a conversation that has a session is recorded as an error, where before it could say "did not start", and can be launched again as before.
 
 FIX: **An answer given while a conversation is starting no longer throws the request away.** (2026-11-23) A pi extension can ask before its runtime has finished launching. An answer given then was recorded as aborted, although pi never received it and was still waiting. It is now refused with "the runtime is starting". The card stays, and answers once the launch is done.
 
-CHANGE: **Resume no longer imports native history.** Adoption starts with one snapshot. After a terminal handoff or loss of supervision, the timeline marks where mega stopped watching. **View native transcript** opens the exact session’s prompts and replies. Resume acknowledges lost supervision and launches nothing. The next Start or prompt uses the bound session.
+CHANGE: **Resume no longer imports native history.** Adoption starts with one snapshot. After a loss of supervision, the Unsupervised row marks where mega stopped watching. Resume acknowledges lost supervision and launches nothing. The next Start or prompt uses the bound session.
 
 FIX: **Pi records replies as they arrive and reports the harness’s turn outcome.** Live replies can appear as soon as pi sends them, including when no file entries have been written yet.
 
@@ -28,7 +30,7 @@ FIX: **A request whose settlement mega could not write down is recorded as it wa
 
 FIX: **An interrupt no longer stays shown under way once nothing is left to stop.** (2026-11-20) Pressed with no turn running while a request was still being settled, as a Codex answer awaiting its reply, it stayed shown until the next prompt.
 
-FIX: **Nothing starts once a shutdown has begun, or in an environment file that changed while it was read.** (2026-11-19) A launch checks again after the version check. Adoption and the transcript view check before reading native history. A shutdown that began meanwhile refuses it, and a shutdown waits for a launch already under way. An environment file changed meanwhile refuses it with `environment_changed`, as an edit before the start always did.
+FIX: **Nothing starts once a shutdown has begun, or in an environment file that changed while it was read.** (2026-11-19) A launch checks again after the version check. Adoption checks before reading native history. A shutdown that began meanwhile refuses it, and a shutdown waits for a launch already under way. An environment file changed meanwhile refuses it with `environment_changed`, as an edit before the start always did.
 
 FIX: **A conversation's unread output is no longer lost to a failed registry write.** (2026-11-19) When a turn's end could not record its output as unread, the output stayed read for good. mega now counts it from the conversation's log at its next start, including the output of a Codex background command that finishes after its turn.
 

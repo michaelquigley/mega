@@ -75,9 +75,6 @@ type Event struct {
 	// Status is the state of a runtime event or the outcome of a turn_end.
 	Status string `dd:",+omitempty"`
 
-	// Gap marks the point where mega stopped witnessing a native session.
-	Gap bool `dd:",+omitempty"`
-
 	// Tool and ToolUseID name a tool_use and tie its tool_result to it.
 	Tool      string `dd:",+omitempty"`
 	ToolUseID string `dd:",+omitempty"`
@@ -191,8 +188,8 @@ type TurnRecord struct {
 	Differs []string `dd:",+omitempty"`
 }
 
-// HistoryBoundary reports where the next observed turn starts afresh.
-// older logs recorded supervision loss without a gap flag.
+// HistoryBoundary reports where the next observed turn starts afresh: an
+// unsupervised line, where mega lost sight of a runtime.
 func (e *Event) HistoryBoundary() bool {
-	return e.Kind == EventRuntime && (e.Gap || e.Status == StatusUnsupervised)
+	return e.Kind == EventRuntime && e.Status == StatusUnsupervised
 }

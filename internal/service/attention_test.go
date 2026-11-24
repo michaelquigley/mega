@@ -258,28 +258,6 @@ func TestUnsupervisedIsItsOwnState(t *testing.T) {
 	}
 }
 
-func TestViewingOutputFromOutsideMegaIsNotUnread(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	finishTurn(rt, "a-1", "done")
-	r.readAll(conv.ID)
-	if err := r.svc.Release(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the runtime to exit", rt.Exited)
-	r.fake.SetHistory(conv.NativeID, []*model.Event{
-		{Kind: model.EventUser, Text: "from the terminal", NativeID: "t-1"},
-		{Kind: model.EventAssistant, Text: "terminal reply", NativeID: "t-2"},
-	})
-	if _, err := r.svc.NativeTranscript(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	if got := r.attention(conv.ID); got != model.AttentionIdle {
-		t.Errorf("after viewing a terminal visit: %q", got)
-	}
-}
-
 func TestExitDuringTurnIsErrorUntilARuntimeStarts(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
@@ -366,10 +344,6 @@ func TestUnwitnessedOutputDoesNotBecomeUnreadWhenSupervisionIsAcknowledged(t *te
 	}
 	if got := r.attention(conv.ID); got != model.AttentionIdle || len(r.fake.Reads()) != 0 {
 		t.Fatalf("attention = %q, history reads = %v", got, r.fake.Reads())
-	}
-	transcript, err := r.svc.NativeTranscript(conv.ID)
-	if err != nil || len(transcript) != 1 || transcript[0].Text != "finished unobserved" {
-		t.Fatalf("transcript = %+v, %v", transcript, err)
 	}
 }
 

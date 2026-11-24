@@ -151,7 +151,18 @@ Rulings 4 and 7. One rule replaces the machinery: only `StartConversation` launc
 
 The canon needs no change for it: `exact-id-resume` already flags a new session for an existing conversation. No check suite asserts the retry. The card is `docs/future/roadmap/a-conversation-gets-its-session-once.md`, and the spec's "A simpler core" carries the rule.
 
-Still to review from the landed work: the handoff flag, the gap flag and the native transcript view under rulings 1 and 3, and the rules for older logs under ruling 2.
+### C. The handoff, the gap flag and the native transcript view
+
+Rulings 1 and 3. The card is `docs/future/roadmap/release-only-stops-a-runtime.md`, written 2026-11-24. Two things were settled in writing it:
+
+- **The release dialog stays as a confirmation,** without the terminal command. Stopping a runtime still ends background jobs and a pending pi dialog, and the dialog is where that is said.
+- **The transcript read was also how the round trips and the version probe checked native speech.** They keep those checks and read through adoption's snapshot.
+
+The canon was brought in step first: the transcript sentence left `exact-id-resume`, `honest-runtime-state` and `bookkeeping-never-creates-attention`.
+
+**Built 2026-11-24.** `internal/service` is at 6,419 non-test lines, against 6,638 when the review began. One finding was this card's: a release in the middle of a turn no longer has the gap flag to separate that turn from the next. Michael ruled to leave it and add nothing. It is noted on `a-turn-is-inferred-from-a-message`, to be decided with the turn model.
+
+Still to review from the landed work: the rules for older logs under ruling 2, which wait on `adoption-reaches-any-session-in-the-checkout`.
 
 ## The gate
 

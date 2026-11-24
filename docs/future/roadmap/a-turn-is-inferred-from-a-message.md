@@ -73,3 +73,8 @@ What each harness's own markers are, and whether all three have both a start and
 ## depends on
 
 Nothing. The earlier batch addressed this question for recorded history. See item 7 under “What changed” in [the November 19 journal](../../journal/2026-11-19.md#what-changed).
+
+## from the review of 2026-11-23 and its removals
+
+- **A turn nobody prompted is ordinary.** On Michael's workspace 68 of 834 turns ended without a prompt from mega, in 8 conversations. Most began minutes after the turn before, with a shell command or a broker's collect call: an agent waking when its background work finishes. A turn the harness starts has to show as a real turn.
+- **A runtime's exit ends a turn in the service's memory and not in the log.** When a runtime exits in the middle of a turn, the service treats the turn as over, and no turn end is recorded. The page and the paging then join that turn to the next and count the next turn's time from the old prompt. Terminus raised it on `release-only-stops-a-runtime` as `release-merges-unfinished-turn-with-next-turn`, and Michael left it on 2026-11-24 to be decided with the turn model. It is two tellings of one fact, which `one-fold-for-what-happened` exists to end.

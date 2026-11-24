@@ -529,7 +529,11 @@ func TestShutdownDeadlineLeavesUnfinishedRuntimeRunning(t *testing.T) {
 	}
 }
 
-func TestHandoffLeavesOneGapAndTheTerminalExchangeStaysInNativeHistory(t *testing.T) {
+// a release stops the runtime and means nothing more: the log holds the stop
+// and the next start as runtime lines, none of them a boundary, nothing is
+// read from the session, and the turn before the release and the turn after
+// it page as two turns.
+func TestAReleaseAndAPromptLeaveTwoTurnsAndNoBoundary(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("managed prompt")
 	rt := r.fake.Last()
@@ -539,26 +543,6 @@ func TestHandoffLeavesOneGapAndTheTerminalExchangeStaysInNativeHistory(t *testin
 		t.Fatal(err)
 	}
 	waitFor(t, "the runtime to exit", rt.Exited)
-	r.fake.SetHistory(conv.NativeID, []*model.Event{
-		{Kind: model.EventUser, Text: "managed prompt", NativeID: rt.Prompts()[0].UUID},
-		{Kind: model.EventAssistant, Text: "same words", NativeID: "a-1"},
-		{Kind: model.EventUser, Text: "terminal prompt", NativeID: "t-1"},
-		{Kind: model.EventAssistant, Text: "same words", NativeID: "t-2"},
-	})
-	before := r.view(conv.ID)
-	for range 2 {
-		transcript, err := r.svc.NativeTranscript(conv.ID)
-		if err != nil || len(transcript) != 4 || transcript[2].Text != "terminal prompt" || transcript[3].Text != "same words" {
-			t.Fatalf("transcript = %+v, %v", transcript, err)
-		}
-	}
-	if after := r.view(conv.ID); after.LastSeq != before.LastSeq || after.ReadSeq != before.ReadSeq || after.Attention != model.AttentionUnread {
-		t.Fatalf("opening transcript changed the timeline or its attention: %+v", after)
-	}
-	r.restart()
-	if err := r.svc.Resume(conv.ID); err != nil {
-		t.Fatal(err)
-	}
 	if err := r.svc.Prompt(conv.ID, "next managed prompt"); err != nil {
 		t.Fatal(err)
 	}
@@ -568,8 +552,22 @@ func TestHandoffLeavesOneGapAndTheTerminalExchangeStaysInNativeHistory(t *testin
 	}
 	started(next)
 	finishTurn(next, "a-2", "next managed reply")
-	if reads := r.fake.Reads(); !slices.Equal(reads, []string{conv.NativeID, conv.NativeID}) {
+	if reads := r.fake.Reads(); len(reads) != 0 {
 		t.Fatalf("history reads = %v", reads)
+	}
+	evs := r.events(conv.ID)
+	if slices.ContainsFunc(evs, (*model.Event).HistoryBoundary) {
+		t.Errorf("a release left a boundary: %v", kinds(evs))
+	}
+	var statuses []string
+	for _, ev := range evs {
+		if ev.Kind == model.EventRuntime {
+			statuses = append(statuses, ev.Status)
+		}
+	}
+	want := []string{model.StatusStarting, model.StatusStarted, model.StatusStopping, model.StatusStopped, model.StatusStarting, model.StatusStarted}
+	if !slices.Equal(statuses, want) {
+		t.Errorf("runtime lines = %v, want %v", statuses, want)
 	}
 	latest, err := r.svc.History(conv.ID, HistoryQuery{Turns: 1})
 	if err != nil {
@@ -579,16 +577,9 @@ func TestHandoffLeavesOneGapAndTheTerminalExchangeStaysInNativeHistory(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	gaps := 0
 	for i, page := range []History{earlier, latest} {
 		var speech []string
 		for _, ev := range page.Events {
-			if ev.Gap {
-				gaps++
-				if ev.Status != model.StatusStopped {
-					t.Errorf("release gap on %q", ev.Status)
-				}
-			}
 			if ev.Kind == model.EventUser || ev.Kind == model.EventAssistant {
 				speech = append(speech, ev.Text)
 			}
@@ -597,9 +588,6 @@ func TestHandoffLeavesOneGapAndTheTerminalExchangeStaysInNativeHistory(t *testin
 		if !slices.Equal(speech, want) {
 			t.Errorf("page %d speech = %v, want %v", i, speech, want)
 		}
-	}
-	if gaps != 1 {
-		t.Errorf("gap count = %d", gaps)
 	}
 }
 
@@ -1009,8 +997,8 @@ func (r *rig) sessionOnlyTheLogHolds(id, session string) {
 	if view := r.view(id); view.NativeID != "" {
 		r.t.Errorf("the view shows session %q", view.NativeID)
 	}
-	if _, err := r.svc.NativeTranscript(id); !errors.Is(err, errNoSession) || len(r.fake.Reads()) != 0 {
-		r.t.Errorf("transcript: %v, adapter reads %v", err, r.fake.Reads())
+	if len(r.fake.Reads()) != 0 {
+		r.t.Errorf("adapter reads %v", r.fake.Reads())
 	}
 	launches := len(r.fake.Runtimes())
 	if err := r.svc.Prompt(id, "two"); !errors.Is(err, errNoSession) {

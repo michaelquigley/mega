@@ -15,8 +15,8 @@ The words mega's documents, cards and interface use, and what each one means her
 ## A conversation over time
 
 - **Runtime.** The harness process currently serving a conversation. A conversation can exist with no runtime.
-- **Start.** Bringing up a runtime without sending anything. **Release** stops a runtime so the session can be used in a terminal. **Resume** acknowledges lost supervision and clears Unsupervised. **View native transcript** separately reads the prompts and replies in the bound native session.
-- **Unsupervised.** A conversation whose runtime mega did not see exit, after an unclean restart. The outcome of work mega did not witness stays unknown. Resume acknowledges that gap.
+- **Start.** Bringing up a runtime without sending anything. **Release** stops a runtime and means nothing more; the next prompt or Start brings it back on the same session. **Resume** acknowledges lost supervision and clears Unsupervised.
+- **Unsupervised.** A conversation whose runtime mega did not see exit, after an unclean restart. The outcome of work mega did not witness stays unknown, and mega does not fetch it: adopting the session again brings it in. Resume acknowledges the loss.
 - **Turn.** One stretch of the agent's work, from the prompt that begins it to its end. A turn comes whole: its prompt, its speech, its actions and its requests.
 - **Prompt.** What the operator sends. **Speech** is what the agent says back, the replies rendered as prose.
 - **Action.** One thing the agent did during a turn, shown as a single expandable row: a shell command, a file edit, a search, an MCP tool. It is the word for what the operator sees. An **action group** is a run of actions between two pieces of speech, indented behind a hairline.

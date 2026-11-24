@@ -1,6 +1,6 @@
 ---
 title: a conversation gets its session once
-state: building
+state: evaluating
 created: 2026-11-23
 tags: [story]
 ---

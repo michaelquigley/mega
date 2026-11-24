@@ -115,39 +115,3 @@ func TestMCPServersAreCopied(t *testing.T) {
 		t.Errorf("held list = %+v", view.MCPServers[0].Tools)
 	}
 }
-
-// a resume only imports history, with no runtime: while it does, the read
-// says nothing is running.
-func TestMCPIsNotRunningWhileATranscriptIsRead(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	startedIn(rt, "default")
-	finishTurn(rt, "a-1", "done")
-	rt.MCPServers(mcpServers(model.MCPConnected))
-	if err := r.svc.Release(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the release", func() bool { return r.view(conv.ID).State == model.RuntimeNone })
-	r.fake.SetHistory(r.view(conv.ID).NativeID, nil)
-	reading := make(chan struct{})
-	release := make(chan struct{})
-	r.fake.OnHistory(func() {
-		close(reading)
-		<-release
-	})
-	done := make(chan error, 1)
-	go func() {
-		_, err := r.svc.NativeTranscript(conv.ID)
-		done <- err
-	}()
-	<-reading
-	read, err := r.svc.MCP(conv.ID)
-	if err != nil || r.view(conv.ID).State != model.RuntimeNone || read.Running || read.Reported || len(read.Servers) != 0 {
-		t.Errorf("while reading the transcript: state %q, %+v, %v", r.view(conv.ID).State, read, err)
-	}
-	close(release)
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-}

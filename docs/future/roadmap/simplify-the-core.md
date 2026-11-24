@@ -48,6 +48,7 @@ Two pieces in, `internal/service` was the size it started at, and Michael asked 
 
 - **`a-first-launch-holds-nothing-back`.** A callback can no longer be held, reordered or dropped by a launch in progress. Built 2026-11-23.
 - **`a-conversation-gets-its-session-once`.** A conversation's session can no longer be known in one place and missing from another. Built 2026-11-23.
+- **`release-only-stops-a-runtime`.** A stop can no longer be recorded as two different things, and a session's own history has one way into mega. Built 2026-11-24.
 
 ## how each piece is run
 

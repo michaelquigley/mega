@@ -249,33 +249,6 @@ func (s *Service) writeSnapshot(conv *model.Conversation, snapshot []*model.Even
 	return nil
 }
 
-// NativeTranscript reads speech from the exact bound session on demand.
-func (s *Service) NativeTranscript(conversationID string) ([]*model.Event, error) {
-	s.mu.Lock()
-	conv, err := s.conversationLocked(conversationID)
-	if err == nil {
-		err = s.conversationCheckoutLocked(conv)
-	}
-	s.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	if conv.NativeID == "" {
-		return nil, errNoSession
-	}
-	place, facts, err := s.placeWithFacts(conv.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	evs, err := s.readNativeHistory(conv.ProjectID, conv.Harness, conv.NativeID, place, facts)
-	if err != nil {
-		return nil, err
-	}
-	return slices.DeleteFunc(evs, func(ev *model.Event) bool {
-		return ev.Kind != model.EventUser && ev.Kind != model.EventAssistant
-	}), nil
-}
-
 func (s *Service) readNativeHistory(projectID, harnessName, nativeID string, place harness.Place, facts *model.EnvironmentFacts) ([]*model.Event, error) {
 	s.mu.Lock()
 	err := s.harnessGateLocked(projectID, facts)

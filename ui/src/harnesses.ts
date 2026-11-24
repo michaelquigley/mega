@@ -26,8 +26,6 @@
 // whether a terminal has it open (pi).
 // notice: what the launch dialog and the conversation say about how the
 // harness asks, where it differs from the others.
-// terminal: the command that continues a released session in a terminal,
-// followed by the session id.
 export interface Harness {
   value: string
   label: string
@@ -41,12 +39,11 @@ export interface Harness {
   dialogsHoldActions?: boolean
   noLock?: boolean
   notice?: string
-  terminal?: string
 }
 
 export const harnesses: Harness[] = [
-  { value: 'claude', label: 'Claude Code', attachesMentions: true, icon: 'claude-code.svg', permissionModes: true, listsMcp: true, terminal: 'claude --resume' },
-  { value: 'codex', label: 'Codex', attachesMentions: false, icon: 'codex.svg', iconMono: true, iconScale: 2, listsMcp: true, terminal: 'codex resume' },
+  { value: 'claude', label: 'Claude Code', attachesMentions: true, icon: 'claude-code.svg', permissionModes: true, listsMcp: true },
+  { value: 'codex', label: 'Codex', attachesMentions: false, icon: 'codex.svg', iconMono: true, iconScale: 2, listsMcp: true },
   {
     value: 'pi',
     label: 'pi',
@@ -58,7 +55,6 @@ export const harnesses: Harness[] = [
     noLock: true,
     notice:
       'pi asks for nothing unless an extension asks: it runs its tools without asking, as it does in its own terminal. It runs its own MCP servers, which mega cannot list.',
-    terminal: 'pi --session',
   },
 ]
 

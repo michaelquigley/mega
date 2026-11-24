@@ -174,14 +174,6 @@ export function historyPath(id: string, read: HistoryRead): string {
 
 export const getHistory = (id: string, read: HistoryRead) => request<History>('GET', historyPath(id, read))
 
-export interface TranscriptMessage {
-  speaker: 'user' | 'assistant'
-  text: string
-}
-
-export const getNativeTranscript = (id: string) =>
-  request<{ messages: TranscriptMessage[] }>('GET', `${conversationPath(id)}/native-transcript`).then(({ messages }) => messages)
-
 export const sendPrompt = (id: string, text: string) => request<void>('POST', `${conversationPath(id)}/prompt`, { text })
 
 export interface Answer {

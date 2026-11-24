@@ -63,24 +63,19 @@ func TestInstructedIsTheLastPromptSent(t *testing.T) {
 		t.Fatalf("after a second prompt: %v, the prompt at %v", got, second)
 	}
 
-	// a release, a view of a prompt typed in a terminal, and a start with
-	// no prompt: none instructs.
+	// a release and a start with no prompt: neither instructs.
 	finishTurn(rt, "a-2", "done")
 	if err := r.svc.Release(conv.ID); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the runtime to exit", rt.Exited)
-	r.fake.SetHistory(conv.NativeID, []*model.Event{{Kind: model.EventUser, Text: "from the terminal", NativeID: "t-1"}})
-	if _, err := r.svc.NativeTranscript(conv.ID); err != nil {
-		t.Fatal(err)
-	}
 	if err := r.svc.Start(conv.ID); err != nil {
 		t.Fatal(err)
 	}
 	startedIn(r.fake.Last(), "default")
 	waitFor(t, "the start", func() bool { return r.view(conv.ID).State == model.RuntimeRunning })
 	if got := r.view(conv.ID).InstructedAt; !got.Equal(second) {
-		t.Errorf("viewing the transcript or starting moved it: %v, was %v", got, second)
+		t.Errorf("releasing or starting moved it: %v, was %v", got, second)
 	}
 
 	// a restart reads it back from the log, past the harness's own prompt

@@ -1,5 +1,4 @@
 building:
-  - a-conversation-gets-its-session-once.md
 horizon:
   - start-up-reads-every-log.md
   - request-and-what-ran-follow-ups.md
@@ -41,6 +40,8 @@ researching:
   - reads-after-the-service-closes.md
   - mega-on-macos-and-windows.md
 evaluating:
+  - release-only-stops-a-runtime.md
+  - a-conversation-gets-its-session-once.md
   - megas-history-may-have-a-gap.md
   - a-codex-question-is-a-message.md
   - a-model-switch-on-an-idle-runtime-is-untested.md

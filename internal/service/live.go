@@ -92,7 +92,6 @@ type live struct {
 	inc       *incarnation // the current runtime's identity; nil when none
 	busy      bool         // a start is under way
 	releasing bool         // the current runtime has been asked to stop
-	handoff   bool         // the stop was requested for a terminal handoff
 	// refused is a wrong-session report that arrived while the runtime was
 	// still launching, with no runtime yet to stop; the launch applies it as
 	// soon as Launch returns, before any prompt.
@@ -811,10 +810,10 @@ func (k *sink) Exited(err error) {
 		return
 	}
 	l := k.l
-	released, handoff := l.releasing, l.handoff
-	l.runtime, l.inc, l.releasing, l.handoff = nil, nil, false, false
+	released := l.releasing
+	l.runtime, l.inc, l.releasing = nil, nil, false
 	confirmed := s.retireRequestsLocked(l)
-	ev := &model.Event{Status: model.StatusStopped, Gap: handoff}
+	ev := &model.Event{Status: model.StatusStopped}
 	switch {
 	case errors.Is(err, harness.ErrLeftRunning):
 		// never a clean stop, asked for or not: something it started may still

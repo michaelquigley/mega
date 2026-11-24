@@ -202,18 +202,15 @@ func TestDiscoverAndAdopt(t *testing.T) {
 	if evs := f.events(t, conv["id"].(string), 0); len(evs) != 1 || evs[0]["origin"] != "native" {
 		t.Errorf("events = %v", evs)
 	}
-	status, body = f.do(t, http.MethodGet, fmt.Sprintf("/api/conversations/%s/native-transcript", conv["id"]), "")
-	messages, _ := body["messages"].([]any)
-	if status != http.StatusOK || len(messages) != 1 {
-		t.Fatalf("transcript: %d %v", status, body)
+	// there is no transcript route: an adoption's snapshot is the one way a
+	// session's own history comes into mega.
+	resp, err := http.Get(f.url + fmt.Sprintf("/api/conversations/%s/native-transcript", conv["id"]))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if speech, ok := messages[0].(map[string]any); !ok || len(speech) != 2 || speech["speaker"] != "user" || speech["text"] != "From the terminal" {
-		t.Fatalf("transcript speech = %v", messages[0])
-	}
-	f.fake.SetHistory("terminal-1", nil)
-	status, body = f.do(t, http.MethodGet, fmt.Sprintf("/api/conversations/%s/native-transcript", conv["id"]), "")
-	if messages, ok := body["messages"].([]any); status != http.StatusOK || !ok || len(messages) != 0 {
-		t.Errorf("empty transcript: %d %v", status, body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("native transcript: %d", resp.StatusCode)
 	}
 }
 

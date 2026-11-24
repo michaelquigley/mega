@@ -12,7 +12,7 @@ import (
 	"github.com/michaelquigley/mega/internal/model"
 )
 
-func TestRestartKeepsOneGapWhenTheExitWasRecordedButTheRegistryStillSaysRunning(t *testing.T) {
+func TestRestartKeepsOneBoundaryWhenTheExitWasRecordedButTheRegistryStillSaysRunning(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()
@@ -30,14 +30,14 @@ func TestRestartKeepsOneGapWhenTheExitWasRecordedButTheRegistryStillSaysRunning(
 	if view := r.view(conv.ID); view.Runtime != model.RuntimeUnsupervised {
 		t.Fatalf("recovered runtime = %s", view.Runtime)
 	}
-	gaps := 0
+	boundaries := 0
 	for _, ev := range r.events(conv.ID) {
 		if ev.HistoryBoundary() {
-			gaps++
+			boundaries++
 		}
 	}
-	if gaps != 1 {
-		t.Fatalf("timeline contains %d gaps", gaps)
+	if boundaries != 1 {
+		t.Fatalf("timeline contains %d unsupervised lines", boundaries)
 	}
 	wantCode(t, r.svc.Start(conv.ID), CodeConflict)
 	if err := r.svc.Resume(conv.ID); err != nil {
@@ -48,7 +48,7 @@ func TestRestartKeepsOneGapWhenTheExitWasRecordedButTheRegistryStillSaysRunning(
 	}
 }
 
-func TestReleaseWithoutAConfirmedExitLeavesItsGapAtSupervisionLoss(t *testing.T) {
+func TestReleaseWithoutAConfirmedExitLeavesOneBoundaryAtSupervisionLoss(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()
@@ -59,16 +59,16 @@ func TestReleaseWithoutAConfirmedExitLeavesItsGapAtSupervisionLoss(t *testing.T)
 	}
 	waitFor(t, "release to close input", rt.Closed)
 	if slices.ContainsFunc(r.events(conv.ID), (*model.Event).HistoryBoundary) {
-		t.Fatal("recorded a handoff before exit")
+		t.Fatal("recorded a boundary before exit")
 	}
 	r.restart()
 	evs := r.events(conv.ID)
-	if last := evs[len(evs)-1]; last.Status != model.StatusUnsupervised || !last.Gap {
+	if last := evs[len(evs)-1]; last.Status != model.StatusUnsupervised {
 		t.Fatalf("last event = %+v", last)
 	}
 	r.restart()
 	if got := r.events(conv.ID); len(got) != len(evs) {
-		t.Fatal("a further restart added another gap")
+		t.Fatal("a further restart added another unsupervised line")
 	}
 	rt.Exit(nil)
 }

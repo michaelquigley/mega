@@ -11,7 +11,6 @@ import { ModeControl, ModelControl } from './Controls'
 import { PathList } from './PathList'
 import { Dialog } from './Dialog'
 import { Icon, IconButton } from './Icon'
-import { CopyButton } from './Copy'
 import { RequestCard } from './RequestCard'
 import { HarnessIcon } from './HarnessIcon'
 import { McpPanel } from './Mcp'
@@ -99,7 +98,6 @@ interface InputPanelProps {
   showNative: boolean
   onShowNative: (show: boolean) => void
   onRemoved: () => void
-  onTranscript?: () => void
   newer: boolean
   onLatest: () => void
   // dock is the panel's own element, which the conversation watches for size;
@@ -121,7 +119,7 @@ type Open = 'release' | 'rename' | 'remove' | 'mcp' | null
 // is one line at rest, takes the focus when the conversation is opened, and
 // opens once it holds a draft and focus is anywhere in the cluster.
 export function InputPanel(props: InputPanelProps) {
-  const { conversation, project, log, stale, busy, error, attempt, showNative, onShowNative, onRemoved, onTranscript, newer, onLatest, heldBy, dock, isFollowing } = props
+  const { conversation, project, log, stale, busy, error, attempt, showNative, onShowNative, onRemoved, newer, onLatest, heldBy, dock, isFollowing } = props
   const [draft, setDraft] = useState(() => drafts.get(conversation.id) ?? '')
   const [expanded, setExpanded] = useState(false)
   const [height, setHeight] = useState(readHeight)
@@ -451,8 +449,6 @@ export function InputPanel(props: InputPanelProps) {
   // own: only this gesture starts a runtime without a prompt.
   const canStart = state === 'none' && !!conversation.native_id
   const harness = harnessOf(conversation.harness)
-  const terminal =
-    conversation.native_id && harness?.terminal ? `cd ${project.checkout} && ${harness.terminal} ${conversation.native_id}` : null
   // a pi dialog holds pi open: closing its input does not stop it, so a
   // release ends its process, and the command the dialog gates never runs.
   const piDialogPending = conversation.harness === 'pi' && pending.length > 0
@@ -626,9 +622,6 @@ export function InputPanel(props: InputPanelProps) {
                 <div className="menu" role="menu">
                   {harness?.listsMcp && <MenuItem icon="extension" word={mcpSummaryText(conversation)} onClick={() => choose('mcp')} />}
                   <MenuItem icon="logout" word="Release" disabled={busy || state !== 'running'} onClick={() => choose('release')} />
-                  {onTranscript && (
-                    <MenuItem icon="notes" word="View native transcript" onClick={() => { choose(null); onTranscript() }} />
-                  )}
                   {canResume && (
                     <MenuItem
                       icon="play_arrow"
@@ -670,7 +663,7 @@ export function InputPanel(props: InputPanelProps) {
       {open === 'release' && (
         <Dialog title="Release this conversation" onClose={() => setOpen(null)}>
           <p>
-            Release stops the runtime and frees the session, so you can continue in a terminal.
+            Release stops the runtime. The next prompt or Start brings the conversation back on the same session.
             {(active || pending.length > 0) && ' The turn in flight is interrupted first.'}
           </p>
           {piDialogPending && (
@@ -697,22 +690,6 @@ export function InputPanel(props: InputPanelProps) {
                   : 'Codex is not asked to wait for them. Any still running when it exits are reported in the history.'}
               </p>
             </div>
-          )}
-          {terminal ? (
-            <div className="command">
-              <code>{terminal}</code>
-              <CopyButton text={terminal} />
-            </div>
-          ) : (
-            <p className="muted">This conversation has no session yet to continue elsewhere.</p>
-          )}
-          {conversation.harness === 'pi' ? (
-            <p>
-              Close the terminal before you start or send a prompt here again. pi has no lock, so a terminal still open on the session and mega
-              would both write to its file, and mega cannot tell that one is open.
-            </p>
-          ) : (
-            <p>Close the terminal before you start or send a prompt here again; an idle terminal still holds the session.</p>
           )}
           <div className="actions">
             <IconButton

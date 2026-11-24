@@ -74,7 +74,7 @@ const P = await t.register('long', t.checkout('long'))
 const A = (await t.launch(P.id, 'claude', 'echo\nhello')).id
 const B = (await t.launch(P.id, 'claude', 'echo\nhello')).id
 const C = (await t.launch(P.id, 'claude', 'echo\nhello', { name: 'imported' })).id
-const gap = await t.launch(P.id, 'claude', 'echo\nmanaged before the gap', { name: 'handoff gap' })
+const gap = await t.launch(P.id, 'claude', 'echo\nmanaged before the release', { name: 'older gap' })
 const unknown = await t.launch(P.id, 'claude', 'echo\nunknown session', { name: 'unknown session' })
 const legacy = await t.launch(P.id, 'claude', 'echo\nlegacy completed', { name: 'legacy loss' })
 for (const id of [A, B, C, gap.id]) {
@@ -84,10 +84,10 @@ for (const id of [A, B, C, gap.id]) {
 await until('all released', async () => (await convOf(A)).state === 'none' && (await convOf(B)).state === 'none' && (await convOf(C)).state === 'none' && (await convOf(gap.id)).state === 'none')
 await t.stop()
 const logOf = (id) => join(t.dir, 'data', 'conversations', id, 'events.jsonl')
-const terminalPrompt = 'terminal prompt with attachment'
-const terminalReply = 'terminal reply during handoff'
-const nativeHistory = seedExchange(join(t.dir, 'fakeshim'), gap.native_id, {
-  prompt: terminalPrompt,
+// work done on the session outside mega, which mega neither marks nor shows.
+const terminalReply = 'terminal reply outside mega'
+seedExchange(join(t.dir, 'fakeshim'), gap.native_id, {
+  prompt: 'terminal prompt with attachment',
   reply: terminalReply,
   attachment: true,
 })
@@ -104,6 +104,8 @@ function rewriteConversation(id, rewrite) {
   writeFileSync(registry, rows.join(''))
 }
 const loseBinding = (row) => row.replace(/^[ \t]*native_id: .*\n/m, '')
+// the release as an earlier build wrote it, with a gap flag on its stop.
+writeLog(gap.id, readLog(gap.id).map((ev) => (ev.kind === 'runtime' && ev.status === 'stopped' ? { ...ev, gap: true } : ev)))
 rewriteConversation(unknown.id, (row) => loseBinding(row).replace(/runtime: none/, 'runtime: running').replace(/output_seq: \d+/, 'output_seq: 0'))
 writeLog(unknown.id, readLog(unknown.id).filter((ev) => ev.status === 'starting'))
 const prior = readLog(legacy.id).filter((ev) => ev.kind !== 'runtime' || ev.status !== 'stopped' && ev.status !== 'stopping')
@@ -853,63 +855,31 @@ await dark.locator('nav.rail').waitFor()
 await until('dark re-centred', async () => centred(await column(dark, '.conversation')) && (await column(dark, '.conversation')).left > open.left)
 await t.shot(dark, 'centred-dark-rail')
 
-// Exact native history is available before the next managed launch. The
-// native dialog shares no rows or acknowledgments with the conversation
-// timeline.
-const nativeDialog = page.locator('dialog:modal', { has: page.getByRole('heading', { name: 'Native transcript' }) })
+// A release is a stop and nothing more. A log an earlier build wrote with a
+// gap flag on its stop opens and shows its rows as any stop, with no gap
+// sentence; nothing reads or shows the session's own history, and More
+// offers no transcript.
 const moreMenu = page.getByRole('button', { name: 'More', exact: true })
 const transcriptItem = page.getByRole('menuitem', { name: 'View native transcript' })
-const gapLink = page.locator('.history-gap').getByRole('button', { name: 'View native transcript' })
-const closeTranscript = async () => {
-  await nativeDialog.getByRole('button', { name: 'Close' }).click()
-  await nativeDialog.waitFor({ state: 'hidden' })
-}
 await page.goto(`${url}/#/c/${gap.id}`)
-await gapLink.waitFor()
-await until('the visible gap to be read', async () => {
-  const view = await convOf(gap.id)
-  return view.read_seq === view.last_seq
-})
-check(await gapLink.count() === 1 && (await convOf(gap.id)).native_id === gap.native_id, 'one visible handoff gap is acknowledged and offers the exact bound id')
-const gapBefore = await convOf(gap.id)
-await gapLink.click()
-await nativeDialog.getByText(terminalPrompt, { exact: true }).waitFor()
+await page.locator('.events p.system', { hasText: 'Runtime stopped' }).waitFor()
+const olderGap = await page.locator('.events').textContent()
 check(
-  (await nativeDialog.getByText(terminalReply, { exact: true }).count()) === 1 &&
-    (await nativeDialog.locator('.message.user', { hasText: terminalPrompt }).locator('.who').textContent()) === 'You' &&
-    (await nativeDialog.locator('.message.assistant', { hasText: terminalReply }).locator('.who').textContent()) === 'Claude Code' &&
-    !(await nativeDialog.textContent()).includes('outside mega'),
-  'the standard modal shows the terminal exchange by speaker, including a prompt with text and an attachment',
+  olderGap.includes('managed before the release') && !olderGap.includes('History may have a gap') && !olderGap.includes(terminalReply),
+  'an older gap flag shows as any stop, and the timeline shows only what mega witnessed',
 )
-await closeTranscript()
-check((await page.locator('.events').textContent()).includes('managed before the gap') && !(await page.locator('.events').textContent()).includes(terminalReply), 'the managed timeline shows what mega witnessed')
-await page.reload()
-await gapLink.waitFor()
 await moreMenu.click()
-await transcriptItem.click()
-await nativeDialog.getByText(terminalReply, { exact: true }).waitFor()
-const gapAfter = await convOf(gap.id)
-check(await gapLink.count() === 1 && gapBefore.last_seq === gapAfter.last_seq && gapBefore.read_seq === gapAfter.read_seq, 'More can reread the same transcript after reload without moving the reading position')
-await closeTranscript()
-
-nativeHistory.empty()
-await gapLink.click()
-await nativeDialog.getByText('No messages to show.', { exact: true }).waitFor()
-check(true, 'a confirmed empty Claude session says No messages to show')
-await closeTranscript()
-nativeHistory.missing()
-await gapLink.click()
-await nativeDialog.getByRole('alert').filter({ hasText: 'Transcript unavailable' }).waitFor()
-check((await convOf(gap.id)).native_id === gap.native_id, 'a missing Claude session reports Transcript unavailable and the conversation survives')
-await closeTranscript()
-nativeHistory.restore()
+await page.getByRole('menuitem', { name: 'Release' }).waitFor()
+check((await transcriptItem.count()) === 0, 'More offers no transcript')
+await moreMenu.click()
+check((await fetch(`${url}/api/conversations/${gap.id}/native-transcript`)).status === 404, 'the transcript route is gone')
 
 // Losing a first launch before its identity was recorded still lets the
 // operator acknowledge the loss and remove the Mega conversation.
 await page.goto(`${url}/#/c/${unknown.id}`)
-await page.locator('.history-gap').getByText(/Adopt a session/).waitFor()
+await page.locator('.events p.system', { hasText: 'Runtime unsupervised' }).waitFor()
+check(!(await page.locator('.events').textContent()).includes('History may have a gap'), 'an unknown session’s Unsupervised row carries no gap sentence')
 await moreMenu.click()
-check(await gapLink.count() === 0 && await transcriptItem.count() === 0, 'an unknown session shows Adopt guidance and offers no transcript')
 const unknownBefore = await convOf(unknown.id)
 await page.getByRole('menuitem', { name: 'Resume', exact: true }).click()
 await until('the acknowledgment to clear supervision loss', async () => (await convOf(unknown.id)).state === 'none')
@@ -920,14 +890,9 @@ check((await api('DELETE', `/api/conversations/${unknown.id}`)).status === 204, 
 await page.goto(`${url}/#/c/${legacy.id}`)
 await page.getByText('legacy loss record', { exact: false }).waitFor()
 await moreMenu.click()
-await transcriptItem.click()
-await nativeDialog.getByText('legacy completed', { exact: true }).waitFor()
-check(true, 'More opens the bound transcript for an Unsupervised entry from an older build')
-await closeTranscript()
-await moreMenu.click()
 await page.getByRole('menuitem', { name: 'Resume', exact: true }).click()
 await until('legacy supervision loss acknowledged', async () => (await convOf(legacy.id)).state === 'none')
-check((await api('POST', `/api/conversations/${legacy.id}/prompt`, { text: 'echo\nreply after the gap' })).status === 202, 'the next prompt starts after acknowledging the old gap')
+check((await api('POST', `/api/conversations/${legacy.id}/prompt`, { text: 'echo\nreply after the loss' })).status === 202, 'the next prompt starts after acknowledging the loss')
 await t.idle(legacy.id)
 await t.stop()
 const replay = readLog(legacy.id)
@@ -940,13 +905,13 @@ writeLog(legacy.id, replay)
 await t.start()
 await page.reload()
 const oldTurn = page.locator('.events .turn-block').filter({ hasText: 'reply before supervision was lost' })
-const nextTurn = page.locator('.events .turn-block').filter({ hasText: 'reply after the gap' })
+const nextTurn = page.locator('.events .turn-block').filter({ hasText: 'reply after the loss' })
 await nextTurn.locator('.message.assistant').waitFor()
 const oldOutcomes = await oldTurn.locator('.turn-end').count()
 const nextLine = await nextTurn.locator('.turn-line').textContent()
 check(await oldTurn.count() === 1 && oldOutcomes === 0 && nextLine.includes('took 10s'), `the old turn has no recorded outcome (${oldOutcomes}) and the next turn took ten seconds from its own prompt: "${nextLine}"`)
 const legacyTail = (await api('GET', `/api/conversations/${legacy.id}/events?turns=1`)).body
 const legacyEarlier = (await api('GET', `/api/conversations/${legacy.id}/events?turns=1&before=${legacyTail.from}`)).body
-check(legacyTail.events.some((ev) => ev.text === 'reply after the gap') && legacyEarlier.events.some((ev) => ev.text === 'reply before supervision was lost'), 'paging back one turn crosses the old Unsupervised boundary')
+check(legacyTail.events.some((ev) => ev.text === 'reply after the loss') && legacyEarlier.events.some((ev) => ev.text === 'reply before supervision was lost'), 'paging back one turn crosses the Unsupervised boundary')
 
 await t.done()

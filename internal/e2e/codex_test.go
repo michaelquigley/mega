@@ -139,19 +139,9 @@ func TestCodexRoundTrip(t *testing.T) {
 		t.Errorf("release ended with %s %q", last.Status, last.Text)
 	}
 
-	// X4: the transcript is a read, and the timeline ends at the release gap.
-	if _, err := svc.NativeTranscript(s.id); err != nil {
-		t.Fatal(err)
-	}
-	after, err := svc.Events(s.id, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(after) != len(evs) || !after[len(after)-1].Gap {
-		t.Fatal("the transcript read changed the timeline or release left no gap")
-	}
+	// X4: every message in the thread's own history is in the log.
 	recorded := make(map[string]bool)
-	for _, ev := range after {
+	for _, ev := range evs {
 		recorded[ev.NativeID] = true
 	}
 	history, err := h.History(context.Background(), harness.Place{Cwd: fixture, Env: os.Environ(), Find: os.Environ()}, conv.NativeID)

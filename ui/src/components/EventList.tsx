@@ -22,7 +22,6 @@ interface EventListProps {
   projectId: string
   conversationId: string
   harness: string
-  onTranscript?: () => void
   // what the turn in flight asked for and ran with, once it has run.
   inFlight?: TurnRecord
 }
@@ -50,14 +49,16 @@ interface Began {
   imported: boolean
 }
 
+// historyBoundary is where mega lost sight of a runtime: the next turn starts
+// afresh after it.
 function historyBoundary(event: ConversationEvent): boolean {
-  return event.kind === 'runtime' && (event.gap === true || event.status === 'unsupervised')
+  return event.kind === 'runtime' && event.status === 'unsupervised'
 }
 
 // EventList renders recorded history. requests appear here only as history;
 // whether one is answerable comes from the service's pending set, never from
 // the log.
-export function EventList({ events, pending, turnActive, stale, showNative, delta, projectId, conversationId, harness, inFlight, onTranscript }: EventListProps) {
+export function EventList({ events, pending, turnActive, stale, showNative, delta, projectId, conversationId, harness, inFlight }: EventListProps) {
   const { models } = useModels(projectId, harness)
   const results = new Map<string, ConversationEvent>()
   const outcomes = new Map<string, string>()
@@ -266,14 +267,6 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
               {event.facts?.version && ` · v${event.facts.version}`}
               {outside && ` · older than the ${event.facts?.tested} mega was tested with`}
               {event.text && `: ${event.text}`}
-              {event.gap && (
-                <span className="history-gap">
-                  History may have a gap.{' '}
-                  {onTranscript
-                    ? <button type="button" onClick={onTranscript}>View native transcript</button>
-                    : 'Use Adopt a session to recover the native session.'}
-                </span>
-              )}
             </p>
           )
         }

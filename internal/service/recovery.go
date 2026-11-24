@@ -41,11 +41,10 @@ func (s *Service) recover() error {
 			l.outputAt = at
 		}
 		if conv.Runtime == model.RuntimeRunning {
-			if !gapSinceStart(evs) {
+			if !lostSinceStart(evs) {
 				if err := s.record(l, &model.Event{
 					Kind:   model.EventRuntime,
 					Status: model.StatusUnsupervised,
-					Gap:    true,
 					Text:   "the service restarted without seeing this runtime exit; supervision is lost and execution is uncertain",
 				}); err != nil {
 					return err
@@ -71,9 +70,10 @@ func (s *Service) recover() error {
 	})
 }
 
-// gapSinceStart also covers a restart between writing an exit or loss
-// marker and saving the corresponding registry state.
-func gapSinceStart(evs []*model.Event) bool {
+// lostSinceStart covers a restart between writing an unsupervised line and
+// saving the registry state that goes with it, so a further restart adds no
+// second line.
+func lostSinceStart(evs []*model.Event) bool {
 	for i := len(evs) - 1; i >= 0; i-- {
 		ev := evs[i]
 		if ev.HistoryBoundary() {

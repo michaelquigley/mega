@@ -49,8 +49,8 @@ probes/versions/codex.sh /path/to/codex-0.170.0-package/bin/codex 18520 --discov
 - a prompt in the resumed session;
 - a model switch while idle, to another listed model, `sonnet` where it can, which Claude confirms at once. Over five idle seconds no message or turn may be recorded, and the conversation must not be running. Whether the build echoes the switch as a replayed user message, which mega records as the native "user/replay", goes in the summary's `idle_switch.echo`. The next prompt's turn must ask for the new model and run on it;
 - a release and an exact-id resume by a prompt that must remember the conversation, with zero events imported;
-- a release and a read of the exact session’s native transcript, which must include the known assistant reply and omit Claude’s synthetic interruption and local model command from speech;
-- every turn's `differs`.
+- a release, and every turn's `differs`;
+- the conversation removed and its session discovered and adopted again; the adoption’s snapshot must include the known assistant reply and omit Claude’s synthetic interruption and local model command from speech.
 
 **`codex-driver.mjs` (Codex)** gives the fixture the override `export CODEX_HOME=<scratch home>`.
 - **The guard.** It launches nothing, not even the model list, until two things hold. The project's resolution, from the override and made after the override was set, must change `CODEX_HOME`. A live resolution must then set `CODEX_HOME` to the scratch home. That one value is the only one read.
@@ -73,12 +73,12 @@ Each step prints `ok` or `FAIL`, and a run ends with a JSON summary, which is al
 - mega's own start-up check of the build, with its standing against `harness.Tested`;
 - the steps passed and the steps that failed;
 - every event imported from native history;
-- for Claude, the transcript message count and the results of the speech checks;
+- for Claude, the adopted conversation, the snapshot’s count of prompts and replies, and the results of the speech checks;
 - the turns and any that differed.
 
 A build is fit to add to a range when every step passed and the state checks found nothing changed.
 
-Claude Code can write “No response requested.” after the interrupted turn and record the local `/model` command in its native transcript. The exact-id resume must import zero events, just as a start without a prompt does. The separate transcript read must show the known assistant reply `DELTA-7a8b` as speech and omit both bookkeeping records.
+Claude Code can write “No response requested.” after the interrupted turn and record the local `/model` command in its native transcript. The exact-id resume must import zero events, just as a start without a prompt does. The adoption’s snapshot must show the known assistant reply `DELTA-7a8b` as speech and omit both bookkeeping records from speech.
 
 Each run directory holds `driver.out`, `summary.json`, `version.txt`, `state-before.txt` and `state-after.txt`. It also holds mega's own output in `mega.out` and its log in `xdg/state/mega/mega.log`; a warning about versions would show there. A Codex run's `adopt/` holds the second mega's run.
 
