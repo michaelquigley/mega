@@ -761,10 +761,7 @@ check(await atRest('adopting'), 'adopting puts the cursor in the adopted convers
 // given output while it is open, stays unread until the last dialog closes,
 // and is read then.
 const inDialog = () => page.evaluate(() => document.activeElement?.closest('dialog[open]') !== null)
-const unread = async (id) => {
-  const c = await convOf(id)
-  return c.read_seq < c.output_seq
-}
+const unread = async (id) => (await convOf(id)).attention === 'unread'
 await go(H)
 await until('H shown for the dialog', async () => (await heading()) === 'dock')
 check((await api('POST', `/api/conversations/${C}/prompt`, { text: 'echo\nC has news while H is open' })).status === 202, 'C, not open, is given output')
@@ -784,8 +781,8 @@ await page.keyboard.press('Control+Space')
 await settled()
 check(await inDialog(), 'and Ctrl+Space does nothing while a dialog is open')
 // the page has C's history, loaded and current, behind the dialog.
-const shownThrough = () => page.evaluate(() => Math.max(0, ...[...document.querySelectorAll('.events [data-seq]')].map((e) => Number(e.dataset.seq))))
-await until('C’s output shown behind the dialog', async () => (await shownThrough()) >= (await convOf(C)).output_seq)
+const replyShown = (text) => page.locator('.events .message.assistant[data-seq]', { hasText: text }).isVisible()
+await until('C’s output shown behind the dialog', () => replyShown('C has news while H is open'))
 await page.waitForTimeout(800)
 check(await unread(C), 'switched to by the address behind a dialog, its output shown behind it, C stays unread while the dialog is open')
 await page.keyboard.press('Escape')
@@ -797,7 +794,7 @@ await page.locator('.side-foot .version-label').click()
 await page.locator('dialog[open]').waitFor()
 check((await api('POST', `/api/conversations/${C}/prompt`, { text: 'echo\nnews while the dialog is open' })).status === 202, 'C, open behind a dialog, is given output')
 await t.idle(C)
-await until('the new output shown behind the dialog', async () => (await shownThrough()) >= (await convOf(C)).output_seq)
+await until('the new output shown behind the dialog', () => replyShown('news while the dialog is open'))
 await page.waitForTimeout(800)
 check(await unread(C), 'output arriving in the open conversation while a dialog is open stays unread')
 await page.keyboard.press('Escape')
@@ -813,7 +810,7 @@ const offered = () => page.locator('.newer button').isVisible()
 const outputFor = async (text) => {
   check((await api('POST', `/api/conversations/${C}/prompt`, { text: `echo\n${text}` })).status === 202, `C is given output: "${text}"`)
   await t.idle(C)
-  await until(`"${text}" on the page`, async () => (await shownThrough()) >= (await convOf(C)).output_seq)
+  await until(`"${text}" on the page`, () => replyShown(text))
 }
 await scroller.evaluate((m) => {
   m.scrollTop = m.scrollHeight

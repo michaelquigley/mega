@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+CHANGE: **Conversation responses drop `output_seq`.** Use `attention` for unread status. Recorded output can show as unread after Resume even if mega missed the turn's end, and adopted output is unread until acknowledged.
+
 CHANGE: **Once mega has closed, it answers no read.** (2026-11-24) In the moment after an orderly stop has let go of the workspace and before mega stops answering, reads are refused as `unavailable`. A page whose workspace read or reconnect catch-up is refused then keeps what it last read, the shutdown banner included, and shows no read error.
 
 CHANGE: **A write mega cannot make stops mega.** (2026-11-24) When the registry or a conversation's log cannot be written, mega logs why and exits at once, as if it had crashed. It no longer runs on refusing changes until a restart. Nothing is stopped on the way out: an agent at work goes on unwatched, and the page shows mega as unreachable, with the reason in mega's log. The next start treats it as the start after a crash. A conversation that was running is Unsupervised, and a request that was waiting is lost. A failed configuration snapshot still stops nothing.

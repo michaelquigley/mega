@@ -612,7 +612,13 @@ func TestAPublishedEventIsACopy(t *testing.T) {
 	finishTurn(rt, "a-1", "done")
 	waitFor(t, "the turn to end", func() bool { return !r.view(conv.ID).TurnActive })
 	v := r.view(conv.ID)
-	if v.OutputSeq == 9999 || v.OutputSeq == 0 || v.Attention != model.AttentionUnread {
-		t.Errorf("a subscriber's changes reached the service: output %d, attention %s", v.OutputSeq, v.Attention)
+	if v.Attention != model.AttentionUnread || v.AttentionAt.IsZero() {
+		t.Errorf("a subscriber's changes reached the service: attention %s at %v", v.Attention, v.AttentionAt)
+	}
+	if err := r.svc.Read(conv.ID, seqOf(r.events(conv.ID), "a-1")); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.attention(conv.ID); got != model.AttentionIdle {
+		t.Errorf("after reading through the reply: attention %q", got)
 	}
 }

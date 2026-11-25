@@ -144,14 +144,34 @@ func TestOutputAfterItsTurnIsUnreadWithoutATurn(t *testing.T) {
 	if view := r.view(conv.ID); view.Attention != model.AttentionIdle {
 		t.Fatalf("before the command finished: %q", view.Attention)
 	}
+	sub := r.svc.Subscribe()
+	defer sub.Close()
 	rt.Emit(&model.Event{Kind: model.EventToolUse, Tool: "shell", ToolUseID: "exec-1", Text: "shell sleep 30", NativeID: "exec-1", AfterTurn: true})
 	rt.Emit(&model.Event{Kind: model.EventToolResult, ToolUseID: "exec-1", Text: "failed: exit 1", Status: model.TurnError, NativeID: "exec-1/result", AfterTurn: true})
-	rt.Background(nil)
+	var changes int
+	for len(sub.Updates()) > 0 {
+		if (<-sub.Updates()).WorkspaceChanged {
+			changes++
+		}
+	}
+	if changes != 2 {
+		t.Errorf("workspace changes for the late call and result = %d, want 2", changes)
+	}
 	view := r.view(conv.ID)
-	if view.TurnActive || view.Attention != model.AttentionUnread || view.OutputSeq != view.LastSeq {
-		t.Errorf("after the late result: turn %v, attention %q, output %d of %d", view.TurnActive, view.Attention, view.OutputSeq, view.LastSeq)
+	if view.TurnActive || view.Attention != model.AttentionUnread {
+		t.Errorf("after the late result: turn %v, attention %q", view.TurnActive, view.Attention)
 	}
 	if ws := workspaceOf(t, r.svc); len(ws.NeedsYou) != 1 || ws.NeedsYou[0] != conv.ID {
 		t.Errorf("needs-you = %v", ws.NeedsYou)
+	}
+	if err := r.svc.Read(conv.ID, seqOf(r.events(conv.ID), "exec-1")); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.attention(conv.ID); got != model.AttentionUnread {
+		t.Errorf("after reading through the late tool call: attention %q", got)
+	}
+	r.readAll(conv.ID)
+	if got := r.attention(conv.ID); got != model.AttentionIdle {
+		t.Errorf("after reading through the late tool result: attention %q", got)
 	}
 }

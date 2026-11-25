@@ -735,19 +735,6 @@ func (s *Service) Resume(conversationID string) error {
 	return nil
 }
 
-// markUnreadLocked advances the unread marker to seq, as a registry write that
-// memory follows. callers hold s.mu.
-func (s *Service) markUnreadLocked(l *live, seq int64, at time.Time) {
-	s.updateConversation(l.id, func(c *model.Conversation) {
-		if seq > c.OutputSeq {
-			c.OutputSeq = seq
-		}
-	})
-	if conv, err := s.conversationLocked(l.id); err == nil && conv.OutputSeq == seq {
-		l.outputAt = at
-	}
-}
-
 // Events returns the conversation's recorded events after seq.
 func (s *Service) Events(conversationID string, since int64) ([]*model.Event, error) {
 	s.mu.Lock()

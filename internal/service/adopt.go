@@ -211,7 +211,7 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 		Model:          asked.Model,
 		Effort:         asked.Effort,
 	}
-	if err := s.writeSnapshot(&conv, snapshot); err != nil {
+	if err := s.writeSnapshot(conv.ID, snapshot); err != nil {
 		return ConversationView{}, err
 	}
 	if _, err := s.liveLocked(conv.ID); err != nil {
@@ -226,8 +226,8 @@ func (s *Service) Adopt(projectID, harnessName, nativeID, name string) (Conversa
 
 // writeSnapshot completes the log before the conversation is published.
 // callers hold s.mu.
-func (s *Service) writeSnapshot(conv *model.Conversation, snapshot []*model.Event) error {
-	log, err := events.Open(s.logPath(conv.ID))
+func (s *Service) writeSnapshot(id string, snapshot []*model.Event) error {
+	log, err := events.Open(s.logPath(id))
 	if err != nil {
 		return err
 	}
@@ -239,10 +239,9 @@ func (s *Service) writeSnapshot(conv *model.Conversation, snapshot []*model.Even
 		}
 		ev = ev.Clone()
 		ev.Origin = model.OriginNative
-		s.appendEvent(conv.ID, log, ev)
+		s.appendEvent(id, log, ev)
 		seen[ev.NativeID] = true
 	}
-	conv.ReadSeq = log.LastSeq()
 	return nil
 }
 

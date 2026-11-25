@@ -67,7 +67,7 @@ func TestAdoptionReadCanBeRetriedAndTheSnapshotSuppressesLiveEchoes(t *testing.T
 		t.Fatal(err)
 	}
 	r.completeSnapshot(conv.ID)
-	if conv.ReadSeq != conv.LastSeq || conv.Attention != model.AttentionIdle || len(workspaceOf(t, r.svc).Conversations) != 1 {
+	if conv.ReadSeq != 0 || conv.Attention != model.AttentionUnread || len(workspaceOf(t, r.svc).Conversations) != 1 {
 		t.Fatalf("adopted conversation = %+v", conv)
 	}
 	select {
@@ -80,6 +80,10 @@ func TestAdoptionReadCanBeRetriedAndTheSnapshotSuppressesLiveEchoes(t *testing.T
 	}
 	if len(sub.Updates()) != 0 {
 		t.Fatal("adoption announced more than one update")
+	}
+	r.readAll(conv.ID)
+	if got := r.attention(conv.ID); got != model.AttentionIdle {
+		t.Fatalf("after reading the adoption snapshot: %q", got)
 	}
 	if err := r.svc.Start(conv.ID); err != nil {
 		t.Fatal(err)
@@ -183,7 +187,7 @@ func TestAnAdoptionWhoseRegistryRenameSurvivesHasItsCompleteSnapshot(t *testing.
 		// the write fails.
 		if err := reg.Update(func(doc *registry.Document) error {
 			doc.Conversations = append(doc.Conversations, model.Conversation{
-				ID: id, ProjectID: r.project.ID, NativeID: "terminal", Harness: model.HarnessClaude, Runtime: model.RuntimeNone, ReadSeq: 3,
+				ID: id, ProjectID: r.project.ID, NativeID: "terminal", Harness: model.HarnessClaude, Runtime: model.RuntimeNone,
 			})
 			return nil
 		}); err != nil {
@@ -196,7 +200,7 @@ func TestAnAdoptionWhoseRegistryRenameSurvivesHasItsCompleteSnapshot(t *testing.
 	exited(t, reasons)
 	r.crashed()
 	r.completeSnapshot(id)
-	if conv := r.view(id); conv.NativeID != "terminal" || conv.ReadSeq != conv.LastSeq {
+	if conv := r.view(id); conv.NativeID != "terminal" || conv.ReadSeq != 0 || conv.Attention != model.AttentionUnread {
 		t.Fatalf("recovered adoption = %+v", conv)
 	}
 }

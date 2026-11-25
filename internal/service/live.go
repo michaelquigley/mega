@@ -121,14 +121,9 @@ type live struct {
 	// fault follows whether the last runtime ended badly or failed to launch.
 	fault bool
 
-	// turnOutput is the newest agent output recorded in the turn in flight. it
-	// becomes the conversation's OutputSeq only when the turn ends, so output
-	// still being produced is running, not unread.
-	turnOutput   int64
-	turnOutputAt time.Time
-
-	// outputAt is when the conversation's OutputSeq event was recorded.
-	outputAt time.Time
+	// the newest agent output in the log, for attention and needs-you order.
+	newestOutputSeq int64
+	newestOutputAt  time.Time
 
 	// instructedAt is when the operator last instructed the conversation:
 	// the time of the newest prompt mega sent it, a launch's opening one or
@@ -136,6 +131,14 @@ type live struct {
 	// log as it is opened (instructs) and moved as send records a prompt.
 	// zero when none was ever sent through mega.
 	instructedAt time.Time
+}
+
+// noteOutput follows the log in recording order, both on append and on open.
+func (l *live) noteOutput(ev *model.Event) {
+	switch ev.Kind {
+	case model.EventAssistant, model.EventToolUse, model.EventToolResult:
+		l.newestOutputSeq, l.newestOutputAt = ev.Seq, ev.At
+	}
 }
 
 // instructs reports whether an event in the log is a prompt mega sent: a
@@ -202,18 +205,12 @@ func (s *Service) liveLocked(conversationID string) (*live, error) {
 		return nil, err
 	}
 	l := &live{id: conversationID, log: log, seen: make(map[string]bool), pendingAt: make(map[string]time.Time), answering: make(map[string]bool)}
-	var outputSeq int64
-	if conv, err := s.conversationLocked(conversationID); err == nil {
-		outputSeq = conv.OutputSeq
-	}
 	var legacyImport bool
 	for _, ev := range evs {
 		if ev.NativeID != "" {
 			l.seen[ev.NativeID] = true
 		}
-		if ev.Seq == outputSeq {
-			l.outputAt = ev.At
-		}
+		l.noteOutput(ev)
 		if instructs(ev) {
 			l.instructedAt = ev.At
 		}
@@ -254,6 +251,7 @@ func (s *Service) record(l *live, ev *model.Event) {
 		ev.Origin = model.OriginService
 	}
 	s.appendEvent(l.id, l.log, ev)
+	l.noteOutput(ev)
 	if ev.NativeID != "" {
 		l.seen[ev.NativeID] = true
 	}
@@ -333,10 +331,8 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 		view.State = model.RuntimeNone
 	}
 	l := s.live[conv.ID]
+	view.Attention, view.AttentionAt = l.attention(conv)
 	if l == nil {
-		// no live state ever: the log could not be opened. attention is what
-		// the registry says, so a page never holds a conversation without one.
-		view.Attention = recordedAttention(conv)
 		return view
 	}
 	view.LastSeq = l.log.LastSeq()
@@ -373,17 +369,16 @@ func (s *Service) viewLocked(conv model.Conversation) ConversationView {
 		view.Pending = append(view.Pending, req.Clone())
 		view.PendingAt[req.ID] = l.pendingAt[req.ID]
 	}
-	view.Attention, view.AttentionAt = l.attention(conv)
 	return view
 }
 
 // attention is computed from confirmed facts, in order: a pending request; an
 // unsupervised runtime, uncertain and never shown as running or idle; a turn in
-// flight; a runtime that ended badly; agent output from a completed turn past
+// flight; a runtime that ended badly; recorded agent output past
 // the reading position; and otherwise idle. reading never resolves a request.
 // callers hold s.mu.
 func (l *live) attention(conv model.Conversation) (string, time.Time) {
-	if len(l.pending) > 0 {
+	if l != nil && len(l.pending) > 0 {
 		var oldest time.Time
 		for _, req := range l.pending {
 			if at := l.pendingAt[req.ID]; oldest.IsZero() || at.Before(oldest) {
@@ -395,28 +390,16 @@ func (l *live) attention(conv model.Conversation) (string, time.Time) {
 	switch {
 	case conv.Runtime == model.RuntimeUnsupervised:
 		return model.AttentionUnsupervised, time.Time{}
+	case l == nil:
+		return model.AttentionIdle, time.Time{}
 	case l.turnActive:
 		return model.AttentionRunning, time.Time{}
 	case l.fault:
 		return model.AttentionError, time.Time{}
-	case conv.OutputSeq > conv.ReadSeq:
-		return model.AttentionUnread, l.outputAt
+	case l.newestOutputSeq > conv.ReadSeq:
+		return model.AttentionUnread, l.newestOutputAt
 	default:
 		return model.AttentionIdle, time.Time{}
-	}
-}
-
-// recordedAttention is attention from the registry's facts alone, for a
-// conversation whose live state was never opened: no request, turn or fault
-// is known, so it is unsupervised, unread or idle, in attention's own order.
-func recordedAttention(conv model.Conversation) string {
-	switch {
-	case conv.Runtime == model.RuntimeUnsupervised:
-		return model.AttentionUnsupervised
-	case conv.OutputSeq > conv.ReadSeq:
-		return model.AttentionUnread
-	default:
-		return model.AttentionIdle
 	}
 }
 
@@ -539,45 +522,19 @@ func (k *sink) Event(ev *model.Event) {
 	case model.EventTurnEnd:
 		s.turnEndedLocked(l)
 	}
-	// agent output counts toward unread within a turn, once that turn ends;
-	// output the adapter marks as after its turn (a codex background command
-	// finishing) counts at once, its turn having ended already. native events
-	// never count: they are the harness's own bookkeeping (init, status,
-	// lifecycle), and bookkeeping never creates attention.
-	switch ev.Kind {
-	case model.EventAssistant, model.EventToolUse, model.EventToolResult:
-		switch {
-		case ev.AfterTurn && ev.Seq > 0 && !l.turnActive:
-			// output of a turn that has already ended: unread at once, as a
-			// turn's end would make it.
-			s.markUnreadLocked(l, ev.Seq, ev.At)
-		case l.turnActive && ev.Seq > 0:
-			l.turnOutput, l.turnOutputAt = ev.Seq, ev.At
-		}
+	if !l.turnActive && l.newestOutputSeq == ev.Seq {
+		s.changed()
 	}
 }
 
 // turnEndedLocked is what a recorded turn end does to memory, wherever it
-// came from: the turn is over, its settings and interrupt with it, and its
-// output is counted. callers hold s.mu and have recorded the turn_end.
+// came from: the turn is over, its settings and interrupt with it.
+// callers hold s.mu and have recorded the turn_end.
 func (s *Service) turnEndedLocked(l *live) {
 	l.turnActive, l.turnStartedAt = false, time.Time{}
 	l.turnAsked, l.turnRan = model.TurnSettings{}, nil
 	l.interrupting = false
-	s.endTurnLocked(l)
 	s.changed()
-}
-
-// endTurnLocked makes the ended turn's newest agent output the conversation's
-// OutputSeq, so it reads as unread. the registry is the record: memory follows
-// the write. a turn with no agent output changes nothing. callers hold s.mu.
-func (s *Service) endTurnLocked(l *live) {
-	seq, at := l.turnOutput, l.turnOutputAt
-	l.turnOutput, l.turnOutputAt = 0, time.Time{}
-	if seq == 0 {
-		return
-	}
-	s.markUnreadLocked(l, seq, at)
 }
 
 // started shows the runtime running once it reports the session it holds, and
@@ -781,9 +738,6 @@ func (k *sink) Exited(err error) {
 		l.turnAsked, l.turnRan = model.TurnSettings{}, nil
 		l.interrupting = false
 	})
-	// the turn ended with its runtime: what it had produced is counted now,
-	// as a turn's end would count it, and nothing is left for a later turn.
-	s.endTurnLocked(l)
 	s.updateConversation(l.id, func(c *model.Conversation) { c.Runtime = model.RuntimeNone })
 }
 

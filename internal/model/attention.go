@@ -13,8 +13,7 @@ const (
 	// AttentionError: the last runtime ended in an error, exited during a
 	// turn, or failed to launch.
 	AttentionError = "error"
-	// AttentionUnread: agent output from a completed turn the operator has not
-	// read.
+	// AttentionUnread: recorded agent output the operator has not read.
 	AttentionUnread = "unread"
 	// AttentionIdle: nothing waits on the operator.
 	AttentionIdle = "idle"

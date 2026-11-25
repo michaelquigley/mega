@@ -21,7 +21,6 @@ horizon:
   - retired-conversations.md
 researching:
   - simplify-the-core.md
-  - unread-is-output-beyond-where-you-have-read.md
   - a-turn-is-inferred-from-a-message.md
   - codex-interrupt-while-a-turn-is-starting.md
   - claude-code-21331-is-past-the-tested-range.md
@@ -46,6 +45,7 @@ researching:
   - codex-discovery-e2e-reads-its-own-thread.md
   - mega-on-macos-and-windows.md
 evaluating:
+  - unread-is-output-beyond-where-you-have-read.md
   - a-model-asked-for-with-a-context-suffix-reads-as-a-different-model.md
   - a-service-test-writes-the-registry-behind-the-service.md
   - a-copied-event-shares-its-turn-record.md

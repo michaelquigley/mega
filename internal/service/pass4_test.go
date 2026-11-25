@@ -163,56 +163,9 @@ func TestAHistoryReadChecksTheEnvironmentItRunsIn(t *testing.T) {
 	}
 }
 
-// a turn's output whose unread marker could not be written is counted at the
-// next start, from the log, which recorded it: the marker is derived from the
-// log.
-func TestAnUnreadMarkerTheRegistryRefusedIsReconciledAtStart(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	r.readAll(conv.ID)
-	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "the answer", NativeID: "a-1"})
-	r.svc.failUpdate = func() error { return errors.New("the registry could not be written") }
-	reasons := exits(r.svc)
-	go rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
-	exited(t, reasons)
-	r.crashed()
-	if err := r.svc.Resume(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	out := seqOf(r.events(conv.ID), "a-1")
-	if view := r.view(conv.ID); view.OutputSeq != out || view.Attention != model.AttentionUnread {
-		t.Errorf("after the next start: output seq %d (want %d), attention %q", view.OutputSeq, out, view.Attention)
-	}
-}
-
-// the fifth full review: what start-up rebuilds must be in the log, and an
-// error a retry has made good is cleared.
-
-// output an adapter marks as after its turn, a codex background command
-// finishing, is counted from the log at the next start: that it came after
-// its turn is in the log, not only in memory.
-func TestLateOutputsMarkerIsRebuiltFromTheLog(t *testing.T) {
-	r := newRig(t)
-	conv := r.start("one")
-	rt := r.fake.Last()
-	started(rt)
-	finishTurn(rt, "a-1", "done")
-	r.readAll(conv.ID)
-	r.svc.failUpdate = func() error { return errors.New("the registry could not be written") }
-	reasons := exits(r.svc)
-	go rt.Emit(&model.Event{Kind: model.EventToolResult, Text: "the background command finished", NativeID: "late-1", AfterTurn: true})
-	exited(t, reasons)
-	r.crashed() // nothing ends the turn the late output would open
-	late := seqOf(r.events(conv.ID), "late-1")
-	if view := r.view(conv.ID); late == 0 || view.OutputSeq != late {
-		t.Errorf("after the next start: output seq %d, want the late output's %d", view.OutputSeq, late)
-	}
-}
-
 // an error that came from the runtime is not cleared by a resume, which
 // starts nothing: only a runtime that starts clears it.
+// a finding from the fifth full review.
 func TestAResumeLeavesARuntimesError(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")

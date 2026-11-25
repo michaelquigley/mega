@@ -34,7 +34,6 @@ type conversationView struct {
 	Attention    string
 	ReadSeq      int64
 	LastSeq      int64
-	OutputSeq    int64
 	// Model, Version and PermissionMode are what the running harness last
 	// reported; absent with no runtime.
 	Model          string `dd:",+omitempty"`
@@ -104,7 +103,6 @@ func newConversationView(conv service.ConversationView) *conversationView {
 		Attention:     conv.Attention,
 		ReadSeq:       conv.ReadSeq,
 		LastSeq:       conv.LastSeq,
-		OutputSeq:     conv.OutputSeq,
 
 		PermissionModeChoice: conv.PermissionMode,
 		ModelChoice:          conv.Model,

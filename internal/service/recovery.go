@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"slices"
-	"time"
 
 	"github.com/michaelquigley/df/dl"
 
@@ -15,14 +14,11 @@ import (
 // that was pending died with its runtime and is resolved lost, and a
 // conversation still recorded running was never seen to exit, so it becomes
 // unsupervised until the operator resumes it. native history is not imported
-// here, because an orphaned runtime may still be writing. the unread marker
-// is derived from the log, which is the record: a marker a crash kept from
-// the registry when a turn ended is counted here, from the turn the log holds.
+// here, because an orphaned runtime may still be writing.
 func (s *Service) recover() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var orphaned []string
-	outputs := make(map[string]int64)
 	for _, conv := range s.reg.Snapshot().Conversations {
 		l, err := s.liveLocked(conv.ID)
 		if err != nil {
@@ -34,10 +30,6 @@ func (s *Service) recover() error {
 			return err
 		}
 		s.loseUnresolvedLocked(l, evs)
-		if seq, at := finishedOutput(evs); seq > conv.OutputSeq {
-			outputs[conv.ID] = seq
-			l.outputAt = at
-		}
 		if conv.Runtime == model.RuntimeRunning {
 			if !lostSinceStart(evs) {
 				s.record(l, &model.Event{
@@ -49,7 +41,7 @@ func (s *Service) recover() error {
 			orphaned = append(orphaned, conv.ID)
 		}
 	}
-	if len(orphaned) == 0 && len(outputs) == 0 {
+	if len(orphaned) == 0 {
 		return nil
 	}
 	s.update(func(doc *registry.Document) error {
@@ -57,9 +49,6 @@ func (s *Service) recover() error {
 			c := &doc.Conversations[i]
 			if slices.Contains(orphaned, c.ID) {
 				c.Runtime = model.RuntimeUnsupervised
-			}
-			if seq, ok := outputs[c.ID]; ok && seq > c.OutputSeq {
-				c.OutputSeq = seq
 			}
 		}
 		return nil
@@ -81,53 +70,6 @@ func lostSinceStart(evs []*model.Event) bool {
 		}
 	}
 	return false
-}
-
-// finishedOutput is the unread marker as the log has it: the newest agent
-// output whose turn ended, or whose runtime's exit was recorded, by the rule
-// sink.Event and Exited apply as it happens. output the adapter marked as
-// after its turn counts at once; output of a turn still open at the log's
-// end does not. imported events stay read, and a turn lost to a restart
-// stays unfinished.
-func finishedOutput(evs []*model.Event) (int64, time.Time) {
-	var seq, turn int64
-	var at, turnAt time.Time
-	active := false
-	end := func() {
-		if turn > seq {
-			seq, at = turn, turnAt
-		}
-		turn, turnAt, active = 0, time.Time{}, false
-	}
-	for _, ev := range evs {
-		switch ev.Kind {
-		case model.EventUser, model.EventAssistant, model.EventToolUse, model.EventToolResult:
-			if ev.Origin == model.OriginNative || ev.Seq <= 0 {
-				continue
-			}
-			output := ev.Kind != model.EventUser
-			if ev.AfterTurn && !active {
-				if output && ev.Seq > seq {
-					seq, at = ev.Seq, ev.At
-				}
-				continue
-			}
-			active = true
-			if output {
-				turn, turnAt = ev.Seq, ev.At
-			}
-		case model.EventTurnEnd:
-			end()
-		case model.EventRuntime:
-			switch ev.Status {
-			case model.StatusStopped, model.StatusError:
-				end()
-			case model.StatusUnsupervised:
-				turn, turnAt, active = 0, time.Time{}, false
-			}
-		}
-	}
-	return seq, at
 }
 
 // loseUnresolvedLocked resolves every request the log shows without a

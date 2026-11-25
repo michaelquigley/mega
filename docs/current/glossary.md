@@ -35,10 +35,10 @@ The words mega's documents, cards and interface use, and what each one means her
 
 ## Attention
 
-- **Attention.** What a conversation asks of the operator, computed by the service and never stored: a pending **request**, **unread** output from a finished turn, **working** while a turn runs, **idle**, an **error**, or **unsupervised**.
+- **Attention.** What a conversation asks of the operator, computed by the service and never stored: a pending **request**, **unread** agent output recorded beyond the reading position, **working** while a turn runs, **idle**, an **error**, or **unsupervised**.
 - **Needs you.** The list of conversations with a pending request or unread output, across every project.
 - **Last instructed.** In each project, the conversation the operator most recently sent a prompt to through mega: where he left off. A small muted glyph after its name marks it, in the side panel's tree and on the project's page, with when as its title. It is a fact about the operator, not attention: nothing an agent does moves it.
-- **Reading position.** How far the operator has read in a conversation. It moves only for what is on screen: opening a conversation moves it, and so does new output while the view follows the newest output. Scrolled up, behind a dialog, or in a tab that is not visible, it waits, and moves when the newest output is on screen again. It never answers a request.
+- **Reading position.** How far the operator has read in a conversation. Only a read moves it, and only through what is on screen: opening a conversation moves it, and so does new output while the view follows the newest output. Scrolled up, behind a dialog, or in a tab that is not visible, it waits, and moves when the newest output is on screen again. It never answers a request.
 - **Mark.** The small shape that shows a conversation's attention, in the side panel, the rail and the needs-you list. A project's mark shows the most urgent state among its conversations. The **harness mark**, a vendor's logo on the control bar saying which harness a conversation runs on, is not attention. Nor are the control bar's environment mark and the dot on More for an MCP server that needs a look.
 
 ## The interface

@@ -50,7 +50,6 @@ type Conversation struct {
 	Model          string `dd:",+omitempty"`
 	Effort         string `dd:",+omitempty"`
 	ReadSeq        int64  // reading position
-	OutputSeq      int64  // seq of the latest agent output in a completed turn; drives unread
 
 	// LastSeq is the newest event's seq, for replay. it is read from the event
 	// log rather than stored, so appending an event never rewrites the registry.

@@ -211,6 +211,10 @@ Michael launched it as "refuse the read". Every read is refused once the service
 
 The flaky `dialogs` suite turned out to be a race in the check itself, against the register dialog's own prefill. The copied event, the registry test and the context suffix are fixed as carded. `internal/service` is at 6,281 non-test lines; the batch was fixes and not removals. Four findings outside it were captured: three in mega, and the logger race in df's own roadmap.
 
+### P8. Piece 3 is built (2026-11-24)
+
+Unread is the newest recorded output set against the reading position. `internal/service` is at 6,163 non-test lines, against 6,638 when the review began. The registry's marker went with no change of format, since an older registry that has it loads cleanly.
+
 ### The plan as it stands
 
 The epic's section "the plan after the review of 2026-11-24" has the order: four small defects as one batch, piece 3, piece 4 with its trial, piece 6, pieces 7 and 8, the adoption limit and then the older-log rules, and then the full-tree review.

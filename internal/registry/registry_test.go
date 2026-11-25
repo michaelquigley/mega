@@ -34,7 +34,7 @@ func TestRoundTrip(t *testing.T) {
 	project := model.Project{ID: "p1", Name: "fixture", Checkout: "/tmp/fixture"}
 	conversation := model.Conversation{
 		ID: "c1", ProjectID: "p1", Name: "planning", Label: "plan", Harness: model.HarnessClaude,
-		NativeID: "native-1", Mode: model.ModeLongLived, Runtime: model.RuntimeRunning, ReadSeq: 3, OutputSeq: 7,
+		NativeID: "native-1", Mode: model.ModeLongLived, Runtime: model.RuntimeRunning, ReadSeq: 3,
 	}
 	err = reg.Update(func(d *Document) error {
 		d.Projects = append(d.Projects, project)
@@ -55,6 +55,35 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if len(doc.Conversations) != 1 || doc.Conversations[0] != conversation {
 		t.Errorf("conversations = %+v", doc.Conversations)
+	}
+}
+
+func TestAnOlderRegistryDropsItsUnreadMarkerOnTheNextWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "registry.yaml")
+	old := []byte("version: 1\nconversations:\n  - id: c1\n    read_seq: 3\n    output_seq: 7\n")
+	if err := os.WriteFile(path, old, 0600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := reg.Snapshot()
+	if doc.Version != 1 || len(doc.Conversations) != 1 || doc.Conversations[0].ReadSeq != 3 {
+		t.Fatalf("loaded registry = %+v", doc)
+	}
+	if err := reg.Update(func(doc *Document) error {
+		doc.Conversations[0].Name = "renamed"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "output_seq") {
+		t.Errorf("the old unread marker survived the write: %s", body)
 	}
 }
 

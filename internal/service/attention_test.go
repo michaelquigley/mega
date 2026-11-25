@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/harness/harnesstest"
 	"github.com/michaelquigley/mega/internal/model"
 )
 
@@ -44,13 +45,12 @@ func TestAttentionFollowsConfirmedFacts(t *testing.T) {
 
 	// output mid-turn is running, not unread.
 	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "working", NativeID: "a-1"})
-	if got, view := r.attention(conv.ID), r.view(conv.ID); got != model.AttentionRunning || view.OutputSeq != 0 {
-		t.Errorf("mid-turn: %q, output seq %d", got, view.OutputSeq)
+	if got := r.attention(conv.ID); got != model.AttentionRunning {
+		t.Errorf("mid-turn: %q", got)
 	}
 	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
-	view := r.view(conv.ID)
-	if view.Attention != model.AttentionUnread || view.OutputSeq == 0 || view.OutputSeq >= view.LastSeq {
-		t.Errorf("turn ended: %q, output seq %d of %d", view.Attention, view.OutputSeq, view.LastSeq)
+	if got := r.attention(conv.ID); got != model.AttentionUnread {
+		t.Errorf("turn ended: %q", got)
 	}
 
 	r.readAll(conv.ID)
@@ -95,6 +95,19 @@ func TestReadThenRestartStaysIdle(t *testing.T) {
 	r.restart()
 	if got := r.attention(conv.ID); got != model.AttentionIdle {
 		t.Errorf("after a clean restart: %q", got)
+	}
+}
+
+func TestUnreadSurvivesAStopAndRestart(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	finishTurn(r.fake.Last(), "a-1", "done")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r.svc.Shutdown(ctx)
+	r.restart()
+	if got := workspaceOf(t, r.svc).NeedsYou; !slices.Equal(got, []string{conv.ID}) {
+		t.Errorf("after a clean restart: needs you = %v", got)
 	}
 }
 
@@ -163,24 +176,6 @@ func TestNoLogIsReopenedAfterClose(t *testing.T) {
 	r.svc.mu.Unlock()
 	if reopened != 0 {
 		t.Errorf("%d logs reopened after close", reopened)
-	}
-}
-
-// a conversation whose log could not be opened has no live state at all; its
-// attention is what the registry says.
-func TestRecordedAttention(t *testing.T) {
-	cases := []struct {
-		conv model.Conversation
-		want string
-	}{
-		{model.Conversation{Runtime: model.RuntimeUnsupervised, OutputSeq: 5, ReadSeq: 1}, model.AttentionUnsupervised},
-		{model.Conversation{OutputSeq: 5, ReadSeq: 1}, model.AttentionUnread},
-		{model.Conversation{OutputSeq: 5, ReadSeq: 5}, model.AttentionIdle},
-	}
-	for _, c := range cases {
-		if got := recordedAttention(c.conv); got != c.want {
-			t.Errorf("%+v: %q, want %q", c.conv, got, c.want)
-		}
 	}
 }
 
@@ -256,22 +251,30 @@ func TestReadNeverMovesBackOrPastTheEnd(t *testing.T) {
 func TestNeedsYouListsRequestsFirstThenOldestFirst(t *testing.T) {
 	r := newRig(t)
 	older := r.start("older unread")
-	finishTurn(r.fake.Last(), "a-1", "first")
-	time.Sleep(2 * time.Millisecond)
-	asking := r.start("asking")
-	time.Sleep(2 * time.Millisecond)
+	olderRT := r.fake.Last()
+	replyAt := func(rt *harnesstest.Runtime, text string, at time.Time) {
+		rt.Emit(&model.Event{Kind: model.EventAssistant, Text: text, At: at})
+		rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+	}
+	first := time.Now().Add(-time.Minute)
+	replyAt(olderRT, "first", first)
 	newer := r.start("newer unread")
-	finishTurn(r.fake.Last(), "a-2", "second")
-	time.Sleep(2 * time.Millisecond)
-	r.fake.Runtimes()[1].Ask(model.RequestPermission, nil)
+	replyAt(r.fake.Last(), "second", first.Add(time.Second))
+	asking := r.start("asking")
+	r.fake.Last().Ask(model.RequestPermission, nil)
 	quiet := r.start("read")
 	finishTurn(r.fake.Last(), "a-3", "third")
 	r.readAll(quiet.ID)
 
-	got := workspaceOf(t, r.svc).NeedsYou
-	want := []string{asking.ID, older.ID, newer.ID}
-	if !slices.Equal(got, want) {
+	if got, want := workspaceOf(t, r.svc).NeedsYou, []string{asking.ID, older.ID, newer.ID}; !slices.Equal(got, want) {
 		t.Errorf("needs you = %v, want %v", got, want)
+	}
+	if err := r.svc.Prompt(older.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	replyAt(olderRT, "third", first.Add(2*time.Second))
+	if got, want := workspaceOf(t, r.svc).NeedsYou, []string{asking.ID, newer.ID, older.ID}; !slices.Equal(got, want) {
+		t.Errorf("needs you after new output for the older conversation = %v, want %v", got, want)
 	}
 }
 
@@ -290,24 +293,8 @@ func TestUnwitnessedOutputDoesNotBecomeUnreadWhenSupervisionIsAcknowledged(t *te
 	}
 }
 
-func TestAdoptedHistoryIsNotUnread(t *testing.T) {
-	r := newRig(t)
-	r.fake.SetSessions([]harness.Session{{NativeID: "terminal-1", Preview: "from the terminal"}})
-	r.fake.SetHistory("terminal-1", []*model.Event{
-		{Kind: model.EventUser, Text: "from the terminal", NativeID: "t-1"},
-		{Kind: model.EventAssistant, Text: "reply", NativeID: "t-2"},
-	})
-	conv, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := r.attention(conv.ID); got != model.AttentionIdle {
-		t.Errorf("after adoption: %q", got)
-	}
-}
-
 // crashUnfinished leaves a conversation whose second turn produced output the
-// service cached but whose turn never ended, then restarts uncleanly. readAfter
+// service recorded but whose turn never ended, then restarts uncleanly. readAfter
 // reads the conversation after that output arrived, before the crash.
 func crashUnfinished(t *testing.T, readAfter bool) (*rig, string) {
 	t.Helper()
@@ -334,10 +321,10 @@ func crashUnfinished(t *testing.T, readAfter bool) (*rig, string) {
 	return r, conv.ID
 }
 
-func TestCachedOutputOfTheUnfinishedTurnStaysInHistoryWithoutNewUnread(t *testing.T) {
+func TestRecordedOutputOfAnUnfinishedTurnIsUnreadAfterResume(t *testing.T) {
 	r, id := crashUnfinished(t, false)
-	if got := r.attention(id); got != model.AttentionIdle {
-		t.Errorf("cached output of an unfinished turn changed attention: %q", got)
+	if got := r.attention(id); got != model.AttentionUnread {
+		t.Errorf("after resume with an unread reply: %q", got)
 	}
 	if !slices.ContainsFunc(r.events(id), func(ev *model.Event) bool { return ev.Text == "unfinished" }) {
 		t.Error("the recorded reply disappeared")
@@ -351,16 +338,13 @@ func TestCachedOutputAlreadyReadStaysReadAfterResume(t *testing.T) {
 	}
 }
 
-// native events are the harness's own bookkeeping and never count as agent
-// output: a turn of init, status and lifecycle frames leaves the unread marker
-// where it was, and one assistant event still moves it.
+// native events are the harness's bookkeeping and do not count as output.
 func TestNativeEventsNeverCountAsOutput(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()
 	finishTurn(rt, "a-1", "done")
 	r.readAll(conv.ID)
-	before := r.view(conv.ID).OutputSeq
 
 	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
 		t.Fatal(err)
@@ -369,8 +353,8 @@ func TestNativeEventsNeverCountAsOutput(t *testing.T) {
 		rt.Emit(&model.Event{Kind: model.EventNative, Text: text, NativeID: fmt.Sprintf("n-%d", i)})
 	}
 	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
-	if view := r.view(conv.ID); view.OutputSeq != before || view.Attention != model.AttentionIdle {
-		t.Errorf("a bookkeeping-only turn: output seq %d -> %d, attention %q", before, view.OutputSeq, view.Attention)
+	if got := r.attention(conv.ID); got != model.AttentionIdle {
+		t.Errorf("a bookkeeping-only turn: attention %q", got)
 	}
 
 	if err := r.svc.Prompt(conv.ID, "three"); err != nil {
@@ -380,14 +364,49 @@ func TestNativeEventsNeverCountAsOutput(t *testing.T) {
 	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "reply", NativeID: "a-3"})
 	rt.Emit(&model.Event{Kind: model.EventNative, Text: "system/status", NativeID: "n-4"})
 	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
-	evs := r.events(conv.ID)
-	var replySeq int64
-	for _, ev := range evs {
-		if ev.NativeID == "a-3" {
-			replySeq = ev.Seq
+	if got := r.attention(conv.ID); got != model.AttentionUnread {
+		t.Errorf("a turn with one assistant event: attention %q", got)
+	}
+	if err := r.svc.Read(conv.ID, seqOf(r.events(conv.ID), "a-3")); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.attention(conv.ID); got != model.AttentionIdle {
+		t.Errorf("after reading through the reply: attention %q", got)
+	}
+}
+
+func TestATurnAnnouncesWorkspaceChangesForFactsAndItsEnd(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "first output settles the turn's settings"})
+	sub := r.svc.Subscribe()
+	defer sub.Close()
+
+	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "more output"})
+	rt.Emit(&model.Event{Kind: model.EventToolUse, Tool: "Bash"})
+	rt.Emit(&model.Event{Kind: model.EventToolResult, Text: "result"})
+	rt.Emit(&model.Event{Kind: model.EventNative, Text: "system/status"})
+	rt.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
+
+	var kinds []string
+	for len(sub.Updates()) > 0 {
+		update := <-sub.Updates()
+		if update.Event != nil && update.ConversationID == conv.ID {
+			kinds = append(kinds, update.Event.Kind)
+		}
+		if update.WorkspaceChanged && !slices.Equal(kinds, []string{
+			model.EventAssistant, model.EventToolUse, model.EventToolResult, model.EventNative, model.EventTurnEnd,
+		}) {
+			t.Fatalf("workspace changed before the end of the turn: events %v", kinds)
+		}
+		if update.WorkspaceChanged {
+			if got := r.attention(conv.ID); got != model.AttentionUnread {
+				t.Errorf("attention after the turn ended = %q", got)
+			}
+			return
 		}
 	}
-	if view := r.view(conv.ID); view.OutputSeq != replySeq || view.Attention != model.AttentionUnread {
-		t.Errorf("a turn with one assistant event: output seq %d (want %d), attention %q", view.OutputSeq, replySeq, view.Attention)
-	}
+	t.Fatal("the turn ended without announcing a workspace change")
 }

@@ -206,14 +206,14 @@ Where things go:
   - the asking page, back in touch before its first workspace read of the new service has landed, which the check holds, not reporting the old shutdown as under way; and, the new service armed from elsewhere before that read lands, showing the gate armed afresh, never the old shutdown;
   - both pages recovering when the service returns.
 
-- **`side.mjs`** (74 steps): the side panel and the rail. Its mega is named `side-check` in its config. It checks the following:
+- **`side.mjs`** (76 steps): the side panel and the rail. Its mega is named `side-check` in its config. It checks the following:
   - projects sorted by name ignoring case, the id breaking a tie, and starred first in their own group;
   - project rows bolder than their conversations;
   - folds: a starred project unfolded and any other folded until the operator chooses; his choice kept across a reload and outlasting a star or an unstar; navigation by the needs-you list or Ctrl+/ unfolding without recording a choice; the old folded list carried over as folded choices; a removed project's choice forgotten; a folded project keeping its rollup mark;
   - stars seen by a second page from the stream alone;
   - the panel's width within 200 to 480, kept across a reload;
   - shortcuts: Ctrl+/ from the page and from the reply box, no bare n, Ctrl+' collapsing and expanding from either, typing nothing, and the hint and titles naming them;
-  - the rail: the count, one mark per project in tree order, the working arc, its width, kept across a reload, and a mark opening the panel on its project;
+  - the rail: the count, one mark per project in tree order, unread output in an unopened conversation updating its mark and the count, the working arc, its width, kept across a reload, and a mark opening the panel on its project;
   - a missing checkout's mark in the tree and on the rail, lifting when it is back;
   - project removal refused while a runtime lives and naming it, then deleting the project's logs;
   - the build: `GET /api/version` naming this page's interface, the footer's version and its panel, with each harness's tested range and the version found (the fake Codex's inside its range, the stand-in Claude Code's unknown and said so, in the notice colour), and when the newest configuration snapshot was taken and where the snapshots are, with nothing of what one holds, the rail's control, and a page older than the service saying so where the connection status is, without reloading;

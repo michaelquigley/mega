@@ -149,7 +149,6 @@ export interface Conversation {
   attention: Attention
   read_seq: number
   last_seq: number
-  output_seq: number
   model?: string
   version?: string
   // the running mode, as the runtime last reported or mega last confirmed

@@ -1,13 +1,13 @@
 ---
 title: unread is output beyond where you have read
-state: researching
+state: evaluating
 created: 2026-11-19
 tags: [story]
 ---
 
 Output counts when it is recorded, and only reading moves the reading position. Mega stops working out which output is new.
 
-Third in the sequence of `simplify-the-core`, and next to be built. The card is the whole plan; there is no work order.
+Third in the sequence of `simplify-the-core`. Built on 2026-11-24.
 
 ## why
 
@@ -62,6 +62,15 @@ The order of attention. What moves the reading position on the page. The flag fo
 - **A finding that is only wording** in a doc or a test of this card's own is fixed and reported at handoff.
 - **A finding whose fix would add state, a hold or an ordering rule** is brought to Michael as a question of whether to fix it at all. Anything else this card caused comes to him one at a time.
 - **Size.** `internal/service` was 6,281 non-test lines when the batch of small defects was built. The report gives the figure afterwards, and what was deleted outright.
+
+## as built
+
+Built on 2026-11-24. `internal/service` went from 6,281 non-test lines to 6,163. One rule follows the sequence and the time of the newest assistant message, tool call or tool result, on append and when a log is opened. The registry's marker, the turn buffer, the rebuild at start-up and adoption's write of the reading position are gone. An older registry keeps its reading position and drops the old marker at its next write.
+
+- **Left as it was, on Michael's ruling:** opening an adopted conversation can acknowledge an earlier reply that sits above the viewport while a long unanswered prompt fills it. Terminus raised it as `opening-acknowledges-output-outside-viewport`.
+- **The implementer ran the gates from a disposable copy of the tree,** so the Makefile's reinstall of the shim left Michael's running mega alone.
+
+The last terminus review, `4eae4811f761`, was `not_clean` on that finding and on `answer-in-flight-still-listed-as-pending`, which is on the paused hardening card.
 
 ## order
 

@@ -20,22 +20,17 @@ func seqOf(evs []*model.Event, nativeID string) int64 {
 	return 0
 }
 
-// a runtime that exits in the middle of a turn has its turn's output counted
-// at the exit, never left over for a later turn to count.
-func TestAFailedRuntimesOutputIsCountedAtItsExit(t *testing.T) {
+// a runtime failure outranks unread output until a new runtime starts.
+func TestAFailedRuntimesOutputRemainsUnreadAfterItStartsAgain(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()
 	started(rt)
 	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "half a reply", NativeID: "a-1"})
 	rt.Exit(errors.New("the process died"))
-	out := seqOf(r.events(conv.ID), "a-1")
-	view := r.view(conv.ID)
-	if out == 0 || view.OutputSeq != out {
-		t.Fatalf("after the exit: output seq %d, want the half reply's %d", view.OutputSeq, out)
+	if got := r.attention(conv.ID); got != model.AttentionError {
+		t.Fatalf("after the exit: attention %q", got)
 	}
-	// a later turn with no output of its own counts nothing more.
-	r.readAll(conv.ID)
 	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
 		t.Fatal(err)
 	}
@@ -43,15 +38,18 @@ func TestAFailedRuntimesOutputIsCountedAtItsExit(t *testing.T) {
 	started(next)
 	next.Emit(&model.Event{Kind: model.EventNative, Text: "system/status", NativeID: "n-1"})
 	next.Emit(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess})
-	if view := r.view(conv.ID); view.OutputSeq != out || view.Attention == model.AttentionUnread {
-		t.Errorf("after a turn with no output: output seq %d (want %d), attention %q", view.OutputSeq, out, view.Attention)
+	if got := r.attention(conv.ID); got != model.AttentionUnread {
+		t.Errorf("after a new runtime started: attention %q", got)
+	}
+	if err := r.svc.Read(conv.ID, seqOf(r.events(conv.ID), "a-1")); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.attention(conv.ID); got != model.AttentionIdle {
+		t.Errorf("after reading through the half reply: attention %q", got)
 	}
 }
 
-// after an unclean restart, a resume counts what it brings in and what the
-// lost runtime had produced, never output an earlier adoption brought in,
-// which stays read.
-func TestAResumeAfterACrashBeforeStartedCountsNothingOld(t *testing.T) {
+func TestAResumeAfterACrashBeforeStartedLeavesAdoptedOutputUnread(t *testing.T) {
 	r := newRig(t)
 	r.fake.SetSessions([]harness.Session{{NativeID: "terminal-2", Preview: "from the terminal"}})
 	r.fake.SetHistory("terminal-2", []*model.Event{
@@ -73,8 +71,8 @@ func TestAResumeAfterACrashBeforeStartedCountsNothingOld(t *testing.T) {
 	if err := r.svc.Resume(conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.attention(conv.ID); got != model.AttentionIdle {
-		t.Errorf("a crash before started made the adopted history %q", got)
+	if got := r.attention(conv.ID); got != model.AttentionUnread {
+		t.Errorf("after resume without reading the adopted history: %q", got)
 	}
 }
 

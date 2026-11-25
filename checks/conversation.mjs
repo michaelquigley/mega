@@ -106,7 +106,7 @@ function rewriteConversation(id, rewrite) {
 const loseBinding = (row) => row.replace(/^[ \t]*native_id: .*\n/m, '')
 // the release as an earlier build wrote it, with a gap flag on its stop.
 writeLog(gap.id, readLog(gap.id).map((ev) => (ev.kind === 'runtime' && ev.status === 'stopped' ? { ...ev, gap: true } : ev)))
-rewriteConversation(unknown.id, (row) => loseBinding(row).replace(/runtime: none/, 'runtime: running').replace(/output_seq: \d+/, 'output_seq: 0'))
+rewriteConversation(unknown.id, (row) => loseBinding(row).replace(/runtime: none/, 'runtime: running'))
 writeLog(unknown.id, readLog(unknown.id).filter((ev) => ev.status === 'starting'))
 const prior = readLog(legacy.id).filter((ev) => ev.kind !== 'runtime' || ev.status !== 'stopped' && ev.status !== 'stopping')
 const past = Date.now() - 3600_000
