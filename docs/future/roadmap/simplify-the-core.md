@@ -52,7 +52,7 @@ Built so far: pieces 1, 2 and 5, and the four removals listed below. What remain
 2. Built on 2026-11-24: piece 3, `unread-is-output-beyond-where-you-have-read`.
 3. Built on 2026-11-25, and kept after Michael's trial: piece 4, `a-turn-is-inferred-from-a-message`, in the simpler direction ruled on 2026-11-24: a turn is what the harness says it is. The card for a Codex interrupt lost while a turn is starting closed with it.
 4. Built on 2026-11-25, and kept after Michael's trial: piece 6, `reading-the-workspace-starts-nothing`, in its larger size: no environment is resolved in the background at all.
-5. Pieces 7 and 8, the two for the page.
+5. Piece 7, `one-route-for-recorded-history`, as carded: the stream carries an event's number and the page reads the event. Next to be built, and tried by Michael before it is committed. Then piece 8, `the-page-has-one-value-for-where-it-stands`.
 6. `adoption-reaches-any-session-in-the-checkout`, then `an-older-log-is-read-as-todays-build-reads-it`, which waits on it.
 7. The full-tree review resumes on `harden-requests-stops-and-restarts`.
 

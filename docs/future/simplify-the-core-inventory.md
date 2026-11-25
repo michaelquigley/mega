@@ -229,6 +229,10 @@ Measured before he ruled, it is modest: three functions and five call sites, abo
 
 No environment is resolved in the background. Michael restarted on it before committing and found start-up and the first conversation opened in a project faster, not slower. `internal/service` is at 6,096 non-test lines, against 6,638 when the review began. Terminus found two older faults while reading it, one of them a permissions matter in the launch dialog, and both are carded.
 
+### P12. Piece 7 as carded, with a trial (ruled 2026-11-25)
+
+The smaller choice was only to retry the read a reconnect makes. Michael took the card's: one route. Measured first, it is modest in lines, some forty to sixty on the page and almost nothing in the service, since adoption still uses the code that copies an event. What it buys is one route where there were two, and catching up after a reconnect becoming the same loop that runs for every event. It changes how every event reaches the page, so it carries the most risk of what is left. Michael: "we should treat it with the same trial approach we used for the last piece we weren't sure about... and i'll try it for a bit and we'll decide?"
+
 ### The plan as it stands
 
 The epic's section "the plan after the review of 2026-11-24" has the order: four small defects as one batch, piece 3, piece 4 with its trial, piece 6, pieces 7 and 8, the adoption limit and then the older-log rules, and then the full-tree review.
