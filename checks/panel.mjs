@@ -17,7 +17,10 @@
 // first when both apply; Start on a released conversation, which runs with
 // the mode asked for and no turn; a new conversation's request concrete
 // from creation, for each harness, and the launch dialog preselecting it
-// with no inherit choice; the bar's closed controls showing the request in
+// with no inherit choice; with its model list failed, the dialog's mode
+// selector showing "As your settings name it", a launch with no mode chosen
+// starting in the mode the checkout's claude settings name, and ask picked
+// sending default; the bar's closed controls showing the request in
 // short values (claude's default mode as ask), the full descriptions in
 // their lists, and no word for where a value came from or when it applies;
 // the permission mode switched live, and stored when nothing runs; a model
@@ -481,6 +484,62 @@ check((await piField('Permission mode').count()) === 0 && dialogNotice.includes(
 await piField('Model').selectOption('fake/small')
 check((await piField('Effort').count()) === 0, 'and no effort control for a model with no levels to choose')
 await fresh.close()
+// a model list that fails with anything but executable_missing leaves the
+// dialog no copy and Launch enabled. untouched, the mode selector shows "As
+// your settings name it", and a launch sends no mode, so the service copies
+// the one the checkout's claude settings name (permissions-never-weakened);
+// ask stays a choice, and picking it sends default. the page's list is
+// failed in the browser, so the service's own copy still succeeds.
+const plannedPath = t.checkout('planned')
+mkdirSync(join(plannedPath, '.claude'))
+writeFileSync(join(plannedPath, '.claude/settings.json'), JSON.stringify({ permissions: { defaultMode: 'plan' } }) + '\n')
+const planned = await t.register('planned', plannedPath)
+const failing = await t.page({ width: 1280, height: 700 })
+await failing.route((u) => u.pathname === `/api/projects/${planned.id}/models`, (route) =>
+  route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ code: 'harness_failed', message: 'the fake list failed' }) }),
+)
+// failedLaunch opens the dialog over the failed list, picks mode unless it
+// is undefined, and launches: what the selector showed, the mode the launch
+// sent, the mode the conversation was made with, and the mode its runtime
+// reports once its turn has ended.
+const failedLaunch = async (name, mode) => {
+  await failing.goto(`${url}/#/p/${planned.id}`)
+  await failing.locator('.section-actions button[aria-label="New conversation"]').click()
+  const failDialog = failing.locator('dialog[open]')
+  await failDialog.waitFor()
+  await until('the failed list', async () => ((await failDialog.textContent()) ?? '').includes('did not list its models: the fake list failed'))
+  const selector = failDialog.getByRole('combobox', { name: 'Permission mode' })
+  const shown = { value: await selector.inputValue(), label: await selector.evaluate((s) => s.selectedOptions[0]?.textContent ?? '') }
+  const words = (await failDialog.locator('p.muted').allTextContents()).join(' ')
+  if (mode !== undefined) await selector.selectOption(mode)
+  await failDialog.getByRole('textbox', { name: 'Opening prompt' }).fill(name)
+  const sent = failing.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === `/api/projects/${planned.id}/conversations`)
+  await failDialog.getByRole('button', { name: 'Launch' }).click()
+  const body = (await sent).postDataJSON()
+  await until(`the launch "${name}"`, async () => (await t.workspace()).conversations.some((c) => c.name === name))
+  const conv = (await t.workspace()).conversations.find((c) => c.name === name)
+  await t.idle(conv.id)
+  return { shown, words, sent: body.permission_mode, made: conv.permission_mode_choice, ran: (await convOf(conv.id)).permission_mode }
+}
+const untouched = await failedLaunch('hello with no list')
+check(
+  untouched.words.includes('Unless you choose a permission mode, it starts in the one your settings name.'),
+  `with the list failed, the dialog says a launch takes the settings' mode unless one is chosen: "${untouched.words}"`,
+)
+const pickedAsk = await failedLaunch('hello, picking ask with no list', 'default')
+check(
+  untouched.shown.value === '' &&
+    untouched.shown.label === 'As your settings name it' &&
+    untouched.sent === '' &&
+    untouched.made === 'plan' &&
+    untouched.ran === 'plan' &&
+    pickedAsk.shown.label === 'As your settings name it' &&
+    pickedAsk.sent === 'default' &&
+    pickedAsk.made === 'default' &&
+    pickedAsk.ran === 'default',
+  `with the list failed, the selector shows "${untouched.shown.label}", an untouched launch sends "${untouched.sent}", is made with the settings' ${untouched.made} and runs in ${untouched.ran}, and picking ask sends "${pickedAsk.sent}", is made with ${pickedAsk.made} and runs in ${pickedAsk.ran}`,
+)
+await failing.close()
 await go(D)
 // the marks in the dark theme, collapsed and open, for each harness.
 const dark = await t.page({ width: 1280, height: 700, colorScheme: 'dark' })

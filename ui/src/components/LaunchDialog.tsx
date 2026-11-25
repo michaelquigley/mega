@@ -19,7 +19,8 @@ interface LaunchDialogProps {
 // a new conversation's model, effort and (claude) permission mode are
 // concrete from the start. the dialog preselects what the harness's settings
 // name, as the service copies them, read afresh each time it opens, and
-// offers only concrete values. claude settings that name no effort level
+// offers only concrete values, except claude's mode with no copy (below),
+// which the service copies at creation. claude settings that name no effort level
 // preselect none, and Launch waits until one is chosen.
 export function LaunchDialog({ projectId, unavailable, onClose, onLaunched }: LaunchDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -35,7 +36,11 @@ export function LaunchDialog({ projectId, unavailable, onClose, onLaunched }: La
   const [picked, setPicked] = useState<{ harness: string; mode?: string; model?: string; effort?: string }>({ harness })
   const own = picked.harness === harness ? picked : { harness }
   const copy = models?.copy
-  const permissionMode = own.mode ?? copy?.mode ?? 'default'
+  // the mode the operator picked, else the copy's. with neither, as when the
+  // model list failed, the selector shows "As your settings name it" and the
+  // launch sends none, so the service copies the mode claude's settings name,
+  // as the list would have (permissions-never-weakened). ask stays a choice.
+  const chosenMode = own.mode ?? copy?.mode
   const model = own.model ?? copy?.model ?? ''
   const effort = own.effort ?? copy?.effort ?? ''
   const needsEffort = model !== '' && effort === '' && effortsFor(models, model).length > 0
@@ -58,7 +63,7 @@ export function LaunchDialog({ projectId, unavailable, onClose, onLaunched }: La
     try {
       onLaunched(
         await startConversation(projectId, harness, name, prompt, {
-          permissionMode: harnessOf(harness)?.permissionModes ? permissionMode : '',
+          permissionMode: harnessOf(harness)?.permissionModes ? (chosenMode ?? '') : '',
           model,
           effort,
         }),
@@ -118,7 +123,8 @@ export function LaunchDialog({ projectId, unavailable, onClose, onLaunched }: La
         {harnessOf(harness)?.permissionModes && (
           <label>
             Permission mode
-            <select value={permissionMode} onChange={(event) => setPicked({ ...own, mode: event.target.value })}>
+            <select value={chosenMode ?? ''} onChange={(event) => setPicked({ ...own, mode: event.target.value })}>
+              {chosenMode === undefined && <option value="">As your settings name it</option>}
               {permissionModes.map((mode) => (
                 <option key={mode.value} value={mode.value}>
                   {mode.label}
@@ -141,6 +147,7 @@ export function LaunchDialog({ projectId, unavailable, onClose, onLaunched }: La
           <p className="muted">
             The harness did not list its models: {modelsError}. A launch takes the model and effort your settings name, and is refused if
             they name none.
+            {harnessOf(harness)?.permissionModes && ' Unless you choose a permission mode, it starts in the one your settings name.'}
           </p>
         )}
         {needsEffort && (

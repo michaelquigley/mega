@@ -710,9 +710,14 @@ const gate = (await convOf(Pi)).pending[0]
 const gateTitle = gate.payload?.questions?.[0]?.question
 if (gate.kind !== 'question' || gateTitle !== 'Approve bash command: sleep 1') throw new Error(`stopped before answering: ${JSON.stringify(gate)}`)
 // the gated bash call has not run while its dialog waits: its row says so,
-// and is not shown as running.
+// and is not shown as running. the page can have the tool call before it has
+// the pending dialog, and shows the row running until it does, so the step
+// waits for the row to say it waits on the dialog before it counts spinners.
 const gatedRow = page.locator('.events details.tool', { hasText: 'bash sleep 1' })
-await until('the gated row', async () => (await gatedRow.count()) === 1)
+await until(
+  'the gated row waiting on its dialog',
+  async () => (await gatedRow.count()) === 1 && ((await gatedRow.locator('summary').textContent()) ?? '').includes('waiting on a dialog'),
+)
 check(
   ((await gatedRow.locator('summary').textContent()) ?? '').includes('waiting on a dialog') && (await gatedRow.locator('.spinner').count()) === 0,
   `a pi action whose dialog is pending says it waits on the dialog, not that it runs: "${await gatedRow.locator('summary').textContent()}"`,

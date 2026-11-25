@@ -120,7 +120,7 @@ Where things go:
   - the override;
   - values only on request;
   - a project with no file.
-- **`panel.mjs`** (137 steps): the input panel. Its config names `~/Sandbox` and `~/Screenshots`, in its scratch `HOME`, beyond the checkout. It checks the following:
+- **`panel.mjs`** (139 steps): the input panel. Its config names `~/Sandbox` and `~/Screenshots`, in its scratch `HOME`, beyond the checkout. It checks the following:
   - the reply box resting at one line with the cursor in it when the page loads on a conversation, and its title naming Ctrl+Space;
   - focus alone leaving it at one line, the first character opening it to its height, and a draft opening it on focus;
   - the line above the panel staying put as the box opens and closes, and a view at the bottom staying there;
@@ -150,6 +150,7 @@ Where things go:
   - the permission mode switched live, and stored when nothing runs, recorded as one `mode_requested` event drawn in the history with no attention, a live switch recorded as a request before Claude's confirmation with only the confirmation drawn, the bar showing the request at once;
   - a model and effort applied for Claude and for Codex, the bar showing the request at once while the harness still runs the old ones;
   - the launch dialog preselecting the copy from the settings for each harness, with no inherit choice, and a launch from it holding a concrete request;
+  - the launch dialog with its model list failed in the browser as `harness_failed`, over a checkout whose Claude settings name `plan`: the dialog saying a launch takes the settings' mode unless one is chosen, the mode selector showing "As your settings name it", a launch with none chosen sending no mode and starting in `plan`, and Ask picked sending and starting in `default`;
   - the bar on one row with the mark, mode, model and effort;
   - while the view follows the bottom, the newest content kept above the dock as it grows:
     - a prompt sent with the reply held keeps its block above the dock once the activity line shows, with the workspace read held so the line arrives after the view went to the end;
