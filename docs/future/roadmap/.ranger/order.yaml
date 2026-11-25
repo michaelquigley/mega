@@ -21,13 +21,12 @@ horizon:
   - retired-conversations.md
 researching:
   - simplify-the-core.md
-  - the-dialogs-suite-crashes-on-a-first-full-run.md
-  - a-copied-event-shares-its-turn-record.md
-  - a-service-test-writes-the-registry-behind-the-service.md
-  - a-model-asked-for-with-a-context-suffix-reads-as-a-different-model.md
   - unread-is-output-beyond-where-you-have-read.md
   - a-turn-is-inferred-from-a-message.md
   - codex-interrupt-while-a-turn-is-starting.md
+  - claude-code-21331-is-past-the-tested-range.md
+  - a-checks-suite-empties-its-scratch-before-it-knows-its-port-is-free.md
+  - the-register-dialogs-prefill-can-land-on-what-is-typed.md
   - reading-the-workspace-starts-nothing.md
   - one-route-for-recorded-history.md
   - the-page-has-one-value-for-where-it-stands.md
@@ -47,6 +46,10 @@ researching:
   - codex-discovery-e2e-reads-its-own-thread.md
   - mega-on-macos-and-windows.md
 evaluating:
+  - a-model-asked-for-with-a-context-suffix-reads-as-a-different-model.md
+  - a-service-test-writes-the-registry-behind-the-service.md
+  - a-copied-event-shares-its-turn-record.md
+  - the-dialogs-suite-crashes-on-a-first-full-run.md
   - reads-after-the-service-closes.md
   - a-failed-write-stops-mega.md
   - release-only-stops-a-runtime.md

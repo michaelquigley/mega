@@ -293,3 +293,5 @@ FIX: Picking a path with a space in its name for a Claude conversation now inser
 FIX: After a Claude conversation is started with Start, its first turn no longer adds a "Permission mode … reported by claude" row when the mode is the one that was asked for. The header dropping "(requested)" shows the confirmation instead. A different mode still gets its row.
 
 FIX: A Start that Claude never answers no longer leaves the conversation stuck on "Starting" until released. After a minute the runtime is stopped, the conversation shows the error and has no runtime, and Start is offered again.
+
+FIX: **A Claude model asked for with its context suffix no longer reads as a different model.** (2026-11-24) Claude reports `claude-fable-5-2[1m]` as `claude-fable-5-2`, so every turn's line stayed in the notice colour saying it ran on another model. A trailing bracketed suffix is now left out of the comparison, and the line's title still gives both as asked for and reported.

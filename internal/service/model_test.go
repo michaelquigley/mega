@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/michaelquigley/mega/internal/harness"
 	"github.com/michaelquigley/mega/internal/harness/harnesstest"
@@ -206,6 +207,43 @@ func TestRunningClaudeChangeIsConfirmedAndShownOnlyAsReported(t *testing.T) {
 	}
 }
 
+// a model asked for with claude's context suffix is the model claude reports
+// without it, by full id or by alias; a turn on another model still says so.
+// the record keeps both strings exactly.
+func TestAContextSuffixIsTheSameModel(t *testing.T) {
+	catalog := claudeCatalog()
+	catalog.Models = append(catalog.Models,
+		harness.ModelOption{ID: "claude-opus-5-5[1m]", DisplayName: "claude-opus-5-5[1m]", Efforts: []string{"low"}},
+		harness.ModelOption{ID: "sonnet[1m]", Resolved: "claude-sonnet-5-5[1m]", DisplayName: "Sonnet 5.5 (1M context)", Efforts: []string{"low"}})
+	for _, tc := range []struct {
+		asked, ran string
+		differs    []string
+	}{
+		{"claude-opus-5-5[1m]", "claude-opus-5-5", nil},
+		{"sonnet[1m]", "claude-sonnet-5-5", nil},
+		{"sonnet[1m]", "claude-opus-5-5", []string{"model"}},
+	} {
+		t.Run(tc.asked+" ran "+tc.ran, func(t *testing.T) {
+			r, _ := modelRig(t)
+			r.fake.SetCatalog(catalog)
+			conv, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{Model: tc.asked, Effort: "low"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rt := r.fake.Last()
+			startedOn(rt, tc.ran, "")
+			finishTurn(rt, "a-1", "done")
+			records := r.turnRecords(conv.ID)
+			if len(records) != 1 || records[0] == nil {
+				t.Fatalf("records = %+v", records)
+			}
+			if got := records[0]; got.Asked.Model != tc.asked || got.Ran.Model != tc.ran || !slices.Equal(got.Differs, tc.differs) {
+				t.Errorf("turn = %+v", got)
+			}
+		})
+	}
+}
+
 // a running codex conversation stores the change for its next turn: the
 // outcome says so, and the live model and effort move only when codex
 // reports them as that turn starts. the turn under way when it was asked
@@ -283,6 +321,48 @@ func TestATurnRecordsWhereItRanWithOtherThanAsked(t *testing.T) {
 	}
 	if view := r.view(conv.ID); view.TurnAsked != nil || view.TurnRan != nil {
 		t.Errorf("after the turn: asked %+v, ran %+v", view.TurnAsked, view.TurnRan)
+	}
+}
+
+// each subscriber's turn end carries its own turn record: changing one
+// subscriber's record, its list of differing fields included, changes nothing
+// another subscriber or the service holds.
+func TestATurnEndsRecordIsEachSubscribersOwn(t *testing.T) {
+	r, codex := modelRig(t)
+	first, second := r.svc.Subscribe(), r.svc.Subscribe()
+	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one", LaunchChoice{Model: "gpt-b", Effort: "high"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := codex.Last()
+	startedOn(rt, "gpt-a", "low")
+	finishTurn(rt, "a-1", "done")
+	turnEnd := func(sub *Subscription) *model.Event {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for {
+			select {
+			case u := <-sub.Updates():
+				if u.Event != nil && u.Event.Kind == model.EventTurnEnd {
+					return u.Event
+				}
+			case <-deadline:
+				t.Fatal("no turn end reached the subscriber")
+			}
+		}
+	}
+	mine, theirs := turnEnd(first), turnEnd(second)
+	if mine.Turn == nil || theirs.Turn == nil || !slices.Equal(mine.Turn.Differs, []string{"model", "effort"}) {
+		t.Fatalf("turn ends carry %+v and %+v", mine.Turn, theirs.Turn)
+	}
+	mine.Turn.Asked.Model = "changed by a subscriber"
+	mine.Turn.Differs[0] = "changed by a subscriber"
+	if theirs.Turn.Asked.Model != "gpt-b" || !slices.Equal(theirs.Turn.Differs, []string{"model", "effort"}) {
+		t.Errorf("changing one subscriber's record changed another's: %+v", theirs.Turn)
+	}
+	records := r.turnRecords(conv.ID)
+	if len(records) != 1 || records[0] == nil || records[0].Asked.Model != "gpt-b" || !slices.Equal(records[0].Differs, []string{"model", "effort"}) {
+		t.Errorf("changing a subscriber's record changed the service's: %+v", records)
 	}
 }
 

@@ -207,6 +207,10 @@ The trial is in the working tree, with no branch: "there are a number of other p
 
 Michael launched it as "refuse the read". Every read is refused once the service has closed, and the copy `Close` set aside is gone. `internal/service` grew by 41 lines, to 6,263, because the card said every read before the reads had been counted and only two of thirteen used the copy. Michael accepted the lines: one rule with no exceptions.
 
+### P7. The batch of four small defects is built (2026-11-24)
+
+The flaky `dialogs` suite turned out to be a race in the check itself, against the register dialog's own prefill. The copied event, the registry test and the context suffix are fixed as carded. `internal/service` is at 6,281 non-test lines; the batch was fixes and not removals. Four findings outside it were captured: three in mega, and the logger race in df's own roadmap.
+
 ### The plan as it stands
 
 The epic's section "the plan after the review of 2026-11-24" has the order: four small defects as one batch, piece 3, piece 4 with its trial, piece 6, pieces 7 and 8, the adoption limit and then the older-log rules, and then the full-tree review.

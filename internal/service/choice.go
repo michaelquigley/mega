@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/michaelquigley/df/dl"
@@ -395,9 +396,16 @@ func catalogRow(catalog harness.Catalog, id string) (harness.ModelOption, bool) 
 	return harness.ModelOption{}, false
 }
 
-// sameModel is whether a model asked for and a model reported are the same,
-// as the harness's model list resolves them.
+// sameModel is whether a turn's line should not call the model it ran on
+// different from the one asked for. a trailing bracketed suffix, such as
+// claude's context suffix in claude-fable-5-2[1m], is removed from both before
+// the harness's model list is consulted, since claude reports the model
+// without it; a row the list has for a suffixed id of its own is not used.
+// what is left is compared as the list resolves it. with no list, two ids that
+// differ are not called different either: it is true for want of evidence,
+// not as a confirmed match.
 func (s *Service) sameModel(harnessName, asked, ran string) bool {
+	asked, ran = withoutSuffix(asked), withoutSuffix(ran)
 	if asked == ran {
 		return true
 	}
@@ -414,6 +422,16 @@ func (s *Service) sameModel(harnessName, asked, ran string) bool {
 		return id
 	}
 	return resolve(asked) == resolve(ran)
+}
+
+// withoutSuffix is a model id without a trailing bracketed suffix.
+func withoutSuffix(id string) string {
+	if strings.HasSuffix(id, "]") {
+		if i := strings.LastIndex(id, "["); i > 0 {
+			return id[:i]
+		}
+	}
+	return id
 }
 
 // prefetchCatalog lists a harness's models in the background once a runtime

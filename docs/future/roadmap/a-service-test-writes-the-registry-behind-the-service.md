@@ -1,6 +1,6 @@
 ---
 title: a service test writes the registry behind the service
-state: researching
+state: evaluating
 created: 2026-11-23
 tags: [defect]
 ---
@@ -17,4 +17,10 @@ The test calls `Registry.Update` itself while a goroutine the service started is
 
 ## from 2026-11-24
 
-The implementer of `a-failed-write-stops-mega` met it again and measured it: the race detector reports it two runs in three on `4a962cd`. Two fixes in the test would do: take the service's lock around the write, or wait on the service's background work before it. A second card it captured for the same race, `a-service-test-races-with-background-resolution`, duplicates this one.
+The implementer of `a-failed-write-stops-mega` met it again and measured it: the race detector reports it two runs in three on `4a962cd`. Two fixes in the test would do: take the service's lock around the write, or wait on the service's background work before it. A second card it captured for the same race duplicated this one and was removed.
+
+## as built
+
+Built on 2026-11-24. The test waits for the background resolutions the registrations started, then writes the registry under the service's lock. Each does its own job. The lock covers every reader of the registry, including the watcher that reads it every two seconds, which the wait alone did not. The wait lets the resolutions finish before the removal and the close, so they do not log. Without it they both logged as the service closed, and `df/dl`'s first log call is not guarded. That fault is carded in df's own roadmap as `dl-races-on-its-first-log-call`.
+
+The test still seeds two conversations straight into the registry. Terminus raised that as `removal-test-bypasses-service`, and Michael left it: about a dozen tests seed the registry the same way, and the canon's `single-authority` now says a test's fixture is not a second writer.

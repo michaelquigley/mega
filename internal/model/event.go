@@ -144,7 +144,7 @@ type EnvironmentFacts struct {
 }
 
 // Clone returns a copy of e that shares nothing mutable with it: the request,
-// the facts and the raw payload are copied all the way down.
+// the facts, the turn record and the raw payload are copied all the way down.
 func (e *Event) Clone() *Event {
 	if e == nil {
 		return nil
@@ -162,6 +162,11 @@ func (e *Event) Clone() *Event {
 			facts.Environment = &env
 		}
 		c.Facts = &facts
+	}
+	if e.Turn != nil {
+		turn := *e.Turn
+		turn.Differs = append([]string(nil), turn.Differs...)
+		c.Turn = &turn
 	}
 	c.Raw = clonePayload(e.Raw)
 	return &c

@@ -1,6 +1,6 @@
 ---
 title: a model asked for with a context suffix reads as a different model
-state: researching
+state: evaluating
 created: 2026-11-24
 tags: [defect]
 ---
@@ -18,3 +18,7 @@ A mark that is on for every turn teaches the operator to ignore it, and it is th
 ## what it does not settle
 
 Whether the larger context window was in fact in effect. Claude's report names the model either way, so mega cannot tell, and this card does not claim it.
+
+## as built
+
+Built on 2026-11-24. `sameModel` removes a trailing bracketed suffix before the model list is consulted, so a suffixed row of its own in that list is not used. Michael kept it that simple: no real list is known to have a suffixed row that points at a different model than its plain id. The turn's record keeps both strings exactly.

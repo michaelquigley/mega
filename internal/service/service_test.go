@@ -212,12 +212,19 @@ func TestRemoveLeavesCheckoutAndOtherProjectsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// the test writes the registry behind the service. the wait lets the
+	// resolutions the registrations started finish before the removal and the
+	// close; the lock covers every reader of the registry, the environment
+	// watcher included, which reads under it.
+	svc.background.Wait()
+	svc.mu.Lock()
 	err = reg.Update(func(d *registry.Document) error {
 		d.Conversations = append(d.Conversations,
 			model.Conversation{ID: "c-keep", ProjectID: keep.ID},
 			model.Conversation{ID: "c-drop", ProjectID: drop.ID})
 		return nil
 	})
+	svc.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
 	}
