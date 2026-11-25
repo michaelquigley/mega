@@ -50,8 +50,8 @@ Built so far: pieces 1, 2 and 5, and the four removals listed below. What remain
 
 1. Built on 2026-11-24: four small defects, as one batch: `the-dialogs-suite-crashes-on-a-first-full-run`, `a-copied-event-shares-its-turn-record`, `a-service-test-writes-the-registry-behind-the-service` and `a-model-asked-for-with-a-context-suffix-reads-as-a-different-model`.
 2. Built on 2026-11-24: piece 3, `unread-is-output-beyond-where-you-have-read`.
-3. Built on 2026-11-25, and kept after Michael's trial: piece 4, `a-turn-is-inferred-from-a-message`, in the simpler direction ruled on 2026-11-24: a turn is what the harness says it is. `codex-interrupt-while-a-turn-is-starting` closes with it if the direction holds.
-4. Piece 6, `reading-the-workspace-starts-nothing`, its size settled when it is specified.
+3. Built on 2026-11-25, and kept after Michael's trial: piece 4, `a-turn-is-inferred-from-a-message`, in the simpler direction ruled on 2026-11-24: a turn is what the harness says it is. The card for a Codex interrupt lost while a turn is starting closed with it.
+4. Piece 6, `reading-the-workspace-starts-nothing`, in its larger size, ruled on 2026-11-25: no environment is resolved in the background at all. Next to be built.
 5. Pieces 7 and 8, the two for the page.
 6. `adoption-reaches-any-session-in-the-checkout`, then `an-older-log-is-read-as-todays-build-reads-it`, which waits on it.
 7. The full-tree review resumes on `harden-requests-stops-and-restarts`.

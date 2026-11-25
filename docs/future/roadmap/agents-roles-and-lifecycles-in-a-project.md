@@ -32,7 +32,7 @@ One concrete case from the same day. With a demo a week out and two independent 
 
 This was a card of its own from 2026-11-06, and it is a lifecycle question, so it lives here now.
 
-Make runtime mode a real per-conversation setting with a per-harness default and a global switch. In per-turn mode the harness process exits when a turn ends and the next prompt resumes by exact id. An idle conversation then has no managed writer, needs no release before a terminal handoff, and holds no memory. It depends on mercurius and terminus being restartable first, with session state rebuilt from disk and reviewer rounds detached, before conversations that drive them can opt in; that work lives in those repositories.
+Make runtime mode a real per-conversation setting with a per-harness default and a global switch. In per-turn mode the harness process exits when a turn ends and the next prompt resumes by exact id. An idle conversation then has no managed writer and holds no memory. It depends on mercurius and terminus being restartable first, with session state rebuilt from disk and reviewer rounds detached, before conversations that drive them can opt in; that work lives in those repositories.
 
 Why it matters more as a project grows: every idle conversation today keeps a harness process and the MCP servers it started. A project with a planner and several implementers pays for all of them while only one works.
 

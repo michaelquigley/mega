@@ -219,6 +219,12 @@ Unread is the newest recorded output set against the reading position. `internal
 
 A turn opens only when the harness says it has started one. Michael tried it in the working tree against Claude, Codex and pi before committing: "honestly, this doesn't really feel any different... and i bet the other users won't even notice." The card's as-built section has what the trial covered and the costs left as they are. `internal/service` is at 6,171 non-test lines.
 
+### P10. Piece 6 in its larger size (ruled 2026-11-25)
+
+No environment is resolved in the background at all: not at start-up, not at a registration, not because something read the workspace. Michael: "yes. let's pursue the larger size. in general, making the model simpler is the goal and this sounds like a decent simplification."
+
+Measured before he ruled, it is modest: three functions and five call sites, about sixty lines of the service, one piece of state and about twenty places in tests. What it buys beyond the lines is that nothing runs at start-up, where ten login shells run today on his machine, and that one way to resolve is left. What the background run fed is the environment section of a project's page, which he does not routinely look at. He tries the piece in use before it is committed, as he did piece 4.
+
 ### The plan as it stands
 
 The epic's section "the plan after the review of 2026-11-24" has the order: four small defects as one batch, piece 3, piece 4 with its trial, piece 6, pieces 7 and 8, the adoption limit and then the older-log rules, and then the full-tree review.
