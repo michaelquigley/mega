@@ -21,19 +21,24 @@
 // - the register dialog: the focus in its checkout field, refusing a
 //   relative path and a path that does not exist with what is wrong, then
 //   registering a git checkout and opening its page;
-// - the project page, before any dialog: all three harnesses listed as missing,
-//   Claude's reason naming where it looked, what to do and the config file mega
-//   read; the environment resolved in the background; a trust notice that
-//   does not tell anyone to run a Claude that is not installed; and the New
+// - the project page, before any dialog: nothing resolved by registering or
+//   reading the workspace, so nothing listed missing and "Not resolved yet";
+//   a trust notice that does not tell anyone to run a Claude that is not
+//   installed and gives the start-up check's reason itself; and the New
 //   conversation control carrying a word;
-// - the new-conversation dialog: the focus in the opening prompt, both
-//   harnesses marked as unable to run, the model list saying it is
-//   unavailable, Launch disabled and in view at 1280x900 with the notices;
+// - the new-conversation dialog: resolving the project as it opens, which
+//   then lists all three harnesses as missing, Claude's reason naming where
+//   it looked, what to do and the config file mega read; the focus in the
+//   opening prompt, the harnesses marked as unable to run, the model list
+//   saying it is unavailable, Launch disabled and in view at 1280x900 with
+//   the notices; and, once it closes, the trust notice pointing to the
+//   environment section;
 // - the API: listing Claude's models and launching either harness refused as
 //   executable_missing, with the reason;
 // - never "internal error", and no answer of 500, anywhere on the walk;
-// - a restart: the project kept, and what is missing known again before
-//   anything is opened, with the start-up log's lines again;
+// - a restart: the project kept, nothing resolved and nothing listed missing
+//   before anything is opened, "Not resolved yet", and the start-up log's
+//   lines again;
 // - --listen: another mega on the port the flag names, and one refused for an
 //   address that is not loopback;
 // - the harnesses installed, as stand-ins that only say their versions: a
@@ -182,21 +187,17 @@ check((await page.locator('dialog[open]').count()) === 0, 'the dialog closed')
 const P = (await workspace()).projects[0]
 check(P && P.checkout === demo, 'the project is registered at its checkout')
 
-// the project page, before any dialog: what is missing is known already,
-// from a resolution registering started in the background.
+// the project page, before any dialog: registering resolved nothing, and
+// reading the workspace resolves nothing however often it is read, so the
+// environment section says it is not resolved yet and lists nothing missing.
 const missingList = page.locator('section.environment ul.env-missing')
 const missingNames = async () => ((await workspace()).projects[0]?.environment?.missing ?? []).map((m) => m.harness).sort().join(',')
-const knownEarly = await soon(async () => (await missingNames()) === 'claude,codex,pi' && (await missingList.count()) > 0, 15000)
-shown('what the project lists as missing, before any dialog', await missingNames())
-check(knownEarly, 'the project page lists every harness as missing before any dialog is opened')
-const claudeMissing = ((await workspace()).projects[0]?.environment?.missing ?? []).find((m) => m.harness === 'claude')?.reason ?? ''
-shown('the project on Claude Code', claudeMissing)
-check(
-  claudeMissing.includes("'claude' was not found") && claudeMissing.includes(claudePath) && claudeMissing.includes('claude.executable') && claudeMissing.includes(t.config) && /install claude code/i.test(claudeMissing),
-  "Claude Code is missing because 'claude' is on no PATH and no build is installed, and the reason says to install it or set claude.executable in the config file mega read",
-)
-shown('the environment section', await text(page.locator('section.environment')))
-check(!(await text(page.locator('section.environment'))).includes('Not resolved yet'), 'the environment section shows a resolution, not "Not resolved yet"')
+const resolvedAt = async () => (await workspace()).projects[0]?.environment?.resolved?.at
+for (let i = 0; i < 5; i++) await workspace()
+await page.waitForTimeout(500)
+shown('the environment section, before any dialog', await text(page.locator('section.environment')))
+check((await resolvedAt()) === undefined && (await missingNames()) === '' && (await missingList.count()) === 0, 'before any dialog, registering and reading the workspace resolved nothing, and nothing is listed missing')
+check((await text(page.locator('section.environment'))).includes('Not resolved yet'), 'the environment section says "Not resolved yet"')
 const notices = page.locator('article.detail p.notice')
 for (let i = 0; i < (await notices.count()); i++) {
   shown('a notice on the project page', await text(notices.nth(i)))
@@ -204,6 +205,7 @@ for (let i = 0; i < (await notices.count()); i++) {
 const trustNotice = page.locator('article.detail p.notice', { hasText: /trust/i })
 const trust = (await trustNotice.count()) > 0 ? await text(trustNotice.first()) : ''
 check(!trust.includes('Run claude here once'), `the trust notice does not tell anyone to run a Claude that is not installed: "${trust}"`)
+check(trust.includes("'claude' was not found on your shell's PATH") && !trust.includes('environment section'), 'before a resolution, the trust notice gives the start-up check\'s reason and points to no section')
 const newConversation = page.locator('article.detail button[aria-label="New conversation"]')
 const newWord = (await newConversation.locator('.word').count()) > 0 ? await text(newConversation.locator('.word')) : ''
 check(newWord !== '', `the New conversation control carries a word while the workspace has no conversation: "${newWord}"`)
@@ -215,6 +217,16 @@ await shot('project')
 await newConversation.click()
 const launch = page.locator('dialog[open]')
 await launch.waitFor()
+// opening the dialog resolves the project: its reads need the environment.
+const resolvedByDialog = await soon(async () => (await resolvedAt()) !== undefined && (await missingNames()) === 'claude,codex,pi', 15000)
+shown('what the project lists as missing, once the dialog is open', await missingNames())
+check(resolvedByDialog, 'opening the new-conversation dialog resolves the project, which then lists every harness as missing')
+const claudeMissing = ((await workspace()).projects[0]?.environment?.missing ?? []).find((m) => m.harness === 'claude')?.reason ?? ''
+shown('the project on Claude Code', claudeMissing)
+check(
+  claudeMissing.includes("'claude' was not found") && claudeMissing.includes(claudePath) && claudeMissing.includes('claude.executable') && claudeMissing.includes(t.config) && /install claude code/i.test(claudeMissing),
+  "Claude Code is missing because 'claude' is on no PATH and no build is installed, and the reason says to install it or set claude.executable in the config file mega read",
+)
 const launchFocus = await soon(async () => (await page.evaluate(() => document.activeElement?.tagName === 'TEXTAREA' && document.activeElement.closest('dialog') !== null)), 3000)
 shown('focus on opening', await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName))
 check(launchFocus, 'the new-conversation dialog opens with the focus in the opening prompt')
@@ -241,6 +253,9 @@ await noInternal(page, 'the new-conversation dialog')
 await shot('launch-missing')
 await page.keyboard.press('Escape')
 await until('the dialog closed', async () => (await page.locator('dialog[open]').count()) === 0)
+const trustResolved = (await trustNotice.count()) > 0 ? await text(trustNotice.first()) : ''
+shown('the trust notice once the project has a resolution', trustResolved)
+check(trustResolved.includes('the environment section below says what is missing'), 'once the project has a resolution, the trust notice points to the environment section')
 
 // the API: each refusal coded, with its reason; never a 500.
 const models = await api('GET', `/api/projects/${P.id}/models?harness=claude`)
@@ -254,8 +269,8 @@ shown('the API on launching Codex', `${codexApi.status} ${codexApi.body?.code}: 
 check(codexApi.status === 409 && codexApi.body.code === 'executable_missing', 'launching Codex is refused as executable_missing')
 check((await workspace()).conversations.length === 0, 'the refused launches made no conversation')
 
-// a restart: the project stays, and what is missing is known again without
-// anything being opened.
+// a restart: the project stays, and nothing resolves it until something
+// needs its environment.
 await t.stop()
 const before = startupLog().length
 await t.start()
@@ -263,12 +278,14 @@ await page.reload()
 await until('the project page again', async () => (await page.locator('article.detail h1').count()) > 0)
 const after = (await workspace()).projects[0]
 check(after.id === P.id && after.checkout === demo, 'the project is still registered after a restart')
-const knownAgain = await soon(async () => (await missingNames()) === 'claude,codex,pi', 15000)
+for (let i = 0; i < 5; i++) await workspace()
+await page.waitForTimeout(500)
 shown('what the project lists as missing after the restart, before anything is opened', await missingNames())
-check(knownAgain, 'after a restart the project lists what is missing again, with nothing opened')
+check((await resolvedAt()) === undefined && (await missingNames()) === '', 'after a restart nothing has resolved the project, and nothing is listed missing')
 const again = harnessLines(startupLog().slice(before))
 check(eachHarness(again), `the start-up log says again what each harness is, Claude Code, Codex and pi: ${again.length} lines`)
 shown('the environment section after the restart', await text(page.locator('section.environment')))
+check((await text(page.locator('section.environment'))).includes('Not resolved yet'), 'after a restart the environment section says "Not resolved yet"')
 await noInternal(page, 'the project page after the restart')
 await shot('restarted')
 

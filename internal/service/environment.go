@@ -54,7 +54,8 @@ const (
 
 // EnvState is a project's environment as it stands now: the repository's file
 // as read, what the operator approved and overrode, which activation would run
-// and whether it may, and the latest resolution held in memory. it is
+// and whether it may, and the latest resolution of that activation held in
+// memory. it is
 // computed on every read and never stored, apart from the approval and the
 // override, which are workspace state.
 type EnvState struct {
@@ -69,12 +70,14 @@ type EnvState struct {
 	Status     string
 	// Refusal is why work is refused here now, or nil.
 	Refusal *Error
-	// Resolved is the latest resolution in memory, or nil before any.
+	// Resolved is the latest resolution in memory, or nil before any. one
+	// from another activation than the one that would run now, as after the
+	// override changed or the file appeared or went, counts as none: nothing
+	// resolves a project in the background, so it would otherwise stand until
+	// something resolved the project again.
 	Resolved *ResolvedEnv
-	// Missing is what each harness cannot find in the latest resolution.
+	// Missing is what each harness cannot find in Resolved.
 	Missing []harness.MissingError
-	// Resolving says a resolution is running now.
-	Resolving bool
 
 	activate string
 	// fileRefusal is the refusal the file alone decides (unapproved, changed,
@@ -110,12 +113,6 @@ type ResolvedEnv struct {
 // namesRefused is whether this resolution was refused for the names it
 // changed.
 func (r *ResolvedEnv) namesRefused() bool { return len(r.Added) > 0 || len(r.Removed) > 0 }
-
-// envRecord is the latest resolution of a project, and whether one runs now.
-type envRecord struct {
-	resolved *ResolvedEnv
-	running  bool
-}
 
 // envStateLocked works out a project's environment from its checkout's file,
 // its approval and its override. callers hold s.mu.
@@ -155,19 +152,15 @@ func (s *Service) envStateLocked(project model.Project) EnvState {
 		st.Activation = environ.Fingerprint([]byte(st.Source + "\x00" + st.activate))
 	}
 	st.fileRefusal = st.Refusal
-	if rec := s.envs[project.ID]; rec != nil && rec.running {
-		st.Resolving = true
-	}
-	if rec := s.envs[project.ID]; rec != nil && rec.resolved != nil {
+	if r := s.envs[project.ID]; r != nil && r.Source == st.Source && r.Activation == st.Activation {
 		// a copy: the record stays the service's own.
-		resolved := *rec.resolved
+		resolved := *r
 		resolved.Changed = slices.Clone(resolved.Changed)
 		resolved.Added, resolved.Removed = slices.Clone(resolved.Added), slices.Clone(resolved.Removed)
 		st.Resolved = &resolved
-		r := rec.resolved
-		// a names refusal stands while it is about this activation under this
-		// approval; approving again, or another activation, lifts it.
-		if st.Refusal == nil && r.namesRefused() && st.Source == model.EnvSourceFile && r.Activation == st.Activation &&
+		// a names refusal stands while it is about this approval; approving
+		// again lifts it.
+		if st.Refusal == nil && r.namesRefused() && st.Source == model.EnvSourceFile &&
 			project.EnvApproved != nil && r.approvedAt.Equal(project.EnvApproved.At) {
 			st.Status = EnvNamesChanged
 			st.Refusal = namesRefusal(st.File.Path, r.Added, r.Removed)
@@ -245,7 +238,10 @@ func (s *Service) envReadyLocked(project model.Project) error {
 // first, then the operator's shell in the checkout with the activation, if it
 // may run. the result is held in memory as the project's latest resolution
 // and returned with what a runtime start records of it, names and
-// fingerprints only. a failed resolution is refused with
+// fingerprints only. it is the only way a project is resolved, and it runs
+// only for a caller that needs the result: a runtime start, a helper, an
+// approval or the operator's own request. nothing resolves a project in the
+// background. a failed resolution is refused with
 // CodeEnvironmentFailed: its message carries the activation's own output,
 // for the operator, and what may be recorded does not. callers do not hold s.mu.
 func (s *Service) resolveProject(projectID string) (harness.Place, *model.EnvironmentFacts, error) {
@@ -264,12 +260,6 @@ func (s *Service) resolveProject(projectID string) (harness.Place, *model.Enviro
 		s.mu.Unlock()
 		return harness.Place{}, nil, st.fileRefusal
 	}
-	rec := s.envs[projectID]
-	if rec == nil {
-		rec = &envRecord{}
-		s.envs[projectID] = rec
-	}
-	rec.running = true
 	s.mu.Unlock()
 
 	res, resolveErr := s.resolver.Resolve(context.Background(), project.Checkout, st.activate)
@@ -298,12 +288,14 @@ func (s *Service) resolveProject(projectID string) (harness.Place, *model.Enviro
 	if failure == nil && st.Source == model.EnvSourceFile {
 		failure = s.checkNamesLocked(projectID, st, resolved)
 	}
-	rec.resolved, rec.running = resolved, false
-	if failure == nil {
-		// the file may have changed while its activation ran: what was
-		// resolved is used only while it is still the activation that would
-		// run now, for every caller, a helper's as well as a launch's.
-		if current, err := s.projectLocked(projectID); err == nil {
+	if current, err := s.projectLocked(projectID); err == nil {
+		// a project removed while its activation ran keeps nothing.
+		s.envs[projectID] = resolved
+		if failure == nil {
+			// the file may have changed while its activation ran: what was
+			// resolved is used only while it is still the activation that
+			// would run now, for every caller, a helper's as well as a
+			// launch's.
 			failure = s.envUnchangedLocked(current, &model.EnvironmentFacts{Source: st.Source, Activation: st.Activation})
 		}
 	}
@@ -384,51 +376,13 @@ func (s *Service) placeWithFacts(projectID string) (harness.Place, *model.Enviro
 			s.mu.Unlock()
 			return harness.Place{}, nil, st.fileRefusal
 		}
-		if r := st.Resolved; r != nil && r.Error == "" && !r.namesRefused() && r.Activation == st.Activation && r.Source == st.Source && time.Since(r.At) < helperFresh {
+		if r := st.Resolved; r != nil && r.Error == "" && !r.namesRefused() && time.Since(r.At) < helperFresh {
 			s.mu.Unlock()
 			return harness.Place{Cwd: project.Checkout, Env: r.env, Find: r.before}, &model.EnvironmentFacts{Source: r.Source, Activation: r.Activation, Changed: slices.Clone(r.Changed), Fingerprint: r.Fingerprint}, nil
 		}
 	}
 	s.mu.Unlock()
 	return s.resolveProject(projectID)
-}
-
-// resolveStaleLocked starts a resolution, in the background, for each project
-// whose environment may run and whose latest resolution is missing or came
-// from another activation, so the project page and the conversation headers
-// compare against the environment a start would get now. a resolution that
-// failed is not retried until the activation changes; a start, a helper or
-// the operator's own request does that. callers hold s.mu.
-func (s *Service) resolveStaleLocked(projects []model.Project, states map[string]EnvState) {
-	if s.closed {
-		// closing: no resolution starts, since none could record its result.
-		return
-	}
-	for _, project := range projects {
-		st := states[project.ID]
-		if st.Refusal != nil || checkoutProblem(project.Checkout) != "" {
-			continue
-		}
-		rec := s.envs[project.ID]
-		if rec != nil && (rec.running || rec.resolved != nil && rec.resolved.Activation == st.Activation && rec.resolved.Source == st.Source) {
-			continue
-		}
-		if rec == nil {
-			s.envs[project.ID] = &envRecord{running: true}
-		} else {
-			rec.running = true
-		}
-		s.background.Add(1)
-		go func(id string) {
-			defer s.background.Done()
-			s.resolveSlots <- struct{}{}
-			defer func() { <-s.resolveSlots }()
-			if _, _, err := s.resolveProject(id); err != nil {
-				// what may be recorded, never the activation's output.
-				dl.Debugf("resolving the environment of '%s': %s", id, recordable(err))
-			}
-		}(project.ID)
-	}
 }
 
 // ApproveEnvironment approves the checkout's .mega/environment.yaml at the
@@ -546,8 +500,8 @@ func (s *Service) ResolveEnvironment(projectID string, values bool) (Environment
 	}
 	out := EnvironmentValues{Source: facts.Source, Changed: slices.Clone(facts.Changed), Fingerprint: facts.Fingerprint, At: time.Now().UTC()}
 	s.mu.Lock()
-	if rec := s.envs[projectID]; rec != nil && rec.resolved != nil {
-		out.At = rec.resolved.At
+	if r := s.envs[projectID]; r != nil {
+		out.At = r.At
 	}
 	s.mu.Unlock()
 	if values {
@@ -577,7 +531,7 @@ func (s *Service) envStaleLocked(conv model.Conversation, facts *model.Environme
 		return true
 	}
 	r := st.Resolved
-	return r != nil && r.Error == "" && r.Activation == st.Activation && r.Fingerprint != facts.Fingerprint
+	return r != nil && r.Error == "" && r.Fingerprint != facts.Fingerprint
 }
 
 // ApprovedVersion is the version of a project's .mega/environment.yaml the

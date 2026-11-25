@@ -120,7 +120,7 @@ export function EnvironmentSection({ project }: { project: Project }) {
         </label>
         <IconButton
           icon="save"
-          label="Run this activation in place of the repository's file"
+          label="Save this activation as the local override, to run in place of the repository's file"
           word="Save"
           disabled={busy || draft.trim() === '' || draft.trim() === (env.override?.activate ?? '')}
           onClick={() => void attempt(() => setEnvironmentOverride(project.id, { ignore: false, activate: draft }))}
@@ -280,9 +280,7 @@ function Resolution({ env, values }: { env: ProjectEnvironment; values: Resolved
   const r = env.resolved
   if (!r) {
     return (
-      <p className="muted">
-        {env.resolving ? 'Resolving the environment now.' : 'Not resolved yet: it resolves when something starts here, or on request.'}
-      </p>
+      <p className="muted">Not resolved yet: it resolves when something starts here, or on request.</p>
     )
   }
   if (r.error) {

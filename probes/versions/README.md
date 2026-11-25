@@ -38,7 +38,7 @@ probes/versions/codex.sh /path/to/codex-0.170.0-package/bin/codex 18520 --discov
 - **For Claude Code:** the builds in `~/.local/share/claude/versions/`, by name, size and time, and where `claude` on `PATH` points.
 - **For Codex:** the real `~/.codex` at the top level, by name, size and time. A name that comes or goes, or a changed configuration file, stops the run. Other changes are reported, since Michael's own Codex processes write logs and caches there as they run.
 
-**`driver.mjs` (Claude Code)** gives the fixture the override `export DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1` and waits for the project's own resolution from it. It then makes these calls:
+**`driver.mjs` (Claude Code)** gives the fixture the override `export DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1` and resolves the project from it, as the project page's Resolve does, since nothing resolves a project in the background. It then makes these calls:
 - the model list, with its count, version and time;
 - a launch and the marker turn;
 - an approval for Bash `sleep 3`, asserted to be exactly that before Allow;

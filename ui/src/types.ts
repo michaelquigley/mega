@@ -41,12 +41,11 @@ export interface ProjectEnvironment {
   source: 'none' | 'file' | 'ignored' | 'override'
   status: 'ready' | 'unapproved' | 'changed' | 'malformed' | 'names_changed'
   refusal?: { code: string; message: string }
-  // the latest resolution; added and removed are the names it changed beyond,
-  // and short of, the approval's, when they differ.
+  // the latest resolution of the activation that would run now, absent
+  // before one; added and removed are the names it changed beyond, and short
+  // of, the approval's, when they differ.
   resolved?: { at: string; source: string; changed: string[]; fingerprint?: string; error?: string; added?: string[]; removed?: string[] }
   missing: { harness: string; executable: string; reason: string }[]
-  // a resolution is running now.
-  resolving?: boolean
 }
 
 // a running runtime's launch environment: names and fingerprints only.

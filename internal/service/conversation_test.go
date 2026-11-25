@@ -36,8 +36,6 @@ func newRig(t *testing.T) *rig {
 		t.Fatal(err)
 	}
 	r.project = project
-	// the project's background resolution settles before a test begins.
-	r.svc.background.Wait()
 	return r
 }
 

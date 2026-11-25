@@ -135,25 +135,21 @@ export function probe(harness) {
     return { project: r.body, overrideAt: before }
   }
 
-  // fromOverride waits for the project's own resolution from the override:
-  // not the one registering started, which ran before it. a resolution
-  // counts when it came from the override, after the override was set, with
-  // no error and none running.
-  const fromOverride = async (projectId, overrideAt, ms = 60000) => {
-    const env = await until(
-      'the project’s environment resolved from the override',
-      async () => {
-        const p = await projectOf(projectId)
-        const e = p?.environment
-        const r = e?.resolved
-        if (!e || e.source !== 'override' || e.resolving || !r) return null
-        if (r.source !== 'override' || Date.parse(r.at) < overrideAt - 1000) return null
-        return e
-      },
-      ms,
+  // fromOverride resolves the project from its override, as the project
+  // page's Resolve does, since nothing resolves a project in the background,
+  // and returns that resolution as the workspace holds it. it counts when it
+  // came from the override, after the override was set, with no error.
+  const fromOverride = async (projectId, overrideAt) => {
+    const r = await api('POST', `/api/projects/${projectId}/environment/resolve`)
+    must(r.status === 200, `the project resolved from its override${r.status === 200 ? '' : `: ${r.status} ${JSON.stringify(r.body)}`}`)
+    const e = (await projectOf(projectId))?.environment
+    const resolved = e?.resolved
+    must(
+      e?.source === 'override' && resolved?.source === 'override' && Date.parse(resolved.at) >= overrideAt - 1000,
+      `the project's environment is resolved from the override, after it was set (source ${e?.source ?? 'none'}, resolution ${resolved ? `${resolved.source} at ${resolved.at}` : 'none'})`,
     )
-    must(!env.resolved.error, `the override's resolution has no error${env.resolved.error ? `: ${env.resolved.error}` : ''}`)
-    return env.resolved
+    must(!resolved.error, `the override's resolution has no error${resolved.error ? `: ${resolved.error}` : ''}`)
+    return resolved
   }
 
   // resolvedValues resolves the project now, as the project page's "show

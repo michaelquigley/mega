@@ -26,7 +26,7 @@ Follow each vendor's own instructions, then run the harness once in a terminal a
 - **Claude Code:** [code.claude.com/docs/en/setup](https://code.claude.com/docs/en/setup). Its native installer puts a `claude` on your `PATH`, which is what mega runs.
 - **Codex:** [github.com/openai/codex](https://github.com/openai/codex). mega was tested with Codex installed through npm. However you install it, it must be installed whole: a lone `codex` binary lacks the helper programs Codex runs a shell command with, and mega refuses it.
 
-mega starts every agent in a login, interactive shell in the project's checkout, so your profile and start-up files run. `claude`, `codex` and `node` must be on the `PATH` that shell builds, set in your shell profile, not only in the terminal you start mega from. mega reads that environment when it starts, so after changing your profile, restart mega.
+mega starts every agent in a login, interactive shell in the project's checkout, so your profile and start-up files run. `claude`, `codex` and `node` must be on the `PATH` that shell builds, set in your shell profile, not only in the terminal you start mega from. mega reads that environment when it starts, for its report of which agents it can find, and for each project when something there first needs it, and keeps what it found. So after changing your profile, restart mega.
 
 ### 2. Trust each checkout in Claude Code
 

@@ -1,5 +1,4 @@
 building:
-  - reading-the-workspace-starts-nothing.md
 horizon:
   - start-up-reads-every-log.md
   - request-and-what-ran-follow-ups.md
@@ -22,10 +21,13 @@ horizon:
   - retired-conversations.md
 researching:
   - simplify-the-core.md
+  - a-failed-model-list-launches-claude-in-default-mode.md
+  - the-pi-dialog-row-step-reads-the-row-too-early.md
   - one-route-for-recorded-history.md
   - the-page-has-one-value-for-where-it-stands.md
   - adoption-reaches-any-session-in-the-checkout.md
   - an-older-log-is-read-as-todays-build-reads-it.md
+  - shown-environment-values-can-outlive-their-resolution.md
   - claude-code-21331-is-past-the-tested-range.md
   - a-checks-suite-empties-its-scratch-before-it-knows-its-port-is-free.md
   - the-register-dialogs-prefill-can-land-on-what-is-typed.md
@@ -34,6 +36,7 @@ researching:
   - escape-interrupts-a-running-turn.md
   - keyboard-shortcut-pop-open.md
   - darklight-mode-toggle.md
+  - copy-question-blocks.md
   - answering-a-question-moves-the-last-instructed-pointer.md
   - queued-operator-messages.md
   - codex-approval-policy.md
@@ -44,6 +47,7 @@ researching:
   - first-tagged-release.md
   - mega-on-macos-and-windows.md
 evaluating:
+  - reading-the-workspace-starts-nothing.md
   - a-turn-is-inferred-from-a-message.md
   - unread-is-output-beyond-where-you-have-read.md
   - a-model-asked-for-with-a-context-suffix-reads-as-a-different-model.md

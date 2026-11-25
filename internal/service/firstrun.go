@@ -13,13 +13,7 @@ import (
 	"github.com/michaelquigley/df/dl"
 
 	"github.com/michaelquigley/mega/internal/harness"
-	"github.com/michaelquigley/mega/internal/model"
 )
-
-// resolveAtOnce bounds the resolutions the service runs in the background:
-// each is a login shell and an activation, and a workspace of many projects
-// resolving all at once at start-up would start that many shells together.
-const resolveAtOnce = 4
 
 // HarnessStatus is whether a harness can run in the operator's shell
 // environment, as a project with no activation gets it: where its programs
@@ -81,27 +75,6 @@ func programIdentity(path string) string {
 	return id
 }
 
-// resolveAllLocked starts, in the background, a resolution of every project
-// whose environment may run and has none in memory: at start-up, so what each
-// is missing is known before anyone opens anything, and again after a restart.
-// a project whose file is unapproved, changed or malformed is skipped, as
-// resolveStaleLocked skips it: nothing runs an activation the operator has
-// not approved. callers hold s.mu.
-func (s *Service) resolveAllLocked() {
-	doc := s.reg.Snapshot()
-	states := make(map[string]EnvState, len(doc.Projects))
-	for _, project := range doc.Projects {
-		states[project.ID] = s.envStateLocked(project)
-	}
-	s.resolveStaleLocked(doc.Projects, states)
-}
-
-// resolveRegisteredLocked starts the background resolution of a project just
-// registered. callers hold s.mu.
-func (s *Service) resolveRegisteredLocked(project model.Project) {
-	s.resolveStaleLocked([]model.Project{project}, map[string]EnvState{project.ID: s.envStateLocked(project)})
-}
-
 // checkHarnesses finds, once at start-up and in the background, where each
 // harness's programs are in the operator's shell environment: the shell run
 // in the home directory with no activation, as a project without one gets it.
@@ -114,10 +87,7 @@ func (s *Service) checkHarnesses() {
 	var find []string
 	where := "the operator's shell environment"
 	if err == nil {
-		// it takes a slot as a project's resolution does.
-		s.resolveSlots <- struct{}{}
 		resolution, resolveErr := s.resolver.Resolve(context.Background(), home, "")
-		<-s.resolveSlots
 		if resolveErr == nil {
 			find = resolution.Before
 		} else {

@@ -160,7 +160,6 @@ func TestAFailedSnapshotStopsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.background.Wait()
 	if _, err := svc.StartConversation(project.ID, model.HarnessClaude, "", "hello", LaunchChoice{}); err != nil {
 		t.Fatal(err)
 	}

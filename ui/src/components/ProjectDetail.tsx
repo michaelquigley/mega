@@ -67,9 +67,12 @@ export function ProjectDetail({ project, conversations, stale, onLaunch, onAdopt
         </p>
       )}
       {project.untrusted && !project.checkout_missing && claudeCannotRun && (
+        // the environment section lists what is missing only once the
+        // project has a resolution; before one, the reason is the start-up
+        // check's, and the notice gives it itself.
         <p className="notice" role="note">
-          Claude Code cannot run here yet, so there is nothing to trust: the environment section below says what is missing. Once it can
-          run, it asks once, in a terminal, whether to trust this checkout; mega will not accept that for you.
+          Claude Code cannot run here yet, so there is nothing to trust: {project.environment?.resolved ? 'the environment section below says what is missing' : claudeCannotRun}. Once it
+          can run, it asks once, in a terminal, whether to trust this checkout; mega will not accept that for you.
         </p>
       )}
       {error && <p className="error">{error}</p>}

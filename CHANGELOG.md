@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+CHANGE: **Mega runs a project's activation only when something needs the environment, and workspace responses no longer carry `environment.resolving`.** (2026-11-25) Starting mega, registering a project and reading the workspace, from the page or the tray, no longer run any project's activation. The first thing that needs a project's environment, such as a start, the launch dialog or opening a conversation, resolves it and waits while the activation runs. Until then, as after every restart, the project's environment section says "Not resolved yet" and lists nothing missing, and the trust notice gives its reason itself. A result from an activation that is no longer the one that would run, as after the local override changes, reads as not resolved yet and no longer refuses a start. An unapproved, changed or malformed environment file still shows its refusal at once.
+
 CHANGE: **A turn is what the harness says it is, and events no longer carry `after_turn`.** (2026-11-24) A conversation is working from the moment its harness starts a turn until that turn ends, and mega opens no turn of its own. A prompt shows at once and working follows a moment later, when the harness begins. A harness that never begins leaves the prompt and no activity, where before the conversation could show as working with no end. A turn the agent starts by itself, as Claude does when background work finishes, shows as working before its first output. No message opens a turn: a stray one, such as Claude's reply to a model switch on an idle runtime, and output from a turn that has ended leave the conversation idle. Output from an ended turn that arrives while the next one runs is taken for the running turn's own: a late Codex tool call shows a spinner, a late message ends the streaming text, and the first of them sets what the turn's line says it ran with. The history API's events no longer carry `after_turn`, so nothing there tells such output apart. Logs from earlier builds read as before, their `after_turn` ignored.
 
 CHANGE: **Conversation responses drop `output_seq`.** Use `attention` for unread status. Recorded output can show as unread after Resume even if mega missed the turn's end, and adopted output is unread until acknowledged.
@@ -168,7 +170,6 @@ FIX: **The register and new-conversation dialogs open on their field.** (2026-11
 FEATURE: **The first run explains itself.** (2026-11-14)
 - **At start-up,** the log says, for each harness, where it was found or why it cannot run.
 - **The first page** names the control to begin with, "Register a project", and lists each harness as found or missing, with the reason. Register carries a word while there is no project, and so does New conversation while there is no conversation.
-- **A project's environment** is resolved in the background when the project is registered and at every start, so what it is missing shows before anything is opened, and after a restart. An unapproved environment file is still never run. At most four resolve at once, and neither start-up nor the page waits for them.
 - **The trust notice** no longer tells you to run a Claude Code that is not installed.
 - **`mega --listen ADDR`** sets the address, held to loopback as the config value is.
 

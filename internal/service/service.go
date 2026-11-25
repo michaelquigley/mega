@@ -85,9 +85,9 @@ type Service struct {
 	reg         *registry.Registry
 	isUntrusted UntrustedChecker
 	resolver    Resolver
-	base        []string              // the scrubbed base environment, for reading the repository
-	envs        map[string]*envRecord // each project's latest resolution, in memory only
-	stopWatch   chan struct{}         // closed when the service closes, ending the file watch
+	base        []string                // the scrubbed base environment, for reading the repository
+	envs        map[string]*ResolvedEnv // each project's latest resolution, in memory only
+	stopWatch   chan struct{}           // closed when the service closes, ending the file watch
 	logPath     func(conversationID string) string
 	harnesses   map[string]harness.Harness
 	live        map[string]*live
@@ -104,11 +104,11 @@ type Service struct {
 	// home directory.
 	projectsRoot string
 	gate         shutdownGate
-	// resolveSlots bounds the background resolutions running at once
-	// (resolveAtOnce); background counts them, and the start-up check of the
-	// harnesses, so a test can wait for them to settle.
-	resolveSlots chan struct{}
-	background   sync.WaitGroup
+	// background counts the work the service starts for itself: the start-up
+	// check of the harnesses, a read of their versions and a configuration
+	// snapshot, so a test can wait for it to settle. no project's environment
+	// is resolved in it.
+	background sync.WaitGroup
 	// harnessFind is the environment the start-up check looked for the
 	// harnesses in, and harnessWhere names it; nil until it has run.
 	harnessFind  []string
@@ -138,13 +138,12 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 		logPath:     opts.EventLogPath,
 		harnesses:   make(map[string]harness.Harness),
 		live:        make(map[string]*live),
-		envs:        make(map[string]*envRecord),
+		envs:        make(map[string]*ResolvedEnv),
 		resolver:    opts.Resolver,
 		base:        environ.Base(os.Environ()),
 		subs:        make(map[*Subscription]struct{}),
 		gate:        shutdownGate{requested: make(chan struct{})},
 
-		resolveSlots: make(chan struct{}, resolveAtOnce),
 		snapshots:    opts.Snapshots,
 		outside:      outsideSearch{dirs: opts.SearchDirs},
 		projectsRoot: opts.ProjectsRoot,
@@ -166,10 +165,10 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 	// what their logs last reported, once.
 	s.mu.Lock()
 	s.fillChoicesLocked()
-	// what each project and each harness is missing is found in the
-	// background, so start-up and serving wait for neither.
-	s.resolveAllLocked()
 	s.mu.Unlock()
+	// where the harnesses are is found in the background, so start-up and
+	// serving do not wait for it. no project's environment is resolved here:
+	// the first thing that needs one resolves it.
 	s.background.Add(1)
 	go func() {
 		defer s.background.Done()
@@ -202,7 +201,6 @@ func (s *Service) Workspace() (Workspace, error) {
 		s.applyTrustLocked(&doc.Projects[i])
 		states[doc.Projects[i].ID] = s.envStateLocked(doc.Projects[i])
 	}
-	s.resolveStaleLocked(doc.Projects, states)
 	harnesses := s.harnessStatusLocked()
 	s.mu.Unlock()
 	return Workspace{Projects: doc.Projects, Conversations: conversations, NeedsYou: needsYou(conversations), Gate: gate, Environments: states, Harnesses: harnesses}, nil
@@ -236,7 +234,6 @@ func (s *Service) RegisterProject(name, checkout string) (model.Project, error) 
 		return model.Project{}, err
 	}
 	s.applyTrustLocked(&project)
-	s.resolveRegisteredLocked(project)
 	return project, nil
 }
 

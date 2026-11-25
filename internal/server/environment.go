@@ -23,8 +23,6 @@ type environmentView struct {
 	Refusal  *errorBody       `dd:",+omitempty"`
 	Resolved *envResolvedView `dd:",+omitempty"`
 	Missing  []*missingView
-	// Resolving says a resolution is running now.
-	Resolving bool `dd:",+omitempty"`
 }
 
 type envFileView struct {
@@ -84,10 +82,9 @@ func newEnvironmentView(st service.EnvState) *environmentView {
 			ModifiedAt:  st.File.ModifiedAt,
 			Malformed:   st.File.Malformed,
 		},
-		Source:    st.Source,
-		Status:    st.Status,
-		Missing:   make([]*missingView, 0, len(st.Missing)),
-		Resolving: st.Resolving,
+		Source:  st.Source,
+		Status:  st.Status,
+		Missing: make([]*missingView, 0, len(st.Missing)),
 	}
 	if a := st.Approved; a != nil {
 		short := environ.Short(a.Digest)

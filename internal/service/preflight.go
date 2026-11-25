@@ -21,19 +21,23 @@ func missingCoded(err error) error {
 }
 
 // harnessReadyLocked refuses work for a harness that cannot run in the
-// project's latest resolved environment. before any resolution there is
-// nothing to go on, and a start checks the environment it resolves. callers
-// hold s.mu.
+// project's latest resolved environment. before any resolution of the
+// activation that would run now there is nothing to go on, and a start checks
+// the environment it resolves. callers hold s.mu.
 func (s *Service) harnessReadyLocked(projectID, harnessName string) error {
 	h, ok := s.harnesses[harnessName]
 	if !ok {
 		return nil
 	}
-	rec := s.envs[projectID]
-	if rec == nil || rec.resolved == nil || rec.resolved.Error != "" || rec.resolved.namesRefused() {
+	project, err := s.projectLocked(projectID)
+	if err != nil {
 		return nil
 	}
-	return missingCoded(h.Check(rec.resolved.before))
+	r := s.envStateLocked(project).Resolved
+	if r == nil || r.Error != "" || r.namesRefused() {
+		return nil
+	}
+	return missingCoded(h.Check(r.before))
 }
 
 // explain names a harness failure that a missing executable caused: an exec

@@ -24,3 +24,5 @@ The implementer of `a-failed-write-stops-mega` met it again and measured it: the
 Built on 2026-11-24. The test waits for the background resolutions the registrations started, then writes the registry under the service's lock. Each does its own job. The lock covers every reader of the registry, including the watcher that reads it every two seconds, which the wait alone did not. The wait lets the resolutions finish before the removal and the close, so they do not log. Without it they both logged as the service closed, and `df/dl`'s first log call is not guarded. That fault is carded in df's own roadmap as `dl-races-on-its-first-log-call`.
 
 The test still seeds two conversations straight into the registry. Terminus raised that as `removal-test-bypasses-service`, and Michael left it: about a dozen tests seed the registry the same way, and the canon's `single-authority` now says a test's fixture is not a second writer.
+
+Since `reading-the-workspace-starts-nothing` was built on 2026-11-25, a registration starts no resolution, so the wait had nothing left to guard and was removed. The lock stays.

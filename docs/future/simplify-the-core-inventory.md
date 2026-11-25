@@ -225,6 +225,10 @@ No environment is resolved in the background at all: not at start-up, not at a r
 
 Measured before he ruled, it is modest: three functions and five call sites, about sixty lines of the service, one piece of state and about twenty places in tests. What it buys beyond the lines is that nothing runs at start-up, where ten login shells run today on his machine, and that one way to resolve is left. What the background run fed is the environment section of a project's page, which he does not routinely look at. He tries the piece in use before it is committed, as he did piece 4.
 
+### P11. Piece 6 is built and kept (2026-11-25)
+
+No environment is resolved in the background. Michael restarted on it before committing and found start-up and the first conversation opened in a project faster, not slower. `internal/service` is at 6,096 non-test lines, against 6,638 when the review began. Terminus found two older faults while reading it, one of them a permissions matter in the launch dialog, and both are carded.
+
 ### The plan as it stands
 
 The epic's section "the plan after the review of 2026-11-24" has the order: four small defects as one batch, piece 3, piece 4 with its trial, piece 6, pieces 7 and 8, the adoption limit and then the older-log rules, and then the full-tree review.

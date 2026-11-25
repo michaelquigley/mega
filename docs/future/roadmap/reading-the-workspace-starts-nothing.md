@@ -1,13 +1,13 @@
 ---
 title: reading the workspace starts nothing
-state: building
+state: evaluating
 created: 2026-11-19
 tags: [story]
 ---
 
 A project's environment is resolved when something needs it or when the operator asks, and at no other time. Reading the workspace starts nothing, and neither does starting mega or registering a project. The background resolution of environments is removed.
 
-Sixth in the sequence of `simplify-the-core`, and next to be built, in the larger of its two sizes. The card is the whole plan; there is no work order. Michael tries it in use before it is committed.
+Sixth in the sequence of `simplify-the-core`, built on 2026-11-25 in the larger of its two sizes, and kept by Michael after trying it in use.
 
 ## why
 
@@ -63,6 +63,21 @@ The implementer leaves the piece in the working tree, with every gate passed, an
 - **A finding that is only wording** in a doc or a test of this card's own is fixed and reported at handoff.
 - **A finding whose fix would add state, a hold or an ordering rule** is brought to Michael as a question of whether to fix it at all. Anything else this card caused comes to him one at a time.
 - **Size.** `internal/service` was 6,171 non-test lines when piece 4 was built. The report gives the figure afterwards, and what was deleted outright.
+
+## as built
+
+Built on 2026-11-25. Nothing resolves a project's environment in the background: not at start-up, not when a project is registered, and not when the workspace is read. `internal/service` went from 6,171 non-test lines to 6,096.
+
+- **A resolution counts only while it came from the activation that would run now.** Otherwise every reader takes it for none: the section says it is not resolved yet, the list of what is missing is empty, and a start resolves afresh. Two readers already applied that test, and now all do. Without it, a change of override, or an environment file appearing or going, left the old activation's result on the page with nothing to replace it.
+- **The trust notice gives the start-up check's own reason** until the project is resolved, and points to the environment section after. Before, it pointed at a section that could be empty.
+- **The override's Save says what it does:** it saves the activation, to run in place of the repository's file. It used to say the activation would run.
+- **Opening a conversation can resolve its project,** since its controls read the model list. That is where an activation most often runs after a restart, more than the launch dialog.
+- **The adopt dialog looks for sessions once per harness,** so on a project not yet resolved it can run the activation up to three times at once. Left as it is.
+- **The version probes ask for the resolution themselves.** They used to wait for the background one.
+
+**The trial.** Michael built it and restarted on it on 2026-11-25. "i feel like startup felt _faster_ on this new version." "the first conversation opening in a project after the restart feels snappier." And the adopt dialog "seems very reasonable on a project that has not been resolved". Ten login shells no longer run at each start, and their results no longer make the page and the tray read the workspace again.
+
+The first terminus review was `clean`. The last, `5d9e5fa762e6`, was `not_clean` on two faults older than this piece, both carded: `a-failed-model-list-launches-claude-in-default-mode` and `shown-environment-values-can-outlive-their-resolution`.
 
 ## order
 

@@ -62,7 +62,7 @@ The words mega's documents, cards and interface use, and what each one means her
 
 ## A project's environment
 
-- **Project environment.** The shell environment a project's work runs in: the variables every process mega starts for that project is given. It is resolved fresh at each runtime start from the operator's shell, never from the environment mega itself was started in.
+- **Project environment.** The shell environment a project's work runs in: the variables every process mega starts for that project is given. It is resolved fresh from the operator's shell, never from the environment mega itself was started in, and only when something needs it: a runtime start, a helper that runs a harness in the project's name, an approval, or the operator's own request. Nothing resolves one in the background, so after a restart a project reads as not resolved yet until then.
 - **Activation.** The short shell snippet that turns a plain shell environment into a project's, such as `devprj`. It is defined in the project's own repository, in `.mega/environment.yaml`.
 - **Approval.** The operator's agreement that mega may run a repository's activation. It is tied to the file's exact content by its full SHA-256 digest, so a changed file is not run until it has been approved again. It covers that text only: an activation that reads other files in the repository is trusting them. So the approval also remembers the names of the variables the activation changed, and an activation that later changes others is refused until approved again.
 - **Override.** A local instruction on a project to ignore the repository's file or to run a different activation. Workspace state, not repository content.

@@ -53,7 +53,6 @@ func modelRig(t *testing.T) (*rig, *harnesstest.Harness) {
 		t.Fatal(err)
 	}
 	r.project = project
-	r.svc.background.Wait()
 	return r, codex
 }
 

@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/michaelquigley/mega/internal/environ"
 	"github.com/michaelquigley/mega/internal/harness"
@@ -16,30 +16,18 @@ import (
 )
 
 // countingResolver resolves with the test resolver, counting the
-// resolutions of each directory and the most that ran at once, and holding
-// each for hold.
+// resolutions of each directory.
 type countingResolver struct {
 	inner Resolver
-	hold  time.Duration
 
-	mu      sync.Mutex
-	calls   map[string]int
-	running int
-	most    int
+	mu    sync.Mutex
+	calls map[string]int
 }
 
 func (c *countingResolver) Resolve(ctx context.Context, dir, activate string) (*environ.Resolution, error) {
 	c.mu.Lock()
 	c.calls[dir]++
-	c.running++
-	c.most = max(c.most, c.running)
 	c.mu.Unlock()
-	time.Sleep(c.hold)
-	defer func() {
-		c.mu.Lock()
-		c.running--
-		c.mu.Unlock()
-	}()
 	return c.inner.Resolve(ctx, dir, activate)
 }
 
@@ -70,18 +58,25 @@ func countingService(t *testing.T, path string, resolver *countingResolver, harn
 	return svc
 }
 
-// registering a project resolves its environment in the background, so what
-// each harness is missing there is known before anything is opened; a
-// restart resolves it again by itself, and an unapproved file is never run.
-func TestRegistrationAndStartUpResolveInTheBackground(t *testing.T) {
+// nothing resolves a project's environment in the background: not a
+// registration, not reading the workspace however often, not a change of the
+// activation that would run, and not a start of mega over approved projects.
+// the first thing that needs the environment resolves it, once, and the
+// project's state then shows the result. an unapproved file shows its refusal
+// with nothing run.
+func TestNothingResolvesAProjectUntilSomethingNeedsIt(t *testing.T) {
 	resolver := &countingResolver{inner: testResolver(t), calls: map[string]int{}}
 	fake := harnesstest.New(model.HarnessClaude)
-	fake.SetMissing(&harness.MissingError{Harness: model.HarnessClaude, Executable: "/x/claude", Reason: "'/x/claude' does not exist"})
 	path := filepath.Join(t.TempDir(), "registry.yaml")
 	svc := countingService(t, path, resolver, fake)
-	plain, unapproved := t.TempDir(), t.TempDir()
+	plain, approved, unapproved := t.TempDir(), t.TempDir(), t.TempDir()
+	writeEnvFile(t, approved, "export MEGA_APPROVED=1")
 	writeEnvFile(t, unapproved, "export MEGA_NEVER=1")
 	p, err := svc.RegisterProject("plain", plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := svc.RegisterProject("approved", approved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,68 +84,60 @@ func TestRegistrationAndStartUpResolveInTheBackground(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.background.Wait()
-	svc.mu.Lock()
-	project, _ := svc.projectLocked(p.ID)
-	st := svc.envStateLocked(project)
-	svc.mu.Unlock()
-	if st.Resolved == nil || len(st.Missing) != 1 || st.Missing[0].Executable != "/x/claude" {
-		t.Fatalf("after registering: resolved %v, missing %+v", st.Resolved, st.Missing)
+	// an approval resolves at once, to record the names it changes.
+	if _, err := svc.ApproveEnvironment(a.ID, workspaceOf(t, svc).Environments[a.ID].File.Digest); err != nil {
+		t.Fatal(err)
 	}
-	if n := resolver.count(plain); n != 1 {
-		t.Errorf("the registered project resolved %d times", n)
+	if _, err := svc.SetEnvironmentOverride(p.ID, &model.EnvOverride{Activate: "export MEGA_OVERRIDE=1"}); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		workspaceOf(t, svc)
+	}
+	svc.background.Wait()
+	counts := func(when string, wantApproved int) {
+		t.Helper()
+		if n := resolver.count(plain); n != 0 {
+			t.Errorf("%s: the untouched project resolved %d times", when, n)
+		}
+		if n := resolver.count(approved); n != wantApproved {
+			t.Errorf("%s: the approved project resolved %d times, want %d", when, n, wantApproved)
+		}
+		if n := resolver.count(unapproved); n != 0 {
+			t.Errorf("%s: an unapproved file was resolved %d times", when, n)
+		}
+	}
+	counts("after registering and reading", 1)
+	if st := workspaceOf(t, svc).Environments[p.ID]; st.Resolved != nil {
+		t.Errorf("the untouched project has a resolution: %+v", st.Resolved)
 	}
 
 	svc.Close()
 	again := countingService(t, path, resolver, fake)
+	for range 5 {
+		workspaceOf(t, again)
+	}
 	again.background.Wait()
-	again.mu.Lock()
-	project, _ = again.projectLocked(p.ID)
-	st = again.envStateLocked(project)
-	unapprovedProject, _ := again.projectLocked(u.ID)
-	ust := again.envStateLocked(unapprovedProject)
-	again.mu.Unlock()
-	if st.Resolved == nil || len(st.Missing) != 1 {
-		t.Errorf("after a restart: resolved %v, missing %+v", st.Resolved, st.Missing)
-	}
-	if n := resolver.count(plain); n != 2 {
-		t.Errorf("the project resolved %d times across a start-up", n)
-	}
-	if n := resolver.count(unapproved); n != 0 || ust.Resolved != nil || ust.Status != EnvUnapproved {
-		t.Errorf("an unapproved file was resolved %d times (status %q)", n, ust.Status)
-	}
-}
-
-// many projects resolve at most resolveAtOnce at a time, and the service
-// answers meanwhile.
-func TestStartUpResolutionIsBounded(t *testing.T) {
-	resolver := &countingResolver{inner: testResolver(t), calls: map[string]int{}}
-	path := filepath.Join(t.TempDir(), "registry.yaml")
-	svc := countingService(t, path, resolver)
-	for range 12 {
-		if _, err := svc.RegisterProject("", t.TempDir()); err != nil {
-			t.Fatal(err)
+	counts("after a restart", 1)
+	ws := workspaceOf(t, again)
+	for _, id := range []string{p.ID, a.ID, u.ID} {
+		if st := ws.Environments[id]; st.Resolved != nil {
+			t.Errorf("after a restart, %s has a resolution: %+v", id, st.Resolved)
 		}
 	}
-	svc.background.Wait()
-	svc.Close()
-	resolver.mu.Lock()
-	resolver.most, resolver.hold = 0, 50*time.Millisecond
-	resolver.mu.Unlock()
-	start := time.Now()
-	again := countingService(t, path, resolver)
-	if took := time.Since(start); took > 2*time.Second {
-		t.Errorf("start-up waited %s for the resolutions", took)
+	if st := ws.Environments[u.ID]; st.Status != EnvUnapproved || st.Refusal == nil || st.Refusal.Code != CodeEnvironmentUnapproved {
+		t.Errorf("the unapproved file shows status %q, refusal %v", st.Status, st.Refusal)
 	}
-	if got := len(workspaceOf(t, again).Projects); got != 12 {
-		t.Errorf("the workspace read %d projects while resolving", got)
+
+	if _, err := again.StartConversation(a.ID, model.HarnessClaude, "", "hello", LaunchChoice{}); err != nil {
+		t.Fatal(err)
+	}
+	counts("after a start", 2)
+	if st := workspaceOf(t, again).Environments[a.ID]; st.Resolved == nil || st.Resolved.Error != "" || !slices.Equal(st.Resolved.Changed, []string{"MEGA_APPROVED"}) {
+		t.Errorf("after a start the project shows %+v", st.Resolved)
 	}
 	again.background.Wait()
-	resolver.mu.Lock()
-	defer resolver.mu.Unlock()
-	if resolver.most > resolveAtOnce {
-		t.Errorf("%d resolutions ran at once", resolver.most)
-	}
+	counts("after reading the started project", 2)
 }
 
 // the start-up check says, per harness, whether it can run in the

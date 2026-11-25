@@ -1,14 +1,18 @@
 package service
 
 import (
+	"context"
 	"errors"
-	"github.com/michaelquigley/mega/internal/environ"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/michaelquigley/mega/internal/environ"
 	"github.com/michaelquigley/mega/internal/harness"
+	"github.com/michaelquigley/mega/internal/harness/harnesstest"
 	"github.com/michaelquigley/mega/internal/model"
 )
 
@@ -98,5 +102,70 @@ func TestAMissingExecutableWhileReadingHistoryIsNamed(t *testing.T) {
 	}
 	if n := len(workspaceOf(t, r.svc).Conversations); n != 0 {
 		t.Errorf("a failed adoption left %d conversations", n)
+	}
+}
+
+// findsByShell is a resolver whose shell, before any activation, has
+// MEGA_TEST_FIND=old while the activation that runs names old-shell: where
+// mega finds its programs then differs between two activations, as it can
+// when the shell's own PATH changed between their resolutions.
+type findsByShell struct{ inner Resolver }
+
+func (f findsByShell) Resolve(ctx context.Context, dir, activate string) (*environ.Resolution, error) {
+	res, err := f.inner.Resolve(ctx, dir, activate)
+	if err == nil && strings.Contains(activate, "old-shell") {
+		res.Before = append(slices.Clone(res.Before), "MEGA_TEST_FIND=old")
+	}
+	return res, err
+}
+
+// missingInOldShell is a fake harness that cannot be found where the shell
+// has MEGA_TEST_FIND=old.
+type missingInOldShell struct{ *harnesstest.Harness }
+
+func (h missingInOldShell) Check(env []string) error {
+	if v, _ := environ.Value(env, "MEGA_TEST_FIND"); v == "old" {
+		return &harness.MissingError{Harness: h.Name(), Executable: "node", Reason: "'node' was not found on the project's PATH"}
+	}
+	return h.Harness.Check(env)
+}
+
+// a resolution counts only while it came from the activation that would run
+// now. once the override changes the activation, what the older resolution
+// found missing refuses nothing: the project reads as not resolved yet, and
+// the next start resolves afresh and starts.
+func TestAStartAfterTheActivationChangedIsNotRefusedOnTheOldResult(t *testing.T) {
+	resolver := &countingResolver{inner: findsByShell{inner: testResolver(t)}, calls: map[string]int{}}
+	fake := missingInOldShell{harnesstest.New(model.HarnessClaude)}
+	svc := countingService(t, filepath.Join(t.TempDir(), "registry.yaml"), resolver, fake)
+	checkout := t.TempDir()
+	project, err := svc.RegisterProject("fixture", checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetEnvironmentOverride(project.ID, &model.EnvOverride{Activate: "export MEGA_A=1 # old-shell"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.StartConversation(project.ID, model.HarnessClaude, "", "hello", LaunchChoice{})
+	wantCode(t, err, CodeExecutableMissing)
+	if st := workspaceOf(t, svc).Environments[project.ID]; st.Resolved == nil || len(st.Missing) != 1 {
+		t.Fatalf("under the old activation: resolved %+v, missing %+v", st.Resolved, st.Missing)
+	}
+
+	if _, err := svc.SetEnvironmentOverride(project.ID, &model.EnvOverride{Activate: "export MEGA_A=2"}); err != nil {
+		t.Fatal(err)
+	}
+	if st := workspaceOf(t, svc).Environments[project.ID]; st.Resolved != nil || len(st.Missing) != 0 {
+		t.Fatalf("the old activation's resolution still counts: resolved %+v, missing %+v", st.Resolved, st.Missing)
+	}
+	before := resolver.count(checkout)
+	if _, err := svc.StartConversation(project.ID, model.HarnessClaude, "", "hello", LaunchChoice{}); err != nil {
+		t.Fatalf("the start was refused on the old result: %v", err)
+	}
+	if n := resolver.count(checkout) - before; n != 1 {
+		t.Errorf("the start resolved %d times, want 1", n)
+	}
+	if len(fake.Runtimes()) != 1 {
+		t.Errorf("%d runtimes launched, want 1", len(fake.Runtimes()))
 	}
 }
