@@ -215,6 +215,10 @@ The flaky `dialogs` suite turned out to be a race in the check itself, against t
 
 Unread is the newest recorded output set against the reading position. `internal/service` is at 6,163 non-test lines, against 6,638 when the review began. The registry's marker went with no change of format, since an older registry that has it loads cleanly.
 
+### P9. Piece 4 is built and kept (2026-11-25)
+
+A turn opens only when the harness says it has started one. Michael tried it in the working tree against Claude, Codex and pi before committing: "honestly, this doesn't really feel any different... and i bet the other users won't even notice." The card's as-built section has what the trial covered and the costs left as they are. `internal/service` is at 6,171 non-test lines.
+
 ### The plan as it stands
 
 The epic's section "the plan after the review of 2026-11-24" has the order: four small defects as one batch, piece 3, piece 4 with its trial, piece 6, pieces 7 and 8, the adoption limit and then the older-log rules, and then the full-tree review.

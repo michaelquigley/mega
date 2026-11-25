@@ -115,6 +115,7 @@ func TestIdleIsComputedFromWhatIsInFlight(t *testing.T) {
 	if err := r.svc.Prompt(a.ID, "turn"); err != nil {
 		t.Fatal(err)
 	}
+	rtB.StartTurn()
 	rtB.Emit(&model.Event{Kind: model.EventAssistant, Text: "working", NativeID: "b-2"})
 	request := rtB.Ask(model.RequestPermission, map[string]any{"tool": "Bash"})
 	rtC.Background([]model.BackgroundJob{{ID: "j-1", Description: "sleep 30", Kind: "local_bash", StartedAt: time.Now()}})

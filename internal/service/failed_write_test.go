@@ -64,12 +64,12 @@ func TestAFailedWriteEndsTheProcessWithoutTheOrderlyStop(t *testing.T) {
 		{"an injected log write", func(r *rig, _ ConversationView) {
 			r.svc.failRecord = func(*model.Event) error { return errors.New("injected log failure") }
 		}, func(_ *rig, _ ConversationView, rt *harnesstest.Runtime) {
-			rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "late", NativeID: "late-1", AfterTurn: true})
+			rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "late", NativeID: "late-1"})
 		}},
 		{"a real log write", func(r *rig, conv ConversationView) {
 			r.closeLog(conv.ID)
 		}, func(_ *rig, _ ConversationView, rt *harnesstest.Runtime) {
-			rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "late", NativeID: "late-1", AfterTurn: true})
+			rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "late", NativeID: "late-1"})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

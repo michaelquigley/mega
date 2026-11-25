@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/michaelquigley/df/dl"
 
@@ -299,22 +298,6 @@ func lastReported(harnessName string, evs []*model.Event) (reported model.TurnSe
 		reported.Mode = model.PermissionModeDefault
 	}
 	return reported, earlier
-}
-
-// beginTurnLocked marks a turn in flight from at, the time its first event
-// was recorded (now, if it was not recorded), and keeps what it asks for:
-// the conversation's request as it stands now, which every launch and, for
-// codex, every prompt passes. callers hold s.mu.
-func (s *Service) beginTurnLocked(l *live, at time.Time) {
-	if at.IsZero() {
-		at = time.Now().UTC()
-	}
-	l.turnActive, l.turnStartedAt = true, at
-	l.turnAsked, l.turnRan = model.TurnSettings{}, nil
-	l.interrupting = false
-	if conv, err := s.conversationLocked(l.id); err == nil {
-		l.turnAsked = model.TurnSettings{Model: conv.Model, Effort: conv.Effort, Mode: conv.PermissionMode}
-	}
 }
 
 // ranLocked keeps what the turn in flight ran with, once: the harness's

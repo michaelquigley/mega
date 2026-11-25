@@ -393,9 +393,6 @@ export interface ConversationEvent {
   // turns recorded before mega kept it, and where the harness said nothing.
   turn?: TurnRecord
   raw?: unknown
-  // after_turn: output the harness reported after its own turn had ended,
-  // such as a codex background command finishing; never the turn in flight's.
-  after_turn?: boolean
 }
 
 export interface StreamFrame {

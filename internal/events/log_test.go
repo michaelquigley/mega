@@ -341,6 +341,26 @@ func TestEventFieldsRoundTrip(t *testing.T) {
 	}
 }
 
+// an older log's after_turn key, which builds before 2026-11-24 wrote on
+// output reported after its turn, is ignored: the line reads as the same
+// event without it, and an append after it goes on.
+func TestAKeyAnOlderBuildWroteIsIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	body := []byte(`{"at":"2026-11-20T10:00:00Z","kind":"assistant","origin":"managed","seq":1,"text":"late","native_id":"a-1","after_turn":true}` + "\n")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	log := openLog(t, path)
+	appendTexts(t, log, "next")
+	evs, err := log.Since(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 || evs[0].Kind != model.EventAssistant || evs[0].Text != "late" || evs[0].NativeID != "a-1" || evs[1].Seq != 2 {
+		t.Errorf("events = %+v", evs)
+	}
+}
+
 func TestLargeEventsAreReadable(t *testing.T) {
 	log := openLog(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	big := make([]byte, 5<<20)

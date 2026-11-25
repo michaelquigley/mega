@@ -32,6 +32,14 @@ func CarriesWork(answer Answer) bool {
 // is not this.
 var ErrPromptRefused = errors.New("the harness refused the prompt; no turn started")
 
+// Handled is what Prompt returns for a prompt the harness handled itself and
+// started no turn for, as pi does for an extension command. it is no failure:
+// the prompt was taken, and the service records a turn end with Text for it,
+// a record only, so the prompt does not run into the next turn on the page.
+type Handled struct{ Text string }
+
+func (h *Handled) Error() string { return h.Text }
+
 // ErrUnconfirmed reports an answer that was sent and that the harness never
 // confirmed: it may or may not have been taken. the adapter has settled the
 // request as unconfirmed (model.OutcomeUnconfirmed) before returning it, and
@@ -368,6 +376,13 @@ type Sink interface {
 	// Event delivers a normalized event to record.
 	Event(ev *model.Event)
 
+	// TurnStarted reports that the harness has started a turn, by its own
+	// marker: claude's system/init, codex naming the turn, pi's
+	// agent_start. it is the only thing that opens a turn, a signal for
+	// memory that is never recorded; one while a turn is open changes
+	// nothing.
+	TurnStarted()
+
 	// Delta delivers streaming text for liveness only; it is never recorded.
 	Delta(text string)
 
@@ -400,8 +415,10 @@ type Runtime interface {
 	// NativeID is the native session identity this runtime is bound to.
 	NativeID() string
 
-	// Prompt starts a turn. uuid is the service-minted message identity, which
-	// the harness records so a later history import recognizes the prompt.
+	// Prompt hands the harness a prompt; the turn it starts opens when the
+	// harness says so (Sink.TurnStarted). uuid is the service-minted message
+	// identity, which the harness records so a later history import
+	// recognizes the prompt.
 	Prompt(uuid, text string) error
 
 	// Answer delivers the operator's answer. it returns ErrNotPending if the

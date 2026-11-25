@@ -505,17 +505,11 @@ func (k *sink) Event(ev *model.Event) {
 	}
 	s.record(l, ev)
 	switch ev.Kind {
-	case model.EventUser, model.EventAssistant, model.EventToolUse, model.EventToolResult:
-		// a user message the runtime reports opens a turn too. output the
-		// adapter marks as after its turn opens none, since no turn is coming
-		// to end it, and never settles what a turn under way runs with, since
-		// that turn did not produce it.
-		if !l.turnActive && !ev.AfterTurn {
-			s.beginTurnLocked(l, ev.At)
-			s.changed()
-		}
-		if ev.Kind != model.EventUser && !ev.AfterTurn && l.turnActive && l.turnRan == nil {
-			// the turn's first output: what it runs with is settled.
+	case model.EventAssistant, model.EventToolUse, model.EventToolResult:
+		// no message opens a turn: only the harness's start does
+		// (TurnStarted). the first output of a turn under way settles what it
+		// runs with.
+		if l.turnActive && l.turnRan == nil {
 			s.ranLocked(l)
 			s.changed()
 		}
@@ -525,6 +519,27 @@ func (k *sink) Event(ev *model.Event) {
 	if !l.turnActive && l.newestOutputSeq == ev.Seq {
 		s.changed()
 	}
+}
+
+// TurnStarted opens a turn, the one way one opens: the harness has said it
+// started one. the turn is in flight from now, and keeps what it asks for:
+// the conversation's request as it stands now, which every launch and, for
+// codex, every prompt passes. nothing is recorded for it. a start while a
+// turn is open changes nothing, as pi's agent_start for each retry inside
+// one run.
+func (k *sink) TurnStarted() {
+	s, l := k.s, k.l
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !k.relays() || l.turnActive {
+		return
+	}
+	l.turnActive, l.turnStartedAt = true, time.Now().UTC()
+	l.turnAsked, l.turnRan, l.interrupting = model.TurnSettings{}, nil, false
+	if conv, err := s.conversationLocked(l.id); err == nil {
+		l.turnAsked = model.TurnSettings{Model: conv.Model, Effort: conv.Effort, Mode: conv.PermissionMode}
+	}
+	s.changed()
 }
 
 // turnEndedLocked is what a recorded turn end does to memory, wherever it

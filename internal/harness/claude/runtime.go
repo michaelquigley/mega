@@ -655,6 +655,11 @@ func (r *runtime) event(raw map[string]any) {
 				},
 				Raw: raw,
 			})
+		}
+		// claude sends init at the start of every turn, one it begins by
+		// itself included, and at no other time: the turn has started.
+		r.sink.TurnStarted()
+		if first {
 			return
 		}
 	}

@@ -14,7 +14,7 @@ import (
 // recorded from codex-cli 0.166.0 (probes/codex/background.mjs --session): a
 // command started as a terminal session outlives its turn. once the turn
 // completes it is background work; its item/completed arrives after the turn
-// and is one native event, opening no turn, with the list emptied.
+// as its call and result, starting no turn, with the list emptied.
 func TestCommandOutlivingItsTurnIsBackgroundUntilItCompletes(t *testing.T) {
 	r, sink, _ := testRuntime()
 	r.threadID = "01a1c72f-8830-7942-99a5-530465cd001b" // the recording's own thread
@@ -42,11 +42,15 @@ func TestCommandOutlivingItsTurnIsBackgroundUntilItCompletes(t *testing.T) {
 	if len(done) != 0 {
 		t.Errorf("after the command completed: %+v", done)
 	}
-	// after the turn's end: the command's call and result, marked as after
-	// their turn, with the identities a history import gives the same item.
+	// after the turn's end: the command's call and result, with the
+	// identities a history import gives the same item, and no turn started:
+	// the one start is the turn's own, before anything it reported.
 	after := sink.events[completedAt+1:]
-	if len(after) != 2 || after[0].Kind != model.EventToolUse || after[1].Kind != model.EventToolResult || !after[0].AfterTurn || !after[1].AfterTurn {
+	if len(after) != 2 || after[0].Kind != model.EventToolUse || after[1].Kind != model.EventToolResult {
 		t.Fatalf("events after the turn ended = %v", summary(after))
+	}
+	if len(sink.turnStarts) != 1 || sink.turnStarts[0] != 0 {
+		t.Errorf("turn starts declared at %v, want only the turn's own, at 0", sink.turnStarts)
 	}
 	if after[1].Text != "BG-CODEX-DONE\n" {
 		t.Errorf("the result = %q", after[1].Text)
@@ -84,10 +88,8 @@ func TestCommandCompletingInItsTurnIsNotBackground(t *testing.T) {
 	if kinds := summary(sink.events); len(kinds) < 2 || !strings.HasPrefix(kinds[0], model.EventToolUse) {
 		t.Errorf("events = %v", kinds)
 	}
-	for _, ev := range sink.events {
-		if ev.AfterTurn {
-			t.Errorf("an in-turn event is marked after its turn: %s", ev.Kind)
-		}
+	if len(sink.turnStarts) != 1 {
+		t.Errorf("turn starts declared at %v, want one", sink.turnStarts)
 	}
 }
 

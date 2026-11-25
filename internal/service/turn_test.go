@@ -10,9 +10,9 @@ import (
 	"github.com/michaelquigley/mega/internal/model"
 )
 
-// turn_started_at is memory beside turn_active: set when a turn starts (from
-// a prompt, or a turn the runtime opens), cleared when it ends or the runtime
-// goes, and absent after a restart.
+// turn_started_at is memory beside turn_active: set when the harness starts
+// a turn (the one a prompt begins, or one it begins by itself), cleared when
+// it ends or the runtime goes, and absent after a restart.
 func TestTurnStartedAtFollowsTheTurnInFlight(t *testing.T) {
 	r := newRig(t)
 	before := time.Now().Add(-time.Second)
@@ -29,8 +29,9 @@ func TestTurnStartedAtFollowsTheTurnInFlight(t *testing.T) {
 		t.Errorf("after the turn ended: active %v, started at %v", view.TurnActive, view.TurnStartedAt)
 	}
 
-	// a turn the runtime opens itself, such as an answer starting the next.
-	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "more", NativeID: "a-2"})
+	// a turn the harness starts by itself, such as one woken by background
+	// work finishing.
+	rt.StartTurn()
 	if view := r.view(conv.ID); !view.TurnActive || view.TurnStartedAt.IsZero() || view.TurnStartedAt.Before(first) {
 		t.Errorf("a runtime-opened turn: active %v, started at %v", view.TurnActive, view.TurnStartedAt)
 	}

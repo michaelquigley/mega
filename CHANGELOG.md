@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+CHANGE: **A turn is what the harness says it is, and events no longer carry `after_turn`.** (2026-11-24) A conversation is working from the moment its harness starts a turn until that turn ends, and mega opens no turn of its own. A prompt shows at once and working follows a moment later, when the harness begins. A harness that never begins leaves the prompt and no activity, where before the conversation could show as working with no end. A turn the agent starts by itself, as Claude does when background work finishes, shows as working before its first output. No message opens a turn: a stray one, such as Claude's reply to a model switch on an idle runtime, and output from a turn that has ended leave the conversation idle. Output from an ended turn that arrives while the next one runs is taken for the running turn's own: a late Codex tool call shows a spinner, a late message ends the streaming text, and the first of them sets what the turn's line says it ran with. The history API's events no longer carry `after_turn`, so nothing there tells such output apart. Logs from earlier builds read as before, their `after_turn` ignored.
+
 CHANGE: **Conversation responses drop `output_seq`.** Use `attention` for unread status. Recorded output can show as unread after Resume even if mega missed the turn's end, and adopted output is unread until acknowledged.
 
 CHANGE: **Once mega has closed, it answers no read.** (2026-11-24) In the moment after an orderly stop has let go of the workspace and before mega stops answering, reads are refused as `unavailable`. A page whose workspace read or reconnect catch-up is refused then keeps what it last read, the shutdown banner included, and shows no read error.
@@ -27,10 +29,6 @@ CHANGE: **mega's default port is now 6342.** (2026-11-18) The old default, 8470,
 CHANGE: **A Codex question whose turn has ended is answered in the reply box.** (2026-11-19) While the turn that asked is running, the question's card answers it into that turn, as before. Once the turn ends, for any reason, the card goes and Codex's message stays in the conversation, to be answered with a reply that starts the next turn. A card answer never starts a turn.
 
 FIX: **An answer Codex never confirms is no longer reported as settled before it arrived.** (2026-11-19) When an answer is sent into Codex's running turn and no reply comes, within a minute or before Codex's app-server goes, the card closes and the question's history says "Codex did not confirm whether it received your answer". mega does not send it again.
-
-FIX: **A turn's line names what that turn ran with, even when output from the turn before arrives late.** (2026-11-19) Late output the adapter recognizes, such as a Codex question or background command arriving just as the next turn began, could be taken for that turn's first output, so its line named the previous turn's model and effort.
-
-FIX: **Late Codex output from a turn this runtime saw end no longer opens a turn.** (2026-11-20) The adapter now recognizes it. With no turn active it counts as unread at once, as a background command's output does, where before it opened a turn nothing would end. Arriving during the next turn, it is not taken for that turn's work: a late tool call shows no spinner, and neither a late message nor text streamed for its turn touches the streaming reply. Output from a turn the runtime never saw end, such as one that ended before a resume, is not yet recognized.
 
 FIX: **An interrupt no longer stays shown under way once nothing is left to stop.** (2026-11-20) Pressed with no turn running while a request was still being settled, as a Codex answer awaiting its reply, it stayed shown until the next prompt.
 

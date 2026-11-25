@@ -485,28 +485,38 @@ func (s *Service) send(conversationID, text string) error {
 	uuid := registry.NewUUID()
 	ev := &model.Event{Kind: model.EventUser, Origin: model.OriginManaged, Text: text, NativeID: uuid}
 	s.record(l, ev)
-	s.beginTurnLocked(l, ev.At)
 	l.instructedAt = ev.At
 	s.changed()
 	rt := l.runtime
 	s.mu.Unlock()
-	if err := rt.Prompt(uuid, text); err != nil {
-		if errors.Is(err, harness.ErrPromptRefused) {
-			// refused, no turn started: the turn opened for this prompt ends
-			// here, saying why, as a turn's end would, so the next prompt is
-			// taken. a prompt whose fate is unknown keeps its turn.
-			s.mu.Lock()
-			if s.live[conversationID] == l && l.turnActive && l.turnStartedAt.Equal(ev.At) {
-				end := &model.Event{Kind: model.EventTurnEnd, Status: model.TurnError, Origin: model.OriginManaged, Text: fmt.Sprintf("the harness refused the prompt: %v", err)}
-				end.Turn = s.turnRecordLocked(l)
-				s.record(l, end)
-				s.turnEndedLocked(l)
-			}
-			s.mu.Unlock()
-		}
-		return fmt.Errorf("sending prompt to '%s': %w", conversationID, err)
+	err := rt.Prompt(uuid, text)
+	if err == nil {
+		return nil
 	}
-	return nil
+	// a prompt the harness refused, or handled itself, started no turn: a row
+	// says so, so the prompt does not run into the next turn on the page. it
+	// is a record only, and closes nothing in memory, whatever turn the
+	// harness has open: only the harness's own end does.
+	var handled *harness.Handled
+	var row *model.Event
+	switch {
+	case errors.As(err, &handled):
+		row = &model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess, Origin: model.OriginManaged, Text: handled.Text}
+	case errors.Is(err, harness.ErrPromptRefused):
+		row = &model.Event{Kind: model.EventTurnEnd, Status: model.TurnError, Origin: model.OriginManaged, Text: fmt.Sprintf("the harness refused the prompt: %v", err)}
+	}
+	if row != nil {
+		s.mu.Lock()
+		if s.live[conversationID] == l {
+			s.record(l, row)
+		}
+		s.mu.Unlock()
+	}
+	if handled != nil {
+		// taken, and no failure.
+		return nil
+	}
+	return fmt.Errorf("sending prompt to '%s': %w", conversationID, err)
 }
 
 // Answer delivers the operator's answer to a pending request. the answer

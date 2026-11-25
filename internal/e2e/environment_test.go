@@ -67,7 +67,7 @@ func probeTurn(t *testing.T, svc *service.Service, projectID, harnessName string
 	deadline := time.Now().Add(turnTimeout)
 	for {
 		v := s.view()
-		if !v.TurnActive && v.State == service.StateRunning {
+		if v.State == service.StateRunning && s.settled(v) {
 			break
 		}
 		if len(v.Pending) > 0 {

@@ -143,9 +143,7 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
         )
       case 'tool_use': {
         const result = event.tool_use_id ? results.get(event.tool_use_id) : undefined
-        // a call reported after its own turn ended is never the turn in
-        // flight's, whatever it follows.
-        const live = turnActive && index > turnStart && !event.after_turn
+        const live = turnActive && index > turnStart
         let state: ReactNode = null
         if (result?.status === 'error') {
           state = <span className="tool-error"> failed</span>

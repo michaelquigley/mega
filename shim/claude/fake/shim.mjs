@@ -53,9 +53,9 @@
 // an mcp-sign-in turn; and broken, failed with an error. system/init lists
 // the three with their statuses, as claude's does.
 //
-// with --idle (a launch with no prompt coming) it sends no system/init until
-// the first prompt, as claude does, and reports ready with its version and
-// model instead, as ../shim.mjs does. otherwise it sends system/init at once.
+// it sends no system/init until a prompt starts a turn, as claude does. with
+// --idle (a launch with no prompt coming) it reports ready with its version
+// and model instead, as ../shim.mjs does.
 // if a file named stall-ready exists in the directory it runs in, an --idle
 // launch reports nothing at all, as a claude that never answers initialize,
 // so the adapter's idle timeout can be seen to stop it.
@@ -218,12 +218,8 @@ const init = (model = current) =>
       mcp_servers: mcpServers().map(({ name, status, source }) => ({ name, status, source })),
     },
   })
-if (rest.includes('--idle')) {
-  if (!existsSync(join(store, 'stall-ready'))) {
-    out({ type: 'ready', version: claudeVersion, model: current })
-  }
-} else {
-  init()
+if (rest.includes('--idle') && !existsSync(join(store, 'stall-ready'))) {
+  out({ type: 'ready', version: claudeVersion, model: current })
 }
 
 async function turn(text) {

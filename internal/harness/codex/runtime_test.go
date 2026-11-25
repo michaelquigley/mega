@@ -29,6 +29,9 @@ type recordingSink struct {
 	// atExit is what had been resolved when the exit was reported.
 	exited bool
 	atExit []string
+	// turnStarts holds, for each turn start declared, how many events had
+	// been reported before it.
+	turnStarts []int
 	// onResolved, when set, runs as a resolution is reported, before it is
 	// recorded.
 	onResolved func()
@@ -56,6 +59,14 @@ func (s *recordingSink) Delta(text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deltas = append(s.deltas, text)
+}
+
+// TurnStarted counts the turn starts the runtime declared, in order among
+// the events: each is a marker in turnStarts at the number of events then.
+func (s *recordingSink) TurnStarted() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnStarts = append(s.turnStarts, len(s.events))
 }
 
 func (s *recordingSink) Request(kind string, payload any) string {
@@ -672,8 +683,8 @@ func TestAnAnswerAfterItsTurnHasEndedIsRefused(t *testing.T) {
 }
 
 // a message with questions that arrives once its turn has ended raises no
-// request: it is recorded as output after its turn, so the service opens no
-// turn for it, and the reply box answers it like any message.
+// request and starts no turn: it is recorded as a message, and the reply box
+// answers it like any message.
 func TestAQuestionAfterItsTurnIsAMessage(t *testing.T) {
 	for _, status := range []string{"completed", "interrupted", "failed"} {
 		t.Run(status, func(t *testing.T) {
@@ -685,8 +696,11 @@ func TestAQuestionAfterItsTurnIsAMessage(t *testing.T) {
 				t.Errorf("a question after its turn was raised: %v", sink.requests)
 			}
 			last := sink.events[len(sink.events)-1]
-			if last.Kind != model.EventAssistant || last.Text != "Which color?" || !last.AfterTurn {
+			if last.Kind != model.EventAssistant || last.Text != "Which color?" {
 				t.Errorf("the message is recorded as %+v", last)
+			}
+			if len(sink.turnStarts) != 1 {
+				t.Errorf("turn starts declared at %v, want only the turn's own", sink.turnStarts)
 			}
 			w.quiet(t)
 		})
@@ -694,8 +708,8 @@ func TestAQuestionAfterItsTurnIsAMessage(t *testing.T) {
 }
 
 // streaming text codex sends for a turn it has reported ended is never the
-// running turn's: it is dropped, and the completed item, marked as after its
-// turn, records the whole message.
+// running turn's: it is dropped, and the completed item records the whole
+// message.
 func TestStreamingTextOfAnEndedTurnIsDropped(t *testing.T) {
 	r, sink, _ := testRuntime()
 	r.feed(`{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"inProgress","items":[]}}}`)
@@ -732,26 +746,50 @@ func TestOnlyTheRunningTurnsQuestionRaisesACard(t *testing.T) {
 	w.quiet(t)
 }
 
-// any item codex reports for a turn whose end it has already reported is
-// output after its turn, as a late question is: the service opens no turn for
-// it, and counts it unread at once. output of a turn still running is not.
-func TestEveryItemAfterItsTurnIsMarked(t *testing.T) {
-	r, sink, _ := testRuntime()
-	r.feed(`{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"inProgress","items":[]}}}`)
-	r.feed(`{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed","items":[]}}}`)
-	r.feed(`{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"a-1","text":"late"}}}`)
-	r.feed(`{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"commandExecution","id":"c-1","command":"true","cwd":"/f","commandActions":[],"status":"completed","exitCode":0,"aggregatedOutput":""}}}`)
-	r.feed(`{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-2","status":"inProgress","items":[]}}}`)
-	r.feed(`{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-2","item":{"type":"agentMessage","id":"a-2","text":"running"}}}`)
-	var marks []string
-	for _, ev := range sink.events {
-		if ev.Kind != model.EventTurnEnd {
-			marks = append(marks, fmt.Sprintf("%s %s %v", ev.Kind, ev.NativeID, ev.AfterTurn))
-		}
-	}
-	want := []string{"assistant a-1 true", "tool_use c-1 true", "tool_result c-1/result true", "assistant a-2 false"}
-	if !slices.Equal(marks, want) {
-		t.Errorf("marked %v, want %v", marks, want)
+// a turn starts when codex names it, by turn/started or by its reply to
+// turn/start, whichever comes first, and once: the other names it again and
+// starts nothing. an item of a turn that has ended starts none.
+func TestATurnStartsWhenCodexNamesItOnce(t *testing.T) {
+	for _, first := range []string{"turn/started", "reply"} {
+		t.Run(first, func(t *testing.T) {
+			r, sink, w := testRuntime()
+			result := make(chan error, 1)
+			go func() { result <- r.Prompt("svc-uuid", "Reply with ALPHA") }()
+			start := w.sent(t)
+			started := `{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"inProgress","items":[]}}}`
+			reply := fmt.Sprintf(`{"id":%v,"result":{"turn":{"id":"turn-1","status":"inProgress","items":[]}}}`, start["id"])
+			if first == "reply" {
+				r.feed(reply)
+				if err := <-result; err != nil {
+					t.Fatal(err)
+				}
+				if len(sink.turnStarts) != 1 {
+					t.Fatalf("after the reply, turn starts declared at %v, want one", sink.turnStarts)
+				}
+				r.feed(started)
+			} else {
+				r.feed(started)
+				if len(sink.turnStarts) != 1 {
+					t.Fatalf("after turn/started, turn starts declared at %v, want one", sink.turnStarts)
+				}
+				r.feed(reply)
+				if err := <-result; err != nil {
+					t.Fatal(err)
+				}
+			}
+			r.feed(`{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"a-1","text":"ALPHA"}}}`)
+			r.feed(`{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed","items":[]}}}`)
+			r.feed(`{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"a-2","text":"late"}}}`)
+			if len(sink.turnStarts) != 1 || sink.turnStarts[0] != 0 {
+				t.Errorf("turn starts declared at %v, want one, before any event", sink.turnStarts)
+			}
+			// a turn codex begins by itself, named by turn/started alone,
+			// starts too.
+			r.feed(`{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-2","status":"inProgress","items":[]}}}`)
+			if len(sink.turnStarts) != 2 {
+				t.Errorf("a turn codex began by itself: turn starts declared at %v", sink.turnStarts)
+			}
+		})
 	}
 }
 
@@ -775,6 +813,9 @@ func TestALateReplyNeverMarksAnEndedTurnRunning(t *testing.T) {
 	r.mu.Unlock()
 	if active != "" {
 		t.Errorf("the failed turn is marked running: %q", active)
+	}
+	if len(sink.turnStarts) != 0 {
+		t.Errorf("the reply to an ended turn declared a start, at %v", sink.turnStarts)
 	}
 	r.feed(`{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-7","item":{"type":"agentMessage","id":"a-1","text":"Which color?","questions":[{"title":"Which color do you prefer?","options":["Red","Blue"]}]}}}`)
 	if len(sink.requests) != 0 {

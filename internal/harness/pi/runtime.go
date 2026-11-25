@@ -144,9 +144,9 @@ func (r *runtime) Prompt(_, text string) error {
 	}
 	switch accepted.Disposition {
 	case "handled":
-		// an extension command consumed it: no run starts, so nothing will
-		// end the turn the prompt opened but this.
-		r.sink.Event(&model.Event{Kind: model.EventTurnEnd, Status: model.TurnSuccess, Origin: model.OriginManaged, Text: "handled by a pi extension command"})
+		// an extension command consumed it: no run starts. the service
+		// records the row that says so, and only pi's own end closes a turn.
+		return &harness.Handled{Text: "handled by a pi extension command"}
 	case "started":
 		r.mu.Lock()
 		r.turnActive = true
@@ -442,6 +442,8 @@ func (r *runtime) handle(f map[string]any, at time.Time) {
 		r.mu.Lock()
 		r.turnActive = true
 		r.mu.Unlock()
+		// pi's own start of a run, sent again for each retry inside it.
+		r.sink.TurnStarted()
 	case "agent_settled":
 		aborted, _ := f["aborted"].(bool)
 		r.mu.Lock()

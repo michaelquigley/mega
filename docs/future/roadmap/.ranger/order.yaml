@@ -21,7 +21,6 @@ horizon:
   - retired-conversations.md
 researching:
   - simplify-the-core.md
-  - a-turn-is-inferred-from-a-message.md
   - codex-interrupt-while-a-turn-is-starting.md
   - claude-code-21331-is-past-the-tested-range.md
   - a-checks-suite-empties-its-scratch-before-it-knows-its-port-is-free.md
@@ -34,6 +33,7 @@ researching:
   - harden-requests-stops-and-restarts.md
   - answering-a-question-moves-the-last-instructed-pointer.md
   - keyboard-shortcut-pop-open.md
+  - escape-interrupts-a-running-turn.md
   - darklight-mode-toggle.md
   - queued-operator-messages.md
   - reviewing-changes-from-outside.md
@@ -45,6 +45,7 @@ researching:
   - codex-discovery-e2e-reads-its-own-thread.md
   - mega-on-macos-and-windows.md
 evaluating:
+  - a-turn-is-inferred-from-a-message.md
   - unread-is-output-beyond-where-you-have-read.md
   - a-model-asked-for-with-a-context-suffix-reads-as-a-different-model.md
   - a-service-test-writes-the-registry-behind-the-service.md

@@ -1,13 +1,13 @@
 ---
 title: a turn is inferred from a message
-state: researching
+state: evaluating
 created: 2026-11-19
 tags: [story]
 ---
 
 A turn is what the harness says it is. It opens when the harness says it has started one and closes when the harness says it has ended, from the harness's own markers. Mega opens none, and no message opens one.
 
-Fourth in the sequence of `simplify-the-core`, and next to be built. The card is the whole plan; there is no work order. Michael tries it in use before it is committed.
+Fourth in the sequence of `simplify-the-core`. Built on 2026-11-25, and kept by Michael after trying it in use.
 
 ## why
 
@@ -75,6 +75,21 @@ The implementer leaves the piece in the working tree, with every gate passed, an
 - **A finding that is only wording** in a doc or a test of this card's own is fixed and reported at handoff.
 - **A finding whose fix would add state, a hold or an ordering rule** is brought to Michael as a question of whether to fix it at all. Anything else this card caused comes to him one at a time.
 - **Size.** `internal/service` was 6,163 non-test lines when piece 3 was built. The report gives the figure afterwards, and what was deleted outright.
+
+## as built
+
+Built on 2026-11-25. The adapter reports the harness's start through a new call on the sink, and that call is the only thing that opens a turn. `send` records the prompt and opens nothing. The flag for output after its turn is gone from the model, the Codex adapter, the service and the page. `internal/service` went from 6,163 non-test lines to 6,171: folding the turn's start into one function took six out, and recording pi's handled row in the service put fourteen back.
+
+- **The marker check came first,** in `probes/turn-markers/`. In the recorded probe logs every turn has its start before its end: Claude 89, Codex 54, pi 62. pi sends `agent_start` again for each retry inside one run, so a second start while a turn is open changes nothing.
+- **pi's handled row is recorded by the service,** as a refusal's is. pi's `Prompt` signals that it handled the prompt, and the adapter no longer sends a turn end of its own through the sink. Terminus found that such a row, sent while a run was in flight, closed the live turn in memory. Now the only turn end that reaches the service from an adapter is the harness's own.
+- **A turn's asked settings and its start time come from the harness's start,** not from the prompt. A Codex model change made between a prompt and Codex naming the turn therefore shows as a mismatch on that turn's line. Left as it is.
+- **In the moment between a prompt and the start,** a release sends no interrupt and the shutdown gate counts the conversation at rest.
+- **A Codex item reported after its own turn has ended,** with no result row of its own, shows as running if it lands inside the next turn. Left as it is: no event on Michael's workspace has ever carried the old flag.
+- **`codex-interrupt-while-a-turn-is-starting` holds as built.** Before Codex names the turn the page shows no Interrupt, and an interrupt sent through the API marks nothing as under way.
+
+**The trial.** Michael built it and ran it against his other projects on 2026-11-25. "so far it doesn't actually feel materially different on either claude or codex conversations." A send followed at once by an interrupt worked. A Claude conversation with a background command showed as working when the command finished and it woke by itself, twice. A pi conversation showed as working through a twenty-second command and was interrupted partway. "honestly, this doesn't really feel any different... and i bet the other users won't even notice."
+
+The last terminus review, `674be2ff2fb8`, was `not_clean` on findings Michael vetoed or the card states as its cost. On the final code `make e2e` passed 19 of 20: `TestCodexMCPApproval` timed out with the turn open and Codex silent for 240 seconds, and passed alone in 13. That stall was seen on 2026-11-23 too and is not explained.
 
 ## notes carried from earlier pieces
 

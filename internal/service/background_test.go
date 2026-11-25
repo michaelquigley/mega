@@ -101,8 +101,8 @@ func TestBackgroundCompletionIsNotImportedByALaunch(t *testing.T) {
 	startedOn(rt, "gpt-a", "high")
 	finishTurn(rt, "a-1", "done")
 	// as the codex adapter records a command that finished after its turn.
-	rt.Emit(&model.Event{Kind: model.EventToolUse, Tool: "shell", ToolUseID: "exec-1", Text: "shell sleep 30", NativeID: "exec-1", AfterTurn: true})
-	rt.Emit(&model.Event{Kind: model.EventToolResult, ToolUseID: "exec-1", Text: "done", NativeID: "exec-1/result", AfterTurn: true})
+	rt.Emit(&model.Event{Kind: model.EventToolUse, Tool: "shell", ToolUseID: "exec-1", Text: "shell sleep 30", NativeID: "exec-1"})
+	rt.Emit(&model.Event{Kind: model.EventToolResult, ToolUseID: "exec-1", Text: "done", NativeID: "exec-1/result"})
 	if err := r.svc.Release(conv.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -146,8 +146,8 @@ func TestOutputAfterItsTurnIsUnreadWithoutATurn(t *testing.T) {
 	}
 	sub := r.svc.Subscribe()
 	defer sub.Close()
-	rt.Emit(&model.Event{Kind: model.EventToolUse, Tool: "shell", ToolUseID: "exec-1", Text: "shell sleep 30", NativeID: "exec-1", AfterTurn: true})
-	rt.Emit(&model.Event{Kind: model.EventToolResult, ToolUseID: "exec-1", Text: "failed: exit 1", Status: model.TurnError, NativeID: "exec-1/result", AfterTurn: true})
+	rt.Emit(&model.Event{Kind: model.EventToolUse, Tool: "shell", ToolUseID: "exec-1", Text: "shell sleep 30", NativeID: "exec-1"})
+	rt.Emit(&model.Event{Kind: model.EventToolResult, ToolUseID: "exec-1", Text: "failed: exit 1", Status: model.TurnError, NativeID: "exec-1/result"})
 	var changes int
 	for len(sub.Updates()) > 0 {
 		if (<-sub.Updates()).WorkspaceChanged {

@@ -25,6 +25,9 @@ type sink struct {
 	requests []map[string]any
 	ids      []string
 	resolved []string
+	// turnStarts holds, for each turn start declared, how many events had
+	// been reported before it.
+	turnStarts []int
 	// done closes once the runtime exited, with exit its error.
 	done    chan struct{}
 	exit    error
@@ -49,6 +52,15 @@ func (s *sink) Event(ev *model.Event) {
 	s.poke()
 }
 func (s *sink) Delta(string) {}
+
+// TurnStarted keeps, for each turn start declared, how many events had been
+// reported before it.
+func (s *sink) TurnStarted() {
+	s.mu.Lock()
+	s.turnStarts = append(s.turnStarts, len(s.events))
+	s.mu.Unlock()
+	s.poke()
+}
 func (s *sink) Request(_ string, payload any) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -173,6 +185,13 @@ func TestALaunchRunsATurnAndTheSessionCanBeRead(t *testing.T) {
 	}
 	if got := s.turns(); got[0] != model.TurnSuccess {
 		t.Errorf("turn = %v", got)
+	}
+	// the turn started at pi's agent_start, before its reply.
+	s.mu.Lock()
+	starts := slices.Clone(s.turnStarts)
+	s.mu.Unlock()
+	if len(starts) != 1 || starts[0] != 1 {
+		t.Errorf("turn starts declared at %v, want one, after the started report and before the reply", starts)
 	}
 	_ = rt.Close()
 	<-s.done
@@ -794,4 +813,30 @@ func TestASettlementBeforeTheAnswerIsWrittenStands(t *testing.T) {
 	if early && err == nil && !slices.Contains(s.resolved, "svc-a:"+model.OutcomeAborted) {
 		t.Error("a settlement handled before the answer was written was lost, and the answer reported delivered")
 	}
+}
+
+// a prompt pi handles with an extension command starts no run: Prompt says
+// so, with the row's text, and reports no turn end or start through the
+// sink, so only pi's own end closes a turn.
+func TestAHandledPromptIsReturnedAndReportsNoTurn(t *testing.T) {
+	h := New(Config{Binary: fake(t)})
+	rt, s := launch(t, h, place(t), "")
+	s.mu.Lock()
+	before, starts := len(s.events), len(s.turnStarts)
+	s.mu.Unlock()
+	err := rt.Prompt("uuid", "/fake-cmd")
+	var handled *harness.Handled
+	if !errors.As(err, &handled) || handled.Text != "handled by a pi extension command" {
+		t.Fatalf("a handled prompt returned %v", err)
+	}
+	s.mu.Lock()
+	for _, ev := range s.events[before:] {
+		if ev.Kind == model.EventTurnEnd {
+			t.Errorf("a handled prompt reported a turn end: %+v", ev)
+		}
+	}
+	if len(s.turnStarts) != starts {
+		t.Errorf("a handled prompt declared a turn start")
+	}
+	s.mu.Unlock()
 }

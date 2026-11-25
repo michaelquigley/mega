@@ -250,7 +250,10 @@ func (rt promptHookRuntime) Prompt(uuid, text string) error {
 	return rt.Runtime.Prompt(uuid, text)
 }
 
-func TestSendSettlesAPromptRefusedAfterItWasRecorded(t *testing.T) {
+// a prompt the harness refuses after it was recorded opened nothing, so the
+// conversation stays idle; the row that says why follows it, and the next
+// prompt is taken.
+func TestAPromptRefusedAfterItWasRecordedLeavesTheConversationIdle(t *testing.T) {
 	r := adoptionRig(t)
 	conv, err := r.adoptTerminal()
 	if err != nil {
@@ -264,8 +267,11 @@ func TestSendSettlesAPromptRefusedAfterItWasRecorded(t *testing.T) {
 	r.svc.mu.Lock()
 	r.svc.live[conv.ID].runtime = promptHookRuntime{Runtime: rt, beforePrompt: func() {
 		events := r.events(conv.ID)
-		if last := events[len(events)-1]; last.Kind != model.EventUser || last.Text != "opening prompt" || !r.view(conv.ID).TurnActive {
+		if last := events[len(events)-1]; last.Kind != model.EventUser || last.Text != "opening prompt" {
 			t.Errorf("the prompt had not been recorded when the runtime refused it: %+v", last)
+		}
+		if r.view(conv.ID).TurnActive {
+			t.Error("the prompt opened a turn before the harness started one")
 		}
 		rt.RefusePrompts(fmt.Errorf("%w: %w", harness.ErrPromptRefused, harness.ErrWrongSession))
 	}}
@@ -278,8 +284,18 @@ func TestSendSettlesAPromptRefusedAfterItWasRecorded(t *testing.T) {
 	if got := kinds(r.events(conv.ID)[before:]); !slices.Equal(got, []string{"user", "turn_end:error"}) {
 		t.Errorf("prompt refusal rows = %v", got)
 	}
-	if r.view(conv.ID).TurnActive || len(rt.Prompts()) != 0 {
+	if view := r.view(conv.ID); view.TurnActive || view.Attention == model.AttentionRunning || len(rt.Prompts()) != 0 {
 		t.Error("the refusal left an active turn or delivered a prompt")
+	}
+	rt.RefusePrompts(nil)
+	r.svc.mu.Lock()
+	r.svc.live[conv.ID].runtime = rt
+	r.svc.mu.Unlock()
+	if err := r.svc.Prompt(conv.ID, "again"); err != nil {
+		t.Fatalf("the next prompt: %v", err)
+	}
+	if !r.view(conv.ID).TurnActive {
+		t.Error("the next prompt's turn did not start")
 	}
 }
 
@@ -316,5 +332,54 @@ func TestAnUnansweredStartEndsWithNoRuntime(t *testing.T) {
 	}
 	if err := r.svc.Start(conv.ID); err != nil {
 		t.Errorf("starting again: %v", err)
+	}
+}
+
+// a prompt the harness handles itself, as pi does an extension command, is
+// taken, and its row closes nothing: sent in the moment before the turn
+// another prompt began has started, with that run starting while it is in
+// flight, it leaves the run's turn open, working, and holding the shutdown
+// gate, until the harness's own end.
+func TestAPromptTheHarnessHandlesLeavesARunInFlightOpen(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	finishTurn(rt, "a-1", "done")
+	rt.HoldStarts()
+	prompts := 0
+	r.svc.mu.Lock()
+	r.svc.live[conv.ID].runtime = promptHookRuntime{Runtime: rt, beforePrompt: func() {
+		prompts++
+		if prompts == 2 {
+			// the first prompt's run starts while pi answers the second.
+			rt.StartTurn()
+			rt.RefusePrompts(&harness.Handled{Text: "handled by a pi extension command"})
+		}
+	}}
+	r.svc.mu.Unlock()
+	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.svc.Prompt(conv.ID, "/fake-cmd"); err != nil {
+		t.Fatalf("a prompt the harness handled is no failure: %v", err)
+	}
+	evs := r.events(conv.ID)
+	if last := evs[len(evs)-1]; last.Kind != model.EventTurnEnd || last.Status != model.TurnSuccess || last.Text != "handled by a pi extension command" || last.Turn != nil {
+		t.Fatalf("the handled prompt's row = %+v", last)
+	}
+	view := r.view(conv.ID)
+	if !view.TurnActive || view.Attention != model.AttentionRunning {
+		t.Fatalf("the run in flight after the handled prompt: turn %v, attention %q", view.TurnActive, view.Attention)
+	}
+	if err := r.svc.ArmShutdown(); err != nil {
+		t.Fatal(err)
+	}
+	if g := r.gate(); len(g.Blockers) != 1 || !slices.Equal(kindsOf(g.Blockers[0]), []string{BlockerTurn}) {
+		t.Fatalf("the gate during the run: %+v", g.Blockers)
+	}
+	finishTurn(rt, "a-2", "done")
+	if view := r.view(conv.ID); view.TurnActive {
+		t.Error("the turn is still open after pi's own end")
 	}
 }

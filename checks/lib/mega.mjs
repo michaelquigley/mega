@@ -371,10 +371,17 @@ export async function suite(name, { bare = false, tz, searchDirs = [], megaName 
     if (r.status !== 201) throw new Error(`launching: ${r.status} ${JSON.stringify(r.body)}`)
     return r.body
   }
+  // idle waits for a conversation to finish its turn: running, with no turn
+  // open and no prompt after its last recorded turn end. the harness opens
+  // the turn a moment after the prompt, so no turn open alone can be that
+  // moment.
   const idle = (id) =>
     until(`conversation ${id} to finish its turn`, async () => {
       const c = await convOf(id)
-      return c && c.state === 'running' && !c.turn_active
+      if (!c || c.state !== 'running' || c.turn_active) return false
+      const evs = (await api('GET', `/api/conversations/${id}/events?turns=1`)).body?.events ?? []
+      const prompt = evs.findLastIndex((e) => e.kind === 'user')
+      return prompt < 0 || evs.findLastIndex((e) => e.kind === 'turn_end') > prompt
     })
 
   // pages share one browser; each records page errors and any request that

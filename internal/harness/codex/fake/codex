@@ -23,12 +23,11 @@
 //                the reply is "answered: TEXT" and the turn ends
 //   askq lose    the same, but on the steer the fake exits without replying,
 //                as an app-server lost after the answer was written
-//   late-search  a web search of the turn before, reported while this turn
-//                runs, as an item codex sends after its turn; this turn
-//                waits until it is interrupted
-//   late-message streams "STALE-STREAM" for the turn before and
-//                "STREAMING-NOW" for this one, then reports a message of the
-//                turn before, "LATE-MESSAGE"; this turn waits until it is
+//   late-search  a reply of "ok" and the turn's end, then a web search of
+//                that turn, reported after its end, as an item codex sends
+//                after its turn
+//   late-stream  streams "STALE-STREAM" for the turn before and
+//                "STREAMING-NOW" for this one; this turn waits until it is
 //                interrupted
 //   anything     a reply of "ok"
 // turn/interrupt resolves a pending elicitation and ends the turn interrupted.
@@ -230,13 +229,14 @@ async function runTurn(turn, text) {
       item: { type: 'agentMessage', id: `msg-${id()}`, text: 'Which color do you prefer? Red or Blue.', delivery: 'async', questions: [{ title: 'Which color do you prefer?', options: ['Red', 'Blue'] }] },
     })
     return // the turn waits for the answer, as codex's sleeps do
-  } else if (verb === 'late-message') {
+  } else if (verb === 'late-stream') {
     if (lastTurn) notify('item/agentMessage/delta', { threadId: threadID, turnId: lastTurn, itemId: `msg-${id()}`, delta: 'STALE-STREAM' })
     notify('item/agentMessage/delta', { threadId: threadID, turnId: turn, itemId: `msg-${id()}`, delta: 'STREAMING-NOW' })
-    if (lastTurn) notify('item/completed', { threadId: threadID, turnId: lastTurn, item: { type: 'agentMessage', id: `msg-${id()}`, text: 'LATE-MESSAGE' } })
     return
   } else if (verb === 'late-search') {
-    if (lastTurn) notify('item/completed', { threadId: threadID, turnId: lastTurn, item: { type: 'webSearch', id: `search-${id()}`, query: 'fake late search' } })
+    agent(turn, 'ok')
+    finish(turn)
+    notify('item/completed', { threadId: threadID, turnId: turn, item: { type: 'webSearch', id: `search-${id()}`, query: 'fake late search' } })
     return
   } else if (verb === 'mcp-sign-in') {
     docsSignedIn = true

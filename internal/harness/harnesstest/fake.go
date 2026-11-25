@@ -425,6 +425,7 @@ type Runtime struct {
 	settleAs     string // an answer settled through the sink with this outcome, returning settleErr
 	settleErr    error
 	refusePrompt error  // a prompt refused, no turn started
+	holdStarts   bool   // a prompt declares no start; StartTurn does
 	onAnswer     func() // runs while an answer is in flight, before it is delivered
 	modes        []string
 	models       []string // "model/effort" for each model change accepted
@@ -438,18 +439,39 @@ type Runtime struct {
 
 func (r *Runtime) NativeID() string { return r.nativeID }
 
+// Prompt takes a prompt and, unless HoldStarts was set, starts its turn at
+// once, as a harness declares the start of the turn a prompt begins.
 func (r *Runtime) Prompt(uuid, text string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.exited {
+		r.mu.Unlock()
 		return fmt.Errorf("runtime exited")
 	}
 	if r.refusePrompt != nil {
+		r.mu.Unlock()
 		return r.refusePrompt
 	}
 	r.prompts = append(r.prompts, Prompt{UUID: uuid, Text: text})
+	hold := r.holdStarts
+	r.mu.Unlock()
+	if !hold {
+		r.sink.TurnStarted()
+	}
 	return nil
 }
+
+// HoldStarts makes a prompt declare no start, as in the moment before a
+// harness says its turn has begun, or a harness that never begins one; the
+// test declares it with StartTurn.
+func (r *Runtime) HoldStarts() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.holdStarts = true
+}
+
+// StartTurn declares a turn started, as a harness does for a prompt's turn
+// or one it begins by itself.
+func (r *Runtime) StartTurn() { r.sink.TurnStarted() }
 
 func (r *Runtime) Answer(requestID string, answer harness.Answer) error {
 	r.mu.Lock()

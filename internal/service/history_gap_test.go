@@ -92,7 +92,12 @@ func TestPiRecordsBothLiveRepliesWithoutFileEntryIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "both replies to end their turn", func() bool { view, _ := svc.view(conv.ID); return !view.TurnActive })
+	// the prompt opens no turn: pi's own start does, a moment later, so the
+	// wait is for the turn's recorded end.
+	waitFor(t, "both replies to end their turn", func() bool {
+		evs, _ := svc.Events(conv.ID, 0)
+		return slices.ContainsFunc(evs, func(ev *model.Event) bool { return ev.Kind == model.EventTurnEnd })
+	})
 	evs, err := svc.Events(conv.ID, 0)
 	if err != nil {
 		t.Fatal(err)

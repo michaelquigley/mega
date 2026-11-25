@@ -807,8 +807,9 @@ check(
 )
 
 // a tool call codex reports after its turn ended, here a web search, which
-// has no result of its own, arriving while the next turn runs: it is not that
-// turn's, so it shows no spinner, only that no result was recorded.
+// has no result of its own: it is recorded and opens nothing, so the
+// conversation stays idle and the row shows no spinner, only that no result
+// was recorded.
 const W = (await t.launch(P.id, 'codex', 'hello', { name: 'codex late search' })).id
 await t.idle(W)
 await page.evaluate((id) => {
@@ -819,30 +820,24 @@ t.must(lateSent.status === 202, `the late-search prompt was taken: ${lateSent.st
 await until('the late search row', async () => (await rowsOf().count()) === 1)
 const lateRow = rowsOf().first()
 const lateLine = (await lateRow.locator('summary').textContent()) ?? ''
-t.must(lateLine.includes('fake late search') && (await convOf(W)).turn_active, `the late search is the fake's, shown while the next turn runs: "${lateLine}"`)
+t.must(lateLine.includes('fake late search'), `the late search is the fake's: "${lateLine}"`)
+const lateView = await convOf(W)
 check(
-  (await lateRow.locator('[aria-label="Running"]').count()) === 0 && lateLine.endsWith('no result recorded'),
-  `a tool call reported after its turn shows no spinner in the next turn: "${lateLine}"`,
+  !lateView.turn_active && lateView.attention !== 'running' && (await lateRow.locator('[aria-label="Running"]').count()) === 0 && lateLine.endsWith('no result recorded'),
+  `a tool call reported after its turn opens no turn and shows no spinner: turn ${lateView.turn_active}, "${lateLine}"`,
 )
+// text codex streams for the turn before, arriving while the next turn
+// streams its reply, is not part of that reply, and Writing stays.
 const lateActivity = page.locator('.panel-cluster .activity-text')
-await until('the running turn’s activity line', async () => (await lateActivity.count()) === 1)
-const lateSaid = (await lateActivity.textContent()) ?? ''
-check(lateSaid.startsWith('Working') && !lateSaid.includes('fake late search'), `nor does the activity line name it as the turn’s work: "${lateSaid}"`)
-await api('POST', `/api/conversations/${W}/interrupt`)
-await until('the late search turn ended', async () => !(await convOf(W)).turn_active)
-// and a message codex reports for the turn before, arriving while the next
-// turn streams its reply: the reply streaming so far stays, and so does
-// Writing.
-const lateMessage = await api('POST', `/api/conversations/${W}/prompt`, { text: 'late-message' })
-t.must(lateMessage.status === 202, `the late-message prompt was taken: ${lateMessage.status}`)
-await until('the late message', async () => (await page.locator('.events .message.assistant:not(.streaming)', { hasText: 'LATE-MESSAGE' }).count()) === 1)
+const lateStream = await api('POST', `/api/conversations/${W}/prompt`, { text: 'late-stream' })
+t.must(lateStream.status === 202, `the late-stream prompt was taken: ${lateStream.status}`)
 const streaming = page.locator('.events .message.assistant.streaming')
-const streamingSaid = (await streaming.count()) === 1 ? ((await streaming.textContent()) ?? '') : ''
+await until('the streaming reply', async () => (await streaming.count()) === 1 && ((await streaming.textContent()) ?? '').includes('STREAMING-NOW'))
+const streamingSaid = (await streaming.textContent()) ?? ''
 const writingSaid = (await lateActivity.textContent()) ?? ''
-check(streamingSaid.includes('STREAMING-NOW') && writingSaid.startsWith('Writing'), `a message reported after its turn leaves the next turn's streaming reply be: "${streamingSaid}", "${writingSaid}"`)
-check(!streamingSaid.includes('STALE-STREAM'), `and text streamed for the turn before is not part of it: "${streamingSaid}"`)
+check(!streamingSaid.includes('STALE-STREAM') && writingSaid.startsWith('Writing'), `text streamed for the turn before is not part of the next turn's reply: "${streamingSaid}", "${writingSaid}"`)
 await api('POST', `/api/conversations/${W}/interrupt`)
-await until('the late message turn ended', async () => !(await convOf(W)).turn_active)
+await until('the late stream turn ended', async () => !(await convOf(W)).turn_active)
 
 // dark: the centred conversation, with the panel open and collapsed.
 const dark = await t.page({ width: 1440, height: 900, colorScheme: 'dark' })

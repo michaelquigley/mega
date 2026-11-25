@@ -23,7 +23,7 @@ Where things go:
 
 ## What each suite covers
 
-- **`conversation.mjs`** (106 steps): the conversation view, on long conversations and in its layout. Its service runs in `Asia/Kolkata` (`TZ`) and its page in UTC, as a hardened browser reports, so every time it checks is the service's. Two conversations are made about twenty thousand events long with `lib/gen.mjs` while the service is stopped. It checks the following:
+- **`conversation.mjs`** (104 steps): the conversation view, on long conversations and in its layout. Its service runs in `Asia/Kolkata` (`TZ`) and its page in UTC, as a hardened browser reports, so every time it checks is the service's. Two conversations are made about twenty thousand events long with `lib/gen.mjs` while the service is stopped. It checks the following:
   - opening reads only the tail: ten turns, at the newest reply, saying how much is earlier;
   - Show earlier and Show all, each holding the view;
   - the native events toggle refetching what is shown;
@@ -65,7 +65,7 @@ Where things go:
     - the command's copy control taking all of it;
     - another tool (Claude's Edit, a Codex file change, pi's read) shown as its name and its input, field by field;
     - an action from the generated history, with nothing its adapter reads, showing the one line it has;
-    - a web search the fake Codex reports for the turn before while the next one runs (its `late-search` verb): no spinner, only "no result recorded", and not named on the activity line as the turn's work; and a message it reports for the turn before while the next streams (`late-message`), leaving that streaming reply and "Writing" be, with nothing it streamed for the turn before in it.
+    - a web search the fake Codex reports for a turn after that turn's end (its `late-search` verb): it opens no turn, and shows no spinner, only "no result recorded"; and text it streams for the turn before while the next streams (`late-stream`), which is not part of that reply, with "Writing" shown.
 
   It saves the centred conversation as `shots/centred-{light,dark}-{panel,rail}.png`, the MCP list as `shots/mcp-claude.png`, a turn at rest, hovered and mismatched as `shots/turn-{rest,hover,mismatch}.png`, the start lines as `shots/start-{tested,newer,older}.png`, and each harness's expanded command and input as `shots/action-{claude,codex,pi}{,-input}.png`.
 - **`firstrun.mjs`** (59 steps): the first run on a machine that has never had mega, with no harness installed, then with Claude Code and Codex. It is a bare suite: no fakes, no Claude settings, a config naming no harness path, and no harness on any `PATH` it gives. Claude Code's default, the bare name `claude`, is on no `PATH`, and the scratch `HOME` has no build in the installer's versions folder; Codex's and pi's, bare names, are on no `PATH`. It checks the following:

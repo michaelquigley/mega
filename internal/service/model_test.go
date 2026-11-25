@@ -377,11 +377,11 @@ func TestATurnWithNoReportCarriesNoRecord(t *testing.T) {
 	}
 }
 
-// output the adapter marks as after its turn, a codex question that arrives
-// once its turn has ended, never says what another turn ran with: arriving
-// after the next prompt and before codex reports that turn's settings, it
-// leaves the turn's record to the turn's own output.
-func TestOutputAfterItsTurnSetsNoOtherTurnsSettings(t *testing.T) {
+// output of a turn that has ended, a codex question arriving late, opens no
+// turn and settles nothing: arriving after the next prompt and before codex
+// has started that turn, it leaves the turn's record to the turn's own
+// output.
+func TestOutputBeforeTheNextTurnStartsSetsNothing(t *testing.T) {
 	r, codex := modelRig(t)
 	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one", LaunchChoice{})
 	if err != nil {
@@ -393,13 +393,15 @@ func TestOutputAfterItsTurnSetsNoOtherTurnsSettings(t *testing.T) {
 	if outcome := r.setModel(conv.ID, "gpt-b", "low"); outcome != ModelNextPrompt {
 		t.Fatalf("outcome = %q", outcome)
 	}
+	rt.HoldStarts()
 	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
 		t.Fatal(err)
 	}
-	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "Which color?", NativeID: "a-late", AfterTurn: true})
-	if view := r.view(conv.ID); view.TurnRan != nil {
-		t.Errorf("the late question settled what the next turn ran with: %+v", view.TurnRan)
+	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "Which color?", NativeID: "a-late"})
+	if view := r.view(conv.ID); view.TurnActive || view.TurnRan != nil {
+		t.Errorf("the late question opened a turn or settled what it ran with: turn %v, ran %+v", view.TurnActive, view.TurnRan)
 	}
+	rt.StartTurn()
 	reportModel(rt, "gpt-b", "low")
 	finishTurn(rt, "a-2", "done")
 	records := r.turnRecords(conv.ID)

@@ -27,6 +27,7 @@ type recordingSink struct {
 	// background holds every list reported, in order; mcp every MCP list.
 	background [][]model.BackgroundJob
 	mcp        [][]model.MCPServer
+	turnStarts []int
 	next       int
 }
 
@@ -40,6 +41,10 @@ func (s *recordingSink) Background(jobs []model.BackgroundJob) {
 
 func (s *recordingSink) Event(ev *model.Event) { s.events = append(s.events, ev) }
 func (s *recordingSink) Delta(text string)     { s.deltas = append(s.deltas, text) }
+
+// TurnStarted keeps, for each turn start declared, how many events had been
+// reported before it.
+func (s *recordingSink) TurnStarted() { s.turnStarts = append(s.turnStarts, len(s.events)) }
 func (s *recordingSink) Request(kind string, payload any) string {
 	s.payloads = append(s.payloads, payload)
 	s.next++
@@ -444,5 +449,31 @@ func TestNoRequestIsRaisedAfterAnotherSession(t *testing.T) {
 	r.handle([]byte(`{"type":"request","id":"sdk-1","kind":"permission","tool":"Bash","input":{"command":"echo"}}`))
 	if len(sink.requests) != 0 {
 		t.Errorf("a request was raised after another session was reported: %v", sink.requests)
+	}
+}
+
+// a turn starts at claude's system/init, the first, which reports the start
+// of the runtime, and each after it, and at nothing else: a replayed user
+// message, as claude answers a model switch on an idle runtime with, starts
+// none.
+func TestATurnStartsAtEachInitAndNothingElse(t *testing.T) {
+	r, sink, _ := testRuntime()
+	session := r.nativeID
+	frame := func(msg string) { r.handle([]byte(`{"type":"event","msg":` + msg + `}`)) }
+	init := `{"type":"system","subtype":"init","session_id":"` + session + `","model":"claude-fable-5-1","permissionMode":"default","claude_code_version":"2.1.331","cwd":"/f","uuid":"i-%s"}`
+	frame(fmt.Sprintf(init, "1"))
+	frame(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ALPHA"}]},"parent_tool_use_id":null,"session_id":"` + session + `","uuid":"a-1"}`)
+	frame(`{"type":"result","subtype":"success","is_error":false,"session_id":"` + session + `","uuid":"r-1"}`)
+	frame(`{"type":"user","message":{"role":"user","content":"<local-command-stdout>Set model to sonnet</local-command-stdout>"},"isReplay":true,"parent_tool_use_id":null,"session_id":"` + session + `","uuid":"u-1"}`)
+	if len(sink.turnStarts) != 1 || sink.turnStarts[0] != 1 {
+		t.Fatalf("after one turn and a replayed message, turn starts declared at %v, want [1], after the started report", sink.turnStarts)
+	}
+	frame(fmt.Sprintf(init, "2"))
+	frame(`{"type":"result","subtype":"success","is_error":false,"session_id":"` + session + `","uuid":"r-2"}`)
+	if got := summary(sink.events); len(got) != 6 || !strings.HasPrefix(got[3], model.EventNative+"||u-1") {
+		t.Fatalf("events = %v", got)
+	}
+	if len(sink.turnStarts) != 2 || sink.turnStarts[1] != 4 {
+		t.Errorf("turn starts declared at %v, want [1 4], the second before its init's own row", sink.turnStarts)
 	}
 }

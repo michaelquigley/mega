@@ -36,13 +36,12 @@ const isNative = (event: ConversationEvent) => event.kind === 'native'
 
 // mergeEvents folds events in by seq, so a read and the live stream can arrive
 // in any order without duplicating or losing anything. a reply landing ends
-// the streaming text, unless it is one the harness reported after its own
-// turn had ended, which is not the streaming turn's.
+// the streaming text.
 function mergeEvents(held: ConversationEvent[], events: ConversationEvent[], delta: string) {
   const bySeq = new Map(held.map((event) => [event.seq, event]))
   for (const event of events) {
     bySeq.set(event.seq, event)
-    if ((event.kind === 'assistant' && !event.after_turn) || event.kind === 'turn_end') {
+    if (event.kind === 'assistant' || event.kind === 'turn_end') {
       delta = ''
     }
   }
@@ -109,9 +108,7 @@ export function withoutNative(log: ConversationLog): ConversationLog {
 
 // toolInFlight is the newest tool call of the turn in flight that has no
 // result yet: after the last turn end or runtime event, no matching
-// tool_result. a call the harness reported after its own turn ended is
-// never the turn in flight's. the caller says whether a turn is in flight
-// at all.
+// tool_result. the caller says whether a turn is in flight at all.
 export function toolInFlight(events: ConversationEvent[]): ConversationEvent | undefined {
   const results = new Set(events.filter((e) => e.kind === 'tool_result' && e.tool_use_id).map((e) => e.tool_use_id))
   for (let i = events.length - 1; i >= 0; i--) {
@@ -119,7 +116,7 @@ export function toolInFlight(events: ConversationEvent[]): ConversationEvent | u
     if (event.kind === 'turn_end' || event.kind === 'runtime') {
       return undefined
     }
-    if (event.kind === 'tool_use' && !event.after_turn && !(event.tool_use_id && results.has(event.tool_use_id))) {
+    if (event.kind === 'tool_use' && !(event.tool_use_id && results.has(event.tool_use_id))) {
       return event
     }
   }

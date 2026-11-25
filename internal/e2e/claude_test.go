@@ -143,9 +143,34 @@ func (s *session) waitFor(what string, cond func(service.ConversationView) bool)
 	}
 }
 
+// idle waits for the conversation to finish its turn: running, with no turn
+// open and no prompt after its last recorded turn end. the harness opens the
+// turn a moment after the prompt, so no turn open alone can be that moment.
 func (s *session) idle() {
 	s.t.Helper()
-	s.waitFor("the turn to end", func(v service.ConversationView) bool { return !v.TurnActive && v.State == service.StateRunning })
+	s.waitFor("the turn to end", func(v service.ConversationView) bool { return v.State == service.StateRunning && s.settled(v) })
+}
+
+// settled is whether no turn is open and none is still to come for a prompt
+// already sent: no prompt follows the last recorded turn end.
+func (s *session) settled(v service.ConversationView) bool {
+	s.t.Helper()
+	if v.TurnActive {
+		return false
+	}
+	evs, err := s.svc.Events(s.id, 0)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	for i := len(evs) - 1; i >= 0; i-- {
+		switch evs[i].Kind {
+		case model.EventTurnEnd:
+			return true
+		case model.EventUser:
+			return false
+		}
+	}
+	return true
 }
 
 func (s *session) lastAssistant() string {

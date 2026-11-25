@@ -752,18 +752,102 @@ func TestFirstRuntimeExitingDuringLaunchKeepsItsSession(t *testing.T) {
 	}
 }
 
-func TestUserMessageFromTheRuntimeOpensATurn(t *testing.T) {
+// a message the runtime reports outside a turn opens none, whatever it is:
+// a user message, as claude answers a model switch on an idle runtime with,
+// or agent output. the conversation stays idle and takes the next prompt.
+func TestAMessageOutsideATurnOpensNone(t *testing.T) {
 	r := newRig(t)
 	conv := r.start("one")
 	rt := r.fake.Last()
+	started(rt)
 	finishTurn(rt, "a-1", "done")
-	// a turn the runtime opened itself, which it first reports as the user
-	// message it began with.
-	rt.Emit(&model.Event{Kind: model.EventUser, Text: "Blue", NativeID: "u-2"})
-	if !r.view(conv.ID).TurnActive {
-		t.Error("the turn the answer started is not shown as active")
+	rt.Emit(&model.Event{Kind: model.EventUser, Text: "Set model to sonnet", NativeID: "u-2"})
+	rt.Emit(&model.Event{Kind: model.EventAssistant, Text: "late", NativeID: "a-late"})
+	rt.Emit(&model.Event{Kind: model.EventToolUse, Tool: "shell", ToolUseID: "exec-1", Text: "shell sleep 30", NativeID: "exec-1"})
+	if view := r.view(conv.ID); view.TurnActive || view.Attention == model.AttentionRunning || !view.TurnStartedAt.IsZero() {
+		t.Fatalf("after messages outside a turn: turn %v, attention %q", view.TurnActive, view.Attention)
+	}
+	if g := r.gate(); !g.Idle() {
+		t.Errorf("the gate is held: %+v", g.Blockers)
+	}
+	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
+		t.Fatalf("the next prompt: %v", err)
+	}
+}
+
+// a turn the harness starts by itself, as claude does when background work
+// finishes, shows as working from its start, before any of its output, and
+// holds a prompt and a shutdown until its end.
+func TestATurnTheHarnessStartsByItselfIsWorkingBeforeItsOutput(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	finishTurn(rt, "a-1", "done")
+	rt.StartTurn()
+	view := r.view(conv.ID)
+	if !view.TurnActive || view.Attention != model.AttentionRunning || view.TurnStartedAt.IsZero() {
+		t.Fatalf("a turn the harness started: turn %v, attention %q, since %v", view.TurnActive, view.Attention, view.TurnStartedAt)
 	}
 	wantCode(t, r.svc.Prompt(conv.ID, "two"), CodeConflict)
+	if err := r.svc.ArmShutdown(); err != nil {
+		t.Fatal(err)
+	}
+	if g := r.gate(); len(g.Blockers) != 1 || !slices.Equal(kindsOf(g.Blockers[0]), []string{BlockerTurn}) {
+		t.Fatalf("the gate during the turn: %+v", g.Blockers)
+	}
+	// a second start inside the turn, as pi's for each retry, changes nothing.
+	started := view.TurnStartedAt
+	rt.StartTurn()
+	if again := r.view(conv.ID); !again.TurnActive || !again.TurnStartedAt.Equal(started) {
+		t.Errorf("a second start: turn %v, since %v, want %v", again.TurnActive, again.TurnStartedAt, started)
+	}
+	finishTurn(rt, "a-2", "woke")
+	if view := r.view(conv.ID); view.TurnActive {
+		t.Error("the turn is still open after its end")
+	}
+	if g := r.gate(); !g.Idle() {
+		t.Errorf("after the turn's end the gate is held: %+v", g.Blockers)
+	}
+}
+
+// a prompt shows at once, and the conversation is working only once the
+// harness has started the turn: until then nothing is open, so nothing is
+// there to interrupt, and the next prompt is refused only from the start.
+// a harness that never starts one leaves the prompt and no activity.
+func TestAPromptOpensNoTurnUntilTheHarnessStartsIt(t *testing.T) {
+	r := newRig(t)
+	conv := r.start("one")
+	rt := r.fake.Last()
+	started(rt)
+	finishTurn(rt, "a-1", "done")
+	rt.HoldStarts()
+	if err := r.svc.Prompt(conv.ID, "two"); err != nil {
+		t.Fatal(err)
+	}
+	evs := r.events(conv.ID)
+	if last := evs[len(evs)-1]; last.Kind != model.EventUser || last.Text != "two" {
+		t.Fatalf("the prompt is not recorded at once: %s %q", last.Kind, last.Text)
+	}
+	view := r.view(conv.ID)
+	if view.TurnActive || view.Attention == model.AttentionRunning || view.InstructedAt.IsZero() {
+		t.Fatalf("before the harness started the turn: turn %v, attention %q, instructed %v", view.TurnActive, view.Attention, view.InstructedAt)
+	}
+	if err := r.svc.Interrupt(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if view := r.view(conv.ID); view.Interrupting {
+		t.Error("an interrupt with no turn open is shown under way")
+	}
+	rt.StartTurn()
+	if view := r.view(conv.ID); !view.TurnActive || view.Attention != model.AttentionRunning || view.Interrupting {
+		t.Fatalf("once the harness started it: turn %v, attention %q, interrupting %v", view.TurnActive, view.Attention, view.Interrupting)
+	}
+	wantCode(t, r.svc.Prompt(conv.ID, "three"), CodeConflict)
+	finishTurn(rt, "a-2", "done")
+	if view := r.view(conv.ID); view.TurnActive {
+		t.Error("the turn is still open after its end")
+	}
 }
 
 // a first launch whose session cannot be saved ends the process, and the

@@ -150,10 +150,24 @@ func (r *runtime) startTurn(threadID, uuid, body string) error {
 	}
 	r.mu.Lock()
 	if r.activeTurn == "" && !r.ended[resp.Turn.ID] {
-		r.activeTurn = resp.Turn.ID
+		r.namedLocked(resp.Turn.ID)
 	}
 	r.mu.Unlock()
 	return nil
+}
+
+// namedLocked takes turn as the running turn, once codex has named it, by
+// turn/started or by its reply to turn/start, whichever comes first, and
+// tells the service the turn has started. a turn named already, or ended,
+// is not named again. r.mu is held across the sink call, so the reader
+// cannot mark the turn ended, and report its end, before its start has
+// reached the service. callers hold r.mu.
+func (r *runtime) namedLocked(turn string) {
+	if turn == "" || r.activeTurn == turn || r.ended[turn] {
+		return
+	}
+	r.activeTurn = turn
+	r.sink.TurnStarted()
 }
 
 // Answer delivers the operator's answer. codex gives no acknowledgment for a
@@ -405,7 +419,7 @@ func (r *runtime) notify(method string, params map[string]any) {
 		n := &turnNotification{}
 		if bind(n, params) {
 			r.mu.Lock()
-			r.activeTurn = n.Turn.ID
+			r.namedLocked(n.Turn.ID)
 			r.mu.Unlock()
 		}
 		// a server that died since the last list is not announced.
@@ -602,13 +616,11 @@ func (r *runtime) itemCompleted(params map[string]any) {
 	}
 	it, err := bindItem(n.Item)
 	asks := err == nil && it.Type == "agentMessage" && len(it.Questions) > 0
-	// an item of a turn codex has reported ended is output after its turn,
-	// so the service opens no turn for it; a question among them is a
-	// message like any other.
+	// an item of a turn codex has reported ended is output after its turn:
+	// recorded, and a question among them is a message like any other.
 	after := r.hasEnded(n.TurnID)
 	for _, ev := range evs {
 		ev.Origin = model.OriginManaged
-		ev.AfterTurn = after
 		r.sink.Event(ev)
 	}
 	if !asks || after {
@@ -740,11 +752,11 @@ func nativeKey(id any) string {
 }
 
 // backgroundFinished is the record of a background command that completed
-// after its turn: the usual tool call and result, marked as after their turn,
-// so the service opens no turn for them and counts the result as unread at
-// once, the way claude's woken turn leaves its reply unread. they carry the
-// native identities a history import maps the same item to (mapItem), so a
-// resume recognizes them rather than recording the command again.
+// after its turn: the usual tool call and result, which open no turn, since
+// only codex's start does, and count as unread at once, the way claude's
+// woken turn leaves its reply unread. they carry the native identities a
+// history import maps the same item to (mapItem), so a resume recognizes
+// them rather than recording the command again.
 func backgroundFinished(item map[string]any) []*model.Event {
 	evs, err := mapItem(item)
 	if err != nil {
@@ -752,7 +764,6 @@ func backgroundFinished(item map[string]any) []*model.Event {
 	}
 	for _, ev := range evs {
 		ev.Origin = model.OriginManaged
-		ev.AfterTurn = true
 	}
 	return evs
 }

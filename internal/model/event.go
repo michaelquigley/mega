@@ -88,11 +88,6 @@ type Event struct {
 
 	// Raw is the harness-native payload, kept for fidelity and shown collapsed.
 	Raw any `dd:",+opaque,+nullable,+omitempty"`
-
-	// AfterTurn marks agent output a runtime reports after the turn it
-	// belongs to has ended, such as a codex background command finishing.
-	// the service records it without opening a turn.
-	AfterTurn bool `dd:",+omitempty"`
 }
 
 // RuntimeFacts are what a runtime reported about itself when it started.
