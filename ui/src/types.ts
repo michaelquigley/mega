@@ -371,8 +371,6 @@ export interface ConversationEvent {
   tool?: string
   tool_use_id?: string
   req?: { id: string; kind: string; payload?: RequestPayload | null; outcome?: string }
-  // mode_confirmed: a mode report, in older logs, that only confirmed the
-  // mode a start with no prompt requested; recorded, never drawn.
   // standing, tested and version_note: on a runtime's start, where its
   // version stood against the tested range then, the range, and the
   // sentence for an older or unreadable version.
@@ -382,7 +380,6 @@ export interface ConversationEvent {
     effort?: string
     version?: string
     permission_mode?: string
-    mode_confirmed?: boolean
     cwd?: string
     standing?: string
     tested?: string

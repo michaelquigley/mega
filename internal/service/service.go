@@ -161,11 +161,6 @@ func New(reg *registry.Registry, opts Options) (*Service, error) {
 		s.closeLogs()
 		return nil, err
 	}
-	// conversations created before every one held a concrete request take
-	// what their logs last reported, once.
-	s.mu.Lock()
-	s.fillChoicesLocked()
-	s.mu.Unlock()
 	// where the harnesses are is found in the background, so start-up and
 	// serving do not wait for it. no project's environment is resolved here:
 	// the first thing that needs one resolves it.

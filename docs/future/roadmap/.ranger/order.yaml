@@ -1,5 +1,5 @@
 building:
-  - an-older-log-is-read-as-todays-build-reads-it.md
+  - the-tested-ranges-reach-the-builds-in-use.md
 horizon:
   - start-up-reads-every-log.md
   - request-and-what-ran-follow-ups.md
@@ -22,13 +22,13 @@ horizon:
   - retired-conversations.md
 researching:
   - simplify-the-core.md
-  - claude-code-21331-is-past-the-tested-range.md
   - harden-requests-stops-and-restarts.md
   - first-tagged-release.md
   - codex-sessions-leave-an-empty-tmpgit-on-the-host.md
   - the-codex-round-trips-leave-an-empty-tmpgit-behind.md
   - shown-environment-values-can-outlive-their-resolution.md
   - the-failed-model-list-sentence-overstates-the-refusal.md
+  - a-new-conversation-with-no-model-list-gets-the-claude-effort-sentence.md
   - a-checks-suite-empties-its-scratch-before-it-knows-its-port-is-free.md
   - the-shutdown-step-can-miss-the-asking-pages-banner.md
   - the-register-dialogs-prefill-can-land-on-what-is-typed.md
@@ -46,6 +46,7 @@ researching:
   - reviewing-changes-from-outside.md
   - mega-on-macos-and-windows.md
 evaluating:
+  - an-older-log-is-read-as-todays-build-reads-it.md
   - adoption-reaches-any-session-in-the-checkout.md
   - a-failed-read-after-a-reconnect-is-tried-again.md
   - a-failed-model-list-launches-claude-in-default-mode.md

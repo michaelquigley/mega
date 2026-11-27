@@ -1,6 +1,6 @@
 ---
 title: an older log is read as today's build reads it
-state: building
+state: evaluating
 created: 2026-11-24
 tags: [story]
 ---
@@ -27,7 +27,7 @@ A conversation's request can no longer be changed by anything but the operator a
 
 - **The start-up fill goes:** `fillChoicesLocked` and `lastReported` in `internal/service/choice.go`, and the call in `internal/service/service.go`.
 - **The fill at launch goes:** `fillAtLaunch` and `applyFillLocked`, the two fill sources, and `StatusChoiceFilled` in `internal/model/event.go`.
-- **A launch refuses a conversation whose request lacks something,** and says to choose it on the control bar. For a Claude conversation with no effort that is the refusal it gets today, `errChooseEffort`.
+- **A launch refuses a conversation whose request lacks something,** and says to choose it on the control bar. For a Claude conversation with no effort that is the refusal it gets today, `errChooseEffort`. A request that holds no effort is judged against the model list, which the launch reads first if none is held, since a model that takes no effort holds none. Corrected on 2026-11-26: as first written this was a bare check, which would have refused every such model at its first launch after a restart.
 - **The import replay goes:** `legacyImport` in `liveLocked`, `internal/service/live.go`.
 - **`ModeConfirmed` goes** from `model.RuntimeFacts`, with `mode_confirmed` in `ui/src/types.ts` and the page's case for it.
 - **The page's row for `choice_filled` goes.**
@@ -65,8 +65,24 @@ A mark that is wrong once on a rare old conversation: a failed import of the old
 - **A terminus finding in code this card did not touch and did not make newly reachable** is matched to an existing card or captured in inbox, and listed at handoff.
 - **A finding that is only wording,** or a fix that only changes this card's own check or test, is made and reported at handoff.
 - **A finding whose fix would add state, a hold or an ordering rule** is brought to Michael as a question of whether to fix it at all. Anything else this card caused comes to him one at a time.
-- **Size.** `internal/service` was 6,096 non-test lines when `adoption-reaches-any-session-in-the-checkout` was built. Counted by reading: the four fill functions are about 160 lines of `choice.go`, and the import replay about 15 of `live.go`. What is written is the refusal at launch, a few lines. The report gives the figures afterwards.
+- **Size.** `internal/service` was 6,096 non-test lines when `adoption-reaches-any-session-in-the-checkout` was built. Counted by reading: the four fill functions are about 160 lines of `choice.go`, and the import replay about 15 of `live.go`. What is written is the refusal at launch, a few lines. The report gives the figures afterwards. "A few lines" was wrong: reading the list first and a list that cannot be read made it 50.
 
 ## when it lapses
 
 Ruling 2 holds until the first tagged release. `first-tagged-release` carries the reminder.
+
+## as built
+
+Built on 2026-11-26. `internal/service` went from 6,096 non-test lines to 5,955, all of `internal` from 18,756 to 18,621, and `ui/src` from 7,964 to 7,945. The refusal that was written, `refuseIncomplete` with its four sentences, is 50 lines.
+
+- **The launch reads the model list before it judges a request with no effort.** `offersEffort` says a model takes an effort whenever no list is held, and nothing reads the list at start-up. A request that holds an effort launches without the list, as before.
+- **A list that cannot be read refuses the launch,** for a request with no effort: "the model list could not be read, so mega cannot tell whether this model takes an effort level; launching again reads it again". Michael ruled for it on 2026-11-26, over launching with no effort. Nothing copies the settings' effort any more.
+- **A list that has since given a model effort levels refuses the launch** until one is chosen on the control bar.
+- **Adoption without an effort reaches Codex and pi too,** when the list fails during adoption and the settings name none. The same refusal covers it, with a sentence that does not name Claude.
+- **`StatusResuming` and `StatusResumed` went too,** on 2026-11-27. Only the removed replay read them, and nothing wrote them. A `resuming` or `resumed` line in an older log shows as a runtime row with its text.
+
+The last terminus review, `cffc32eba7ca`, was `clean`. An earlier one raised `answer-remains-pending-during-delivery` in `Service.Answer`, which this card did not touch and `harden-requests-stops-and-restarts` already records.
+
+`make test` and all of `make checks` (612 steps) passed on the final code. `make e2e` passed 18 of 20 with no skips. `TestPiRoundTrip` and `TestPiReleaseWithADialogPending` failed on what the model replied, the same way on `HEAD`: pi on `fortyfive` was answering from a hosted model, not its local default. The journal for 2026-11-27 has what was found. Michael corrected pi's settings and updated pi, and on 2026-11-27 all five pi round trips passed on this tree, none skipped, on pi 1.6.1 with its own default, the local model. So every round trip has passed on this card's code: Claude Code 2.1.331, codex-cli 0.166.0 and pi 1.6.1.
+
+Captured during the build: `a-new-conversation-with-no-model-list-gets-the-claude-effort-sentence`.

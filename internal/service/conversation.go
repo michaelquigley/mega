@@ -315,9 +315,9 @@ func (s *Service) beginStartLocked(l *live) {
 // other starts, resumes and prompts away meanwhile. idle is a start with no
 // prompt following. callers do not hold s.mu.
 func (s *Service) startRuntime(conversationID string, l *live, idle bool, place harness.Place, facts *model.EnvironmentFacts) error {
-	// a conversation from before every one held a concrete request is filled
-	// once, before anything is passed.
-	if err := s.fillAtLaunch(conversationID, place); err != nil {
+	// a request that lacks something is refused before anything is passed;
+	// the operator chooses it on the control bar.
+	if err := s.refuseIncomplete(conversationID, place); err != nil {
 		s.mu.Lock()
 		l.busy = false
 		s.failedLaunch(l, err)

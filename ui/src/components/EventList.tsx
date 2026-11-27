@@ -190,12 +190,6 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
       }
       case 'runtime':
         if (event.status === 'mode_changed') {
-          // in logs from before every launch passed a mode: a report that
-          // only confirmed the mode the launch asked for, which changed
-          // nothing, so the history draws no row.
-          if (event.facts?.mode_confirmed) {
-            return null
-          }
           return (
             <p key={event.seq} data-seq={event.seq} className="system">
               Permission mode {event.facts?.permission_mode ?? 'changed'}
@@ -212,16 +206,6 @@ export function EventList({ events, pending, turnActive, stale, showNative, delt
             <p key={event.seq} data-seq={event.seq} className="system">
               Permission mode {event.facts?.permission_mode ?? 'changed'} requested
               {event.text && `: ${event.text}`}
-            </p>
-          )
-        }
-        if (event.status === 'choice_filled') {
-          // the one-time fill of a conversation recorded before every one
-          // held a concrete request: what was filled, and from where.
-          const filled = [shortModel(models, event.facts?.model), event.facts?.effort, shortMode(event.facts?.permission_mode)].filter(Boolean)
-          return (
-            <p key={event.seq} data-seq={event.seq} className="system">
-              Request {event.text ?? 'filled in'}: {filled.join(' · ')}
             </p>
           )
         }

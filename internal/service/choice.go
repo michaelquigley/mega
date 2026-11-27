@@ -13,18 +13,10 @@ import (
 )
 
 // what a conversation requests: its model, effort and (claude) permission
-// mode. a new conversation's are concrete from creation, copied once from the
-// harness's settings (copyFor) where the operator chose none; after that only
-// the operator changes them. conversations created before that held none may
-// lack one: the start-up fill (fillChoicesLocked) takes what their log last
-// reported, and the fill at launch (fillAtLaunch) takes the rest from the
-// settings, each recorded once as a choice_filled event.
-
-// fill sources, as the choice_filled event names them.
-const (
-	filledFromReport   = "filled in from what the harness last reported"
-	filledFromSettings = "filled in from the harness's settings"
-)
+// mode. a new or adopted conversation's are copied once from the harness's
+// settings (copyFor) where the operator chose none; after that only the
+// operator changes them. a launch whose request lacks something is refused
+// (refuseIncomplete), and the operator chooses it on the control bar.
 
 // errChooseEffort refuses a claude launch the settings give no effort level:
 // claude's model list names no default effort and claude never reports one,
@@ -136,168 +128,55 @@ func (s *Service) missingLocked(conv model.Conversation) bool {
 	return conv.Harness == model.HarnessClaude && conv.PermissionMode == ""
 }
 
-// fillAtLaunch fills, before a launch, what a conversation created before
-// every conversation held a concrete request still lacks: from its log's
-// own earlier fill, else from the harness's settings, as a new conversation
-// copies them. it is recorded once, as a choice_filled event and the
-// registry write. a claude conversation whose settings give no effort is
-// refused (errChooseEffort): the operator chooses one on the control bar.
-// callers do not hold s.mu.
-func (s *Service) fillAtLaunch(conversationID string, place harness.Place) error {
-	s.mu.Lock()
-	conv, err := s.conversationLocked(conversationID)
-	if err != nil || !s.missingLocked(conv) {
-		s.mu.Unlock()
-		return err
-	}
-	s.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), modelsTimeout)
-	defer cancel()
-	have := model.TurnSettings{Model: conv.Model, Effort: conv.Effort, Mode: conv.PermissionMode}
-	filled, needEffort, err := s.copyFor(ctx, conv.Harness, place, have)
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.applyFillLocked(conversationID, filled, filledFromSettings); err != nil {
-		return err
-	}
-	if needEffort {
-		return errChooseEffort
-	}
-	return nil
-}
+// refusals of a launch whose request lacks something.
+var (
+	errChooseModel  = newError(CodeInvalid, "this conversation names no model, so choose one on the control bar")
+	errChooseMode   = newError(CodeInvalid, "this conversation names no permission mode, so choose one on the control bar")
+	errChooseLevel  = newError(CodeInvalid, "this conversation names no effort level for its model, so choose one on the control bar")
+	errModelsUnread = newError(CodeUnavailable, "the model list could not be read, so mega cannot tell whether this model takes an effort level; launching again reads it again")
+)
 
-// applyFillLocked writes the fields a conversation still lacks from filled,
-// with a choice_filled event recording what was filled and from where,
-// before the registry write: interrupted between the two, the next fill
-// finds the event and applies it again without recording another. a field
-// the operator has set meanwhile is kept. callers hold s.mu.
-func (s *Service) applyFillLocked(conversationID string, filled model.TurnSettings, source string) error {
+// refuseIncomplete refuses a launch whose request lacks something
+// (missingLocked), naming what to choose on the control bar. it changes
+// nothing. a request with no effort is judged against the model list, read
+// first if no list is cached, since a model that takes none holds none; one
+// that holds an effort launches without the list. a claude model that takes
+// a level and holds none is refused with errChooseEffort. callers do not
+// hold s.mu.
+func (s *Service) refuseIncomplete(conversationID string, place harness.Place) error {
+	s.mu.Lock()
 	conv, err := s.conversationLocked(conversationID)
-	if err != nil {
+	s.mu.Unlock()
+	switch {
+	case err != nil:
 		return err
-	}
-	fill := model.TurnSettings{}
-	if conv.Model == "" {
-		fill.Model = filled.Model
-	}
-	if conv.Effort == "" {
-		fill.Effort = filled.Effort
-	}
-	if conv.PermissionMode == "" && conv.Harness == model.HarnessClaude {
-		fill.Mode = filled.Mode
-	}
-	if fill == (model.TurnSettings{}) {
+	case conv.Model == "":
+		return errChooseModel
+	case conv.Harness == model.HarnessClaude && conv.PermissionMode == "":
+		return errChooseMode
+	case conv.Effort != "":
 		return nil
 	}
-	l, err := s.liveLocked(conversationID)
-	if err != nil {
-		return err
+	h, ok := s.harnesses[conv.Harness]
+	if !ok {
+		return newError(CodeInvalid, fmt.Sprintf("harness '%s' is not available", conv.Harness))
 	}
-	ev := &model.Event{
-		Kind:   model.EventRuntime,
-		Status: model.StatusChoiceFilled,
-		Origin: model.OriginService,
-		Text:   source,
-		Facts:  &model.RuntimeFacts{Model: fill.Model, Effort: fill.Effort, PermissionMode: fill.Mode},
+	ctx, cancel := context.WithTimeout(context.Background(), modelsTimeout)
+	defer cancel()
+	if _, err := s.catalogFor(ctx, conv.Harness, h, place); err != nil {
+		dl.Warnf("launching '%s' with no effort level: %v", conversationID, err)
+		return errModelsUnread
 	}
-	s.record(l, ev)
-	return s.updateConversation(conversationID, func(c *model.Conversation) {
-		if c.Model == "" {
-			c.Model = fill.Model
-		}
-		if c.Effort == "" {
-			c.Effort = fill.Effort
-		}
-		if c.PermissionMode == "" {
-			c.PermissionMode = fill.Mode
-		}
-	})
-}
-
-// fillChoicesLocked is the start-up fill: every conversation that lacks a
-// model, an effort (codex) or a mode (claude) takes what its log last
-// reported, in the order the harness reported it. a log that already holds
-// a fill applies that fill and records nothing more. it reads only the log,
-// so it runs before any harness can be asked; what the log cannot give (a
-// conversation that never reported, or claude's effort, which claude never
-// reports) is filled at the conversation's next launch. a second run finds
-// nothing to fill. callers hold s.mu.
-func (s *Service) fillChoicesLocked() {
-	for _, conv := range s.reg.Snapshot().Conversations {
-		// pi came after every request was concrete, and a pi model with no
-		// thinking levels takes no effort: only codex's can lack one.
-		lacks := conv.Model == "" || (conv.Harness == model.HarnessClaude && conv.PermissionMode == "") || (conv.Harness == model.HarnessCodex && conv.Effort == "")
-		if !lacks {
-			continue
-		}
-		l, err := s.liveLocked(conv.ID)
-		if err != nil {
-			dl.Warnf("filling '%s': its log cannot be read: %v", conv.ID, err)
-			continue
-		}
-		evs, err := l.log.Since(0)
-		if err != nil {
-			dl.Warnf("filling '%s': reading its log: %v", conv.ID, err)
-			continue
-		}
-		reported, earlier := lastReported(conv.Harness, evs)
-		if earlier != nil {
-			// a fill recorded before an interruption: applied again, recorded once.
-			s.updateConversation(conv.ID, func(c *model.Conversation) {
-				if c.Model == "" {
-					c.Model = earlier.Model
-				}
-				if c.Effort == "" {
-					c.Effort = earlier.Effort
-				}
-				if c.PermissionMode == "" {
-					c.PermissionMode = earlier.Mode
-				}
-			})
-			continue
-		}
-		if reported == (model.TurnSettings{}) {
-			continue
-		}
-		if err := s.applyFillLocked(conv.ID, reported, filledFromReport); err != nil {
-			dl.Errorf("filling '%s' from its log: %v", conv.ID, err)
-		}
+	s.mu.Lock()
+	missing := s.missingLocked(conv)
+	s.mu.Unlock()
+	switch {
+	case !missing:
+		return nil
+	case conv.Harness == model.HarnessClaude:
+		return errChooseEffort
 	}
-}
-
-// lastReported is what a log says the harness last ran with: the model, the
-// effort (codex reports it; claude never does) and the mode (claude), from
-// the runtime's started, model_changed and mode_changed events in order. a
-// reported mode mega never passes is taken as default. earlier is the
-// newest choice_filled the log holds, if any.
-func lastReported(harnessName string, evs []*model.Event) (reported model.TurnSettings, earlier *model.TurnSettings) {
-	for _, ev := range evs {
-		if ev.Kind != model.EventRuntime || ev.Facts == nil {
-			continue
-		}
-		f := ev.Facts
-		switch ev.Status {
-		case model.StatusChoiceFilled:
-			earlier = &model.TurnSettings{Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode}
-		case model.StatusStarted, model.StatusModelChanged, model.StatusModeChanged:
-			if f.Model != "" && ev.Status != model.StatusModeChanged {
-				reported.Model = f.Model
-			}
-			if f.Effort != "" && harnessName != model.HarnessClaude {
-				reported.Effort = f.Effort
-			}
-			if f.PermissionMode != "" && harnessName == model.HarnessClaude && ev.Status != model.StatusModelChanged {
-				reported.Mode = f.PermissionMode
-			}
-		}
-	}
-	if reported.Mode != "" && !slices.Contains(model.PermissionModes, reported.Mode) {
-		reported.Mode = model.PermissionModeDefault
-	}
-	return reported, earlier
+	return errChooseLevel
 }
 
 // ranLocked keeps what the turn in flight ran with, once: the harness's
@@ -360,8 +239,8 @@ func (s *Service) differs(harnessName string, asked, ran model.TurnSettings) []s
 }
 
 // catalogRow is the list's row for a model a request names: the row with
-// that id, else the row of an alias that resolves to it, as a model filled
-// in from what claude reported is a full id. the default row, which moves
+// that id, else the row of an alias that resolves to it, for a request that
+// names the full id claude reports. the default row, which moves
 // with claude's versions, is the last resort.
 func catalogRow(catalog harness.Catalog, id string) (harness.ModelOption, bool) {
 	if id == "" {

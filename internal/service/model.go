@@ -112,8 +112,8 @@ var safeChoice = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]*$`)
 
 // checkModelChoice validates a model and effort against the harness's
 // catalog, when one is cached, and their form otherwise. a full id the list
-// holds only as an alias's resolved model, as a model filled in from what
-// claude reported, is checked against that alias's row (catalogRow). an
+// holds only as an alias's resolved model, as claude reports it, is checked
+// against that alias's row (catalogRow). an
 // empty field is one still to be copied (copyFor), or an effort for a model
 // that takes none.
 func (s *Service) checkModelChoice(harnessName, chosenModel, effort string) error {

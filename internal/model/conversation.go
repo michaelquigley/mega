@@ -44,8 +44,10 @@ type Conversation struct {
 	// new conversation copies them once from the harness's settings; after
 	// that only the operator changes them. PermissionMode is empty for a
 	// harness with no permission mode (codex), and Effort for a model that
-	// takes no effort level. a conversation created before every one held
-	// them may still lack one until its one fill (service.fillChoicesLocked).
+	// takes no effort level. a request may still lack one: an adopted
+	// conversation whose settings named no effort, or a model the harness's
+	// list has since given levels. a launch refuses it until the operator
+	// chooses (service.refuseIncomplete).
 	PermissionMode string `dd:",+omitempty"`
 	Model          string `dd:",+omitempty"`
 	Effort         string `dd:",+omitempty"`

@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -108,49 +106,6 @@ func TestUnreadSurvivesAStopAndRestart(t *testing.T) {
 	r.restart()
 	if got := workspaceOf(t, r.svc).NeedsYou; !slices.Equal(got, []string{conv.ID}) {
 		t.Errorf("after a clean restart: needs you = %v", got)
-	}
-}
-
-func TestLegacyImportFailureDoesNotChangeRuntimeAttention(t *testing.T) {
-	for _, c := range []struct {
-		name      string
-		exitError error
-		want      string
-	}{
-		{"failed import alone", nil, model.AttentionIdle},
-		{"failed import after runtime failure", errors.New("the process died"), model.AttentionError},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			r := newRig(t)
-			conv := r.start("one")
-			rt := r.fake.Last()
-			started(rt)
-			finishTurn(rt, "a-1", "done")
-			r.readAll(conv.ID)
-			rt.Exit(c.exitError)
-			if got := r.attention(conv.ID); got != c.want {
-				t.Fatalf("before importing: attention = %q, want %q", got, c.want)
-			}
-
-			// Append the rows the old service wrote for a failed import.
-			r.svc.mu.Lock()
-			l := r.svc.live[conv.ID]
-			startErr := l.log.Append(&model.Event{Kind: model.EventRuntime, Origin: model.OriginService, Status: model.StatusResuming})
-			failErr := l.log.Append(&model.Event{Kind: model.EventRuntime, Origin: model.OriginService, Status: model.StatusError, Text: "native history could not be read: session missing"})
-			r.svc.mu.Unlock()
-			if err := errors.Join(startErr, failErr); err != nil {
-				t.Fatal(err)
-			}
-			before := r.events(conv.ID)
-
-			r.restart()
-			if got := r.attention(conv.ID); got != c.want {
-				t.Errorf("after replay: attention = %q, want %q", got, c.want)
-			}
-			if after := r.events(conv.ID); !reflect.DeepEqual(before, after) {
-				t.Errorf("replay changed the history: got %v, want %v", kinds(after), kinds(before))
-			}
-		})
 	}
 }
 

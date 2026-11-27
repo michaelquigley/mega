@@ -61,8 +61,8 @@ They are one machine of three, over two weeks in which the build changed daily. 
 | 15 | A turn opened by a message nobody prompted | A harness that starts work by itself | 68 of 834 turns, in 8 conversations | Keep. It is in daily use. |
 | 16 | The two uncertain states after a failed write | Running on while unable to record | 0 | |
 | 17 | pi, its dialogs, Dismiss, expired, waiting | The third harness | None on this machine | |
-| 18 | Rules for logs written by older builds | Reading two weeks of earlier formats | Every start | Drop. An old log is read as today's build reads it. Ruling 2. |
-| 19 | The one-time fill of a conversation's choices | Conversations created before choices were concrete | 6, all done | Drop, under ruling 2, once his other machines have run it. |
+| 18 | Rules for logs written by older builds | Reading two weeks of earlier formats | Every start | Drop. An old log is read as today's build reads it. Ruling 2. Built on 2026-11-26. |
+| 19 | The one-time fill of a conversation's choices | Conversations created before choices were concrete | 6, all done | Drop, under ruling 2, once his other machines have run it. They had, and it was built on 2026-11-26. |
 | 20 | The page: where it stands, and its two routes for history | Whether the page is current | Daily | |
 | 21 | Observed and never recorded: background jobs, MCP servers | Activity beside the timeline | Daily | |
 | 22 | The turn line: asked, ran, differs | What each turn ran with | Daily | |
@@ -162,7 +162,7 @@ The canon was brought in step first: the transcript sentence left `exact-id-resu
 
 **Built 2026-11-24.** `internal/service` is at 6,419 non-test lines, against 6,638 when the review began. One finding was this card's: a release in the middle of a turn no longer has the gap flag to separate that turn from the next. Michael ruled to leave it and add nothing. It is noted on `a-turn-is-inferred-from-a-message`, to be decided with the turn model.
 
-Still to review from the landed work: the rules for older logs under ruling 2. They waited on `adoption-reaches-any-session-in-the-checkout`, built on 2026-11-26, and their card is now a plan.
+Still to review from the landed work: the rules for older logs under ruling 2. They waited on `adoption-reaches-any-session-in-the-checkout`, and both cards were built on 2026-11-26. `internal/service` is 5,955 non-test lines, against 6,638 when this review began.
 
 ## The plan, reviewed
 

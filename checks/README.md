@@ -23,7 +23,7 @@ Where things go:
 
 ## What each suite covers
 
-- **`conversation.mjs`** (109 steps): the conversation view, on long conversations and in its layout. Its service runs in `Asia/Kolkata` (`TZ`) and its page in UTC, as a hardened browser reports, so every time it checks is the service's. Two conversations are made about twenty thousand events long with `lib/gen.mjs` while the service is stopped. It checks the following:
+- **`conversation.mjs`** (118 steps): the conversation view, on long conversations and in its layout. Its service runs in `Asia/Kolkata` (`TZ`) and its page in UTC, as a hardened browser reports, so every time it checks is the service's. Two conversations are made about twenty thousand events long with `lib/gen.mjs` while the service is stopped. It checks the following:
   - opening reads only the tail: ten turns, at the newest reply, saying how much is earlier;
   - Show earlier and Show all, each holding the view;
   - the native events toggle refetching what is shown;
@@ -36,6 +36,11 @@ Where things go:
   - the connecting view naming a failing workspace read;
   - the 960px column centred in its pane, with the panel open and collapsed to the rail, light and dark; the header, history, input panel, show-earlier bar, newer-activity control and shutdown banner sharing it; the project page and the connecting view centred the same way;
   - a stop an earlier build flagged as a gap, shown as any stop, with no gap sentence and nothing of the work seeded on its session outside mega; More offering no transcript, and the transcript route gone;
+  - an older log, read as today's build reads it:
+    - a `choice_filled` row, a mode report an earlier build flagged `mode_confirmed`, and an old failed import, each shown as a row of its kind with its text, and paged with the turn before them;
+    - the old failed import marking an error until the next start;
+    - a registry entry with no model left unfilled at start-up, its launch refused with what to choose and recorded as a refused launch;
+    - a model chosen for it on the control bar while idle, and the launch then made on it; against the page and service before this step, it fails;
   - acknowledging a loss with an unknown session, its Unsupervised row carrying no gap sentence, and paging and timing across an Unsupervised row;
   - no label on the operator's own prompts, "outside mega" on a prompt from outside, and "From outside mega" on its reply;
   - each turn's line saying what it ran with, when its prompt was sent and how long it took:

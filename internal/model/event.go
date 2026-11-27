@@ -30,8 +30,6 @@ const (
 	StatusStopping     = "stopping"
 	StatusStopped      = "stopped"
 	StatusUnsupervised = "unsupervised"
-	StatusResuming     = "resuming"
-	StatusResumed      = "resumed"
 	StatusError        = "error"
 	// StatusModeChanged records a change of permission mode in a running
 	// runtime, carried in Facts.PermissionMode: the operator's, or one the
@@ -44,10 +42,6 @@ const (
 	// abort waits until a pending dialog is answered or dismissed. Text
 	// names the dialog.
 	StatusWaiting = "waiting"
-	// StatusChoiceFilled records the one fill of a conversation created
-	// before every conversation held a concrete model, effort and mode:
-	// Facts carries what was filled in, and Text where it came from.
-	StatusChoiceFilled = "choice_filled"
 	// StatusModeRequested records a permission mode the operator requested
 	// with no runtime to switch: the request, never a report of what runs.
 	StatusModeRequested = "mode_requested"
@@ -96,10 +90,6 @@ type RuntimeFacts struct {
 	Model          string `dd:",+omitempty"`
 	Version        string `dd:",+omitempty"`
 	PermissionMode string `dd:",+omitempty"`
-	// ModeConfirmed marks a mode report that only confirmed the mode a
-	// launch passed, so the history draws no row for it. nothing records it
-	// now; logs written before every launch passed a mode carry it.
-	ModeConfirmed bool `dd:",+omitempty"`
 	// Effort is the effort level the harness reports, where it reports one
 	// (codex does; claude does not).
 	Effort string `dd:",+omitempty"`

@@ -27,6 +27,7 @@ type Harness struct {
 	onHistory  func()
 	onVersion  func()
 	catalog    harness.Catalog
+	modelsErr  error // what Models fails with, if set
 	settings   model.TurnSettings
 	version    string
 	versionErr error
@@ -122,6 +123,14 @@ func (h *Harness) SetCatalog(c harness.Catalog) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.catalog = c
+}
+
+// FailModels makes Models fail with err, as a harness that cannot list its
+// models; nil makes it list again.
+func (h *Harness) FailModels(err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.modelsErr = err
 }
 
 // SetSettings scripts what Settings returns: the operator's settings a new
@@ -229,6 +238,9 @@ func (h *Harness) Models(_ context.Context, place harness.Place) (harness.Catalo
 	defer h.mu.Unlock()
 	h.places = append(h.places, place)
 	h.modelLists++
+	if h.modelsErr != nil {
+		return harness.Catalog{}, h.modelsErr
+	}
 	return h.catalog, nil
 }
 

@@ -1,7 +1,11 @@
 package service
 
 import (
+	"bytes"
+	"errors"
+	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/michaelquigley/mega/internal/harness"
@@ -46,17 +50,6 @@ func (r *rig) request(id string) model.TurnSettings {
 	return model.TurnSettings{Model: view.Model, Effort: view.Effort, Mode: view.PermissionMode}
 }
 
-func (r *rig) fills(id string) []*model.Event {
-	r.t.Helper()
-	var out []*model.Event
-	for _, ev := range r.events(id) {
-		if ev.Kind == model.EventRuntime && ev.Status == model.StatusChoiceFilled {
-			out = append(out, ev)
-		}
-	}
-	return out
-}
-
 // a new conversation's request is copied once from the settings: a later
 // change to the settings reaches only conversations created after it.
 func TestNewConversationCopiesTheSettingsOnce(t *testing.T) {
@@ -81,9 +74,6 @@ func TestNewConversationCopiesTheSettingsOnce(t *testing.T) {
 	}
 	if got := r.request(r.start("two").ID); got != (model.TurnSettings{Model: "opus", Effort: "low", Mode: "plan"}) {
 		t.Errorf("a conversation created after the change copied %+v", got)
-	}
-	if fills := r.fills(conv.ID); len(fills) != 0 {
-		t.Errorf("a new conversation recorded a fill: %v", fills)
 	}
 }
 
@@ -174,168 +164,6 @@ func TestClaudeLaunchWithNoEffortToCopyIsRefused(t *testing.T) {
 	}
 }
 
-// the start-up fill: a conversation recorded with no request takes what its
-// log last reported, recorded once as a choice_filled event; a second start
-// finds nothing to fill and records nothing.
-func TestStartUpFillTakesWhatTheLogReportedOnce(t *testing.T) {
-	r, codex := modelRig(t)
-	codexConv, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one", LaunchChoice{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	crt := codex.Last()
-	crt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: crt.NativeID(), Model: "gpt-a", Effort: "medium"}})
-	reportModel(crt, "gpt-b", "high")
-	finishTurn(crt, "a-1", "done")
-	if err := r.svc.Release(codexConv.ID); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the codex runtime to exit", crt.Exited)
-
-	claudeConv := r.start("two")
-	r.stopped(claudeConv.ID, r.fake.Last(), "claude-opus-5-5", "", "plan")
-	// a later mode report, and one mega never passes, is taken as default.
-	chosen := r.start("three")
-	rt := r.fake.Last()
-	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusStarted, Facts: &model.RuntimeFacts{Session: rt.NativeID(), Model: "claude-sonnet-5-5", PermissionMode: "plan"}})
-	rt.Emit(&model.Event{Kind: model.EventRuntime, Status: model.StatusModeChanged, Facts: &model.RuntimeFacts{PermissionMode: "bypassPermissions"}})
-	finishTurn(rt, "a-3", "done")
-	if err := r.svc.Release(chosen.ID); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the runtime to exit", rt.Exited)
-	// one with a request already, which the fill leaves alone.
-	kept := r.start("four")
-	r.stopped(kept.ID, r.fake.Last(), "claude-opus-5-5", "", "default")
-	keptBefore := r.request(kept.ID)
-
-	for _, id := range []string{codexConv.ID, claudeConv.ID, chosen.ID} {
-		r.unset(id)
-	}
-	r.restartWith(codex)
-
-	want := map[string]model.TurnSettings{
-		codexConv.ID:  {Model: "gpt-b", Effort: "high"},
-		claudeConv.ID: {Model: "claude-opus-5-5", Mode: "plan"},
-		chosen.ID:     {Model: "claude-sonnet-5-5", Mode: "default"},
-	}
-	for id, w := range want {
-		if got := r.request(id); got != w {
-			t.Errorf("%s filled %+v, want %+v", id, got, w)
-		}
-		fills := r.fills(id)
-		if len(fills) != 1 || fills[0].Origin != model.OriginService || fills[0].Text != filledFromReport {
-			t.Errorf("%s fills = %+v", id, fills)
-		}
-	}
-	if got := r.request(kept.ID); got != keptBefore || len(r.fills(kept.ID)) != 0 {
-		t.Errorf("a conversation with a request was filled: %+v, %d fills", got, len(r.fills(kept.ID)))
-	}
-
-	// the second start changes nothing.
-	before := map[string]int{}
-	for _, id := range []string{codexConv.ID, claudeConv.ID, chosen.ID, kept.ID} {
-		before[id] = len(r.events(id))
-	}
-	r.restartWith(codex)
-	for id, n := range before {
-		if got := len(r.events(id)); got != n {
-			t.Errorf("%s: the second start recorded %d events", id, got-n)
-		}
-	}
-	for id, w := range want {
-		if got := r.request(id); got != w {
-			t.Errorf("%s after the second start: %+v", id, got)
-		}
-	}
-
-	// claude never reports effort: the filled claude conversation is given
-	// one at its next launch, from the settings, as the same kind of record.
-	if err := r.svc.Start(claudeConv.ID); err != nil {
-		t.Fatal(err)
-	}
-	if spec := r.fake.Last().Spec; spec.Model != "claude-opus-5-5" || spec.Effort != harnesstest.DefaultEffort || spec.PermissionMode != "plan" {
-		t.Errorf("the launch passed %q %q %q", spec.Model, spec.Effort, spec.PermissionMode)
-	}
-	fills := r.fills(claudeConv.ID)
-	if len(fills) != 2 || fills[1].Text != filledFromSettings || fills[1].Facts.Effort != harnesstest.DefaultEffort || fills[1].Facts.Model != "" {
-		t.Errorf("fills at launch = %+v", fills)
-	}
-}
-
-// a fill interrupted between its record and the registry write is applied
-// at the next start from the record, and recorded no second time.
-func TestInterruptedFillIsAppliedOnceFromItsRecord(t *testing.T) {
-	r, codex := modelRig(t)
-	conv, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one", LaunchChoice{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	rt := codex.Last()
-	r.stopped(conv.ID, rt, "gpt-a", "medium", "")
-	r.unset(conv.ID)
-	// the record written, then the service gone before the registry write.
-	r.svc.mu.Lock()
-	l, err := r.svc.liveLocked(conv.ID)
-	if err == nil {
-		r.svc.record(l, &model.Event{Kind: model.EventRuntime, Status: model.StatusChoiceFilled, Origin: model.OriginService, Text: filledFromReport, Facts: &model.RuntimeFacts{Model: "gpt-b", Effort: "low"}})
-	}
-	r.svc.mu.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.restartWith(codex)
-	if got := r.request(conv.ID); got != (model.TurnSettings{Model: "gpt-b", Effort: "low"}) {
-		t.Errorf("applied %+v, want the recorded fill", got)
-	}
-	if fills := r.fills(conv.ID); len(fills) != 1 {
-		t.Errorf("fills = %d", len(fills))
-	}
-}
-
-// a conversation whose log reported nothing is filled at its next launch
-// from the settings, before anything is passed; claude settings with no
-// effort refuse the launch until one is chosen, and the rest is filled.
-func TestConversationWithNoReportIsFilledAtLaunch(t *testing.T) {
-	r, codex := modelRig(t)
-	conv, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "")
-	if err == nil {
-		t.Fatal("adopted a session the fake never offered")
-	}
-	r.fake.SetSessions([]harness.Session{{NativeID: "terminal-1", Preview: "from the terminal"}})
-	conv, err = r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.unset(conv.ID)
-	r.restartWith(codex)
-	if got := r.request(conv.ID); got != (model.TurnSettings{}) || len(r.fills(conv.ID)) != 0 {
-		t.Fatalf("the start-up fill had nothing to take, and took %+v", got)
-	}
-	r.fake.SetSettings(model.TurnSettings{Model: "sonnet", Mode: "auto"})
-	err = r.svc.Start(conv.ID)
-	wantCode(t, err, CodeInvalid)
-	if n := len(r.fake.Runtimes()); n != 0 {
-		t.Errorf("a refused launch started %d runtimes", n)
-	}
-	if got := r.request(conv.ID); got != (model.TurnSettings{Model: "sonnet", Mode: "auto"}) {
-		t.Errorf("filled before the refusal: %+v", got)
-	}
-	if outcome := r.setModel(conv.ID, "sonnet", "high"); outcome != ModeStored {
-		t.Fatalf("outcome = %q", outcome)
-	}
-	if err := r.svc.Start(conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	if spec := r.fake.Last().Spec; spec.Model != "sonnet" || spec.Effort != "high" || spec.PermissionMode != "auto" || spec.NativeID != "terminal-1" {
-		t.Errorf("passed %q %q %q %q", spec.Model, spec.Effort, spec.PermissionMode, spec.NativeID)
-	}
-	fills := r.fills(conv.ID)
-	if len(fills) != 1 || fills[0].Text != filledFromSettings {
-		t.Errorf("fills = %+v", fills)
-	}
-}
-
 // an adopted conversation copies its request at adoption, as a new one does.
 func TestAdoptedConversationCopiesTheSettings(t *testing.T) {
 	r, _ := modelRig(t)
@@ -348,26 +176,26 @@ func TestAdoptedConversationCopiesTheSettings(t *testing.T) {
 	if got := r.request(conv.ID); got != (model.TurnSettings{Model: "opus", Effort: "high", Mode: "plan"}) {
 		t.Errorf("adopted with %+v", got)
 	}
-	if !slices.Equal(kinds(r.fills(conv.ID)), nil) {
-		t.Errorf("adoption recorded a fill")
-	}
 }
 
-// a claude conversation filled in from its log holds the full id claude
-// reported, which the list holds only as an alias's resolved model: it takes
-// that alias's effort levels, so an effort can be chosen for it on the bar.
-func TestAFilledFullIdTakesItsAliasEfforts(t *testing.T) {
-	r, codex := modelRig(t)
+// a request that names the full id claude reports, which the list holds
+// only as an alias's resolved model, is checked against that alias's row:
+// its levels are the alias's, a launch with none is refused, and one of them
+// can be chosen on the bar and is passed as it is.
+func TestAFullIdIsCheckedAgainstItsAliasRow(t *testing.T) {
+	r, _ := modelRig(t)
 	conv := r.start("one")
 	r.stopped(conv.ID, r.fake.Last(), "claude-sonnet-5-5", "", "default")
-	r.unset(conv.ID)
-	r.restartWith(codex)
-	if got := r.request(conv.ID); got != (model.TurnSettings{Model: "claude-sonnet-5-5", Mode: "default"}) {
-		t.Fatalf("filled %+v", got)
+	r.svc.mu.Lock()
+	err := r.svc.updateConversation(conv.ID, func(c *model.Conversation) { c.Model, c.Effort = "claude-sonnet-5-5", "" })
+	r.svc.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
 	}
-	r.fake.SetSettings(model.TurnSettings{})
-	wantCode(t, r.svc.Start(conv.ID), CodeInvalid)
-	_, err := r.svc.SetModel(conv.ID, "claude-sonnet-5-5", "max")
+	if err := r.svc.Start(conv.ID); !errors.Is(err, errChooseEffort) {
+		t.Fatalf("a full id whose alias takes levels launched with none: %v", err)
+	}
+	_, err = r.svc.SetModel(conv.ID, "claude-sonnet-5-5", "max")
 	wantCode(t, err, CodeInvalid)
 	if outcome := r.setModel(conv.ID, "claude-sonnet-5-5", "high"); outcome != ModeStored {
 		t.Fatalf("outcome = %q", outcome)
@@ -376,6 +204,235 @@ func TestAFilledFullIdTakesItsAliasEfforts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if spec := r.fake.Last().Spec; spec.Model != "claude-sonnet-5-5" || spec.Effort != "high" {
+		t.Errorf("passed %q %q", spec.Model, spec.Effort)
+	}
+}
+
+// launches is how many runtimes a fake has launched.
+func launches(h *harnesstest.Harness) int { return len(h.Runtimes()) }
+
+// wantRefused is a launch refused with want before anything was passed, and
+// recorded as any refused launch is: an error row, and the request as it was.
+func (r *rig) wantRefused(id string, h *harnesstest.Harness, want error) {
+	r.t.Helper()
+	before, request, n := launches(h), r.request(id), len(r.events(id))
+	if err := r.svc.Start(id); !errors.Is(err, want) {
+		r.t.Fatalf("Start = %v, want %v", err, want)
+	}
+	if got := launches(h); got != before {
+		r.t.Errorf("a refused launch started %d runtimes", got-before)
+	}
+	if got := r.request(id); got != request {
+		r.t.Errorf("a refused launch changed the request to %+v", got)
+	}
+	evs := r.events(id)[n:]
+	if i := slices.IndexFunc(evs, func(ev *model.Event) bool {
+		return ev.Kind == model.EventRuntime && ev.Status == model.StatusError && strings.Contains(ev.Text, want.Error())
+	}); i < 0 {
+		r.t.Errorf("the refusal was not recorded: %+v", evs)
+	}
+}
+
+// a conversation whose registry entry lacks a model, though its log says
+// what the harness ran, is not filled at start-up: nothing is written to its
+// log or the registry. a launch is refused with what to choose, and it
+// launches once the operator has chosen it on the bar.
+func TestAnIncompleteRequestIsNotFilled(t *testing.T) {
+	r, codex := modelRig(t)
+	conv := r.start("one")
+	r.stopped(conv.ID, r.fake.Last(), "claude-opus-5-5", "", "plan")
+	x, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "two", LaunchChoice{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.stopped(x.ID, codex.Last(), "gpt-b", "high", "")
+	r.unset(conv.ID)
+	r.unset(x.ID)
+	logged := map[string]int{conv.ID: len(r.events(conv.ID)), x.ID: len(r.events(x.ID))}
+	r.svc.Close()
+	registry, err := os.ReadFile(r.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.svc = newService(t, r.path, allTrusted, r.fake, codex)
+	if after, err := os.ReadFile(r.path); err != nil || !bytes.Equal(after, registry) {
+		t.Errorf("the start wrote the registry (%v)", err)
+	}
+	for id, n := range logged {
+		if got := r.request(id); got != (model.TurnSettings{}) {
+			t.Errorf("%s was filled with %+v", id, got)
+		}
+		if got := len(r.events(id)); got != n {
+			t.Errorf("%s: the start recorded %d events", id, got-n)
+		}
+	}
+
+	r.wantRefused(conv.ID, r.fake, errChooseModel)
+	if outcome := r.setModel(conv.ID, "opus", "low"); outcome != ModeStored {
+		t.Fatalf("outcome = %q", outcome)
+	}
+	r.wantRefused(conv.ID, r.fake, errChooseMode)
+	if outcome := r.switchTo(conv.ID, "plan"); outcome != ModeStored {
+		t.Fatalf("outcome = %q", outcome)
+	}
+	if err := r.svc.Start(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if spec := r.fake.Last().Spec; spec.Model != "opus" || spec.Effort != "low" || spec.PermissionMode != "plan" {
+		t.Errorf("passed %q %q %q", spec.Model, spec.Effort, spec.PermissionMode)
+	}
+
+	r.wantRefused(x.ID, codex, errChooseModel)
+	if outcome := r.setModel(x.ID, "gpt-a", "low"); outcome != ModeStored {
+		t.Fatalf("outcome = %q", outcome)
+	}
+	if err := r.svc.Start(x.ID); err != nil {
+		t.Fatal(err)
+	}
+	if spec := codex.Last().Spec; spec.Model != "gpt-a" || spec.Effort != "low" {
+		t.Errorf("passed %q %q", spec.Model, spec.Effort)
+	}
+}
+
+// a claude conversation adopted while its settings named no effort is
+// refused at launch, as a new one would be. the settings are not read again:
+// naming an effort there later changes nothing, and it launches once the
+// operator chooses one on the bar.
+func TestAClaudeConversationAdoptedWithNoEffortIsRefused(t *testing.T) {
+	r, _ := modelRig(t)
+	r.fake.SetSettings(model.TurnSettings{Model: "sonnet", Mode: "auto"})
+	r.fake.SetSessions([]harness.Session{{NativeID: "terminal-1", Preview: "from the terminal"}})
+	conv, err := r.svc.Adopt(r.project.ID, model.HarnessClaude, "terminal-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.request(conv.ID); got != (model.TurnSettings{Model: "sonnet", Mode: "auto"}) {
+		t.Fatalf("adopted with %+v", got)
+	}
+	r.wantRefused(conv.ID, r.fake, errChooseEffort)
+	r.fake.SetSettings(model.TurnSettings{Model: "sonnet", Effort: "high", Mode: "auto"})
+	r.wantRefused(conv.ID, r.fake, errChooseEffort)
+	if outcome := r.setModel(conv.ID, "sonnet", "low"); outcome != ModeStored {
+		t.Fatalf("outcome = %q", outcome)
+	}
+	if err := r.svc.Start(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if spec := r.fake.Last().Spec; spec.Model != "sonnet" || spec.Effort != "low" || spec.PermissionMode != "auto" || spec.NativeID != "terminal-1" {
+		t.Errorf("passed %q %q %q %q", spec.Model, spec.Effort, spec.PermissionMode, spec.NativeID)
+	}
+}
+
+// after a restart no model list is held. a conversation on a model that
+// takes no effort reads the list at its launch and launches; one that holds
+// an effort launches without reading it.
+func TestALaunchReadsTheListOnlyForARequestWithNoEffort(t *testing.T) {
+	r, codex := modelRig(t)
+	haiku, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{Model: "haiku"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.stopped(haiku.ID, r.fake.Last(), "claude-haiku-4-5", "", "default")
+	sonnet, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "two", LaunchChoice{Model: "sonnet", Effort: "low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.stopped(sonnet.ID, r.fake.Last(), "claude-sonnet-5-5", "", "default")
+	r.restartWith(codex)
+
+	lists := r.fake.ModelLists()
+	if err := r.svc.Start(sonnet.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.fake.ModelLists(); got != lists {
+		t.Errorf("a request with an effort read the list %d times at its launch", got-lists)
+	}
+	if err := r.svc.Start(haiku.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.fake.ModelLists(); got != lists+1 {
+		t.Errorf("a request with no effort read the list %d times at its launch", got-lists)
+	}
+	if spec := r.fake.Last().Spec; spec.Model != "haiku" || spec.Effort != "" {
+		t.Errorf("passed %q %q", spec.Model, spec.Effort)
+	}
+}
+
+// a model list that has since given a conversation's model levels refuses
+// its launch until the operator chooses one; the settings' effort is not
+// copied. claude's refusal is errChooseEffort, the others' errChooseLevel.
+func TestAListThatGivesTheModelLevelsRefusesTheLaunch(t *testing.T) {
+	r, codex := modelRig(t)
+	plain := codexCatalog()
+	plain.Models = append(plain.Models, harness.ModelOption{ID: "gpt-plain"})
+	codex.SetCatalog(plain)
+	x, err := r.svc.StartConversation(r.project.ID, model.HarnessCodex, "", "one", LaunchChoice{Model: "gpt-plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.stopped(x.ID, codex.Last(), "gpt-plain", "", "")
+	haiku, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "two", LaunchChoice{Model: "haiku"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.stopped(haiku.ID, r.fake.Last(), "claude-haiku-4-5", "", "default")
+
+	levels := []string{"low", "high"}
+	for i := range plain.Models {
+		if plain.Models[i].ID == "gpt-plain" {
+			plain.Models[i].Efforts = levels
+		}
+	}
+	codex.SetCatalog(plain)
+	codex.SetSettings(model.TurnSettings{Effort: "high"})
+	claude := claudeCatalog()
+	for i := range claude.Models {
+		if claude.Models[i].ID == "haiku" {
+			claude.Models[i].Efforts = levels
+		}
+	}
+	r.fake.SetCatalog(claude)
+	r.restartWith(codex)
+
+	r.wantRefused(x.ID, codex, errChooseLevel)
+	r.wantRefused(haiku.ID, r.fake, errChooseEffort)
+	if outcome := r.setModel(haiku.ID, "haiku", "low"); outcome != ModeStored {
+		t.Fatalf("outcome = %q", outcome)
+	}
+	if err := r.svc.Start(haiku.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// a launch whose request holds no effort, when the model list cannot be
+// read, is refused: mega cannot tell whether the model takes one, and the
+// settings' effort is not copied. launching again reads the list again. a
+// request that holds an effort launches while the list cannot be read.
+func TestAnUnreadListRefusesALaunchWithNoEffort(t *testing.T) {
+	r, codex := modelRig(t)
+	haiku, err := r.svc.StartConversation(r.project.ID, model.HarnessClaude, "", "one", LaunchChoice{Model: "haiku"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.stopped(haiku.ID, r.fake.Last(), "claude-haiku-4-5", "", "default")
+	sonnet := r.start("two")
+	r.stopped(sonnet.ID, r.fake.Last(), "claude-sonnet-5-5", "", "default")
+	r.restartWith(codex)
+
+	r.fake.FailModels(errors.New("the model list failed"))
+	r.wantRefused(haiku.ID, r.fake, errModelsUnread)
+	if err := r.svc.Start(sonnet.ID); err != nil {
+		t.Fatalf("a request with an effort: %v", err)
+	}
+	r.fake.FailModels(nil)
+	lists := r.fake.ModelLists()
+	if err := r.svc.Start(haiku.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.fake.ModelLists(); got != lists+1 {
+		t.Errorf("the launch after a failed list read it %d times", got-lists)
+	}
+	if spec := r.fake.Last().Spec; spec.Model != "haiku" || spec.Effort != "" {
 		t.Errorf("passed %q %q", spec.Model, spec.Effort)
 	}
 }

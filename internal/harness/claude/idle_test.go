@@ -74,7 +74,7 @@ func TestFirstInitAfterReadyReportsADifferentMode(t *testing.T) {
 	r.handle([]byte(`{"type":"ready","version":"2.1.318","model":"m"}`))
 	r.handle([]byte(`{"type":"event","msg":{"type":"system","subtype":"init","session_id":"edfe4ade-9f59-4db3-89bc-75fcc8b52c44","permissionMode":"plan","model":"m"}}`))
 	reports := modeEvents(sink.events)
-	if len(reports) != 1 || reports[0].Facts.PermissionMode != "plan" || reports[0].Facts.ModeConfirmed {
+	if len(reports) != 1 || reports[0].Facts.PermissionMode != "plan" {
 		t.Fatalf("reports = %+v", reports)
 	}
 }

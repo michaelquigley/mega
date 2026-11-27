@@ -205,7 +205,6 @@ func (s *Service) liveLocked(conversationID string) (*live, error) {
 		return nil, err
 	}
 	l := &live{id: conversationID, log: log, seen: make(map[string]bool), pendingAt: make(map[string]time.Time), answering: make(map[string]bool)}
-	var legacyImport bool
 	for _, ev := range evs {
 		if ev.NativeID != "" {
 			l.seen[ev.NativeID] = true
@@ -216,20 +215,6 @@ func (s *Service) liveLocked(conversationID string) (*live, error) {
 		}
 		if ev.Kind != model.EventRuntime {
 			continue
-		}
-		// Old imports wrote resuming before their result. A failed import
-		// stays in the timeline and leaves the runtime fault alone.
-		switch ev.Status {
-		case model.StatusResuming:
-			legacyImport = true
-		case model.StatusError:
-			if legacyImport {
-				legacyImport = false
-				continue
-			}
-		case model.StatusResumed, model.StatusStarting, model.StatusStarted,
-			model.StatusStopped, model.StatusUnsupervised:
-			legacyImport = false
 		}
 		l.noteRuntime(ev.Status)
 	}

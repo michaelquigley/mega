@@ -31,7 +31,12 @@
 // started, and a turn recorded before mega kept what it ran with its time
 // alone, with its date from another day; each prompt's time as its title,
 // "Imported" on one from outside; every time in the service's zone while
-// the page reports UTC. and a pi conversation: pi's own words about
+// the page reports UTC. and an older log: its choice_filled row, a mode
+// report flagged mode_confirmed and an old failed import each shown as a row
+// of its kind and paged, the import marking an error until the next start;
+// a registry entry with no model left unfilled at start-up, its launch
+// refused with what to choose, a model chosen for it on the control bar while
+// idle, and the launch then made. and a pi conversation: pi's own words about
 // how it asks under its header, its prompt, tool call and reply as the
 // others', the prompt's bookkeeping hidden, its gated tool call waiting on
 // the dialog rather than running, and its turn line with no mode. and
@@ -78,11 +83,12 @@ const C = (await t.launch(P.id, 'claude', 'echo\nhello', { name: 'imported' })).
 const gap = await t.launch(P.id, 'claude', 'echo\nmanaged before the release', { name: 'older gap' })
 const unknown = await t.launch(P.id, 'claude', 'echo\nunknown session', { name: 'unknown session' })
 const legacy = await t.launch(P.id, 'claude', 'echo\nlegacy completed', { name: 'legacy loss' })
-for (const id of [A, B, C, gap.id]) {
+const olderLog = await t.launch(P.id, 'claude', 'echo\nbefore the older lines', { name: 'older lines' })
+for (const id of [A, B, C, gap.id, olderLog.id]) {
   await t.idle(id)
   await api('POST', `/api/conversations/${id}/release`)
 }
-await until('all released', async () => (await convOf(A)).state === 'none' && (await convOf(B)).state === 'none' && (await convOf(C)).state === 'none' && (await convOf(gap.id)).state === 'none')
+await until('all released', async () => (await Promise.all([A, B, C, gap.id, olderLog.id].map(convOf))).every((c) => c.state === 'none'))
 await t.stop()
 const logOf = (id) => join(t.dir, 'data', 'conversations', id, 'events.jsonl')
 // work done on the session outside mega, which mega neither marks nor shows.
@@ -118,6 +124,20 @@ const legacyEvents = [
 ]
 writeLog(legacy.id, [...prior, ...legacyEvents.map((ev, i) => ({ ...ev, seq: prior.at(-1).seq + i + 1 }))])
 rewriteConversation(legacy.id, (row) => row.replace(/runtime: none/, 'runtime: unsupervised'))
+// lines only earlier builds wrote, read as today's build reads them: the
+// one-time fill of a request, a mode report flagged as only confirming, and
+// a failed import of the old form. the registry entry lacks a model, as one
+// from before every request was concrete.
+const olderPrior = readLog(olderLog.id)
+const olderAt = Date.parse(olderPrior.at(-1).at)
+const olderLines = [
+  { kind: 'runtime', status: 'choice_filled', origin: 'service', text: 'filled in from what the harness last reported', facts: { model: 'fake-opus-1', permission_mode: 'default' } },
+  { kind: 'runtime', status: 'mode_changed', origin: 'managed', facts: { permission_mode: 'plan', mode_confirmed: true } },
+  { kind: 'runtime', status: 'resuming', origin: 'service' },
+  { kind: 'runtime', status: 'error', origin: 'service', text: 'native history could not be read: an old import' },
+]
+writeLog(olderLog.id, [...olderPrior, ...olderLines.map((ev, i) => ({ ...ev, seq: olderPrior.at(-1).seq + i + 1, at: new Date(olderAt + (i + 1) * 1000).toISOString() }))])
+rewriteConversation(olderLog.id, (row) => row.replace(/^[ \t]+model: .*\n/m, ''))
 const genA = appendTurns(logOf(A), 20000, 1)
 const genB = appendTurns(logOf(B), 20000, 2)
 appendNative(logOf(B))
@@ -927,6 +947,44 @@ await page.getByRole('menuitem', { name: 'Release' }).waitFor()
 check((await transcriptItem.count()) === 0, 'More offers no transcript')
 await moreMenu.click()
 check((await fetch(`${url}/api/conversations/${gap.id}/native-transcript`)).status === 404, 'the transcript route is gone')
+
+// An older log is read as today's build reads it. Its fill, its flagged mode
+// report and its old failed import each show as a row of their kind, with
+// their text, and page; the old failure marks an error until the next start.
+// Nothing fills the request at start-up: a launch is refused, saying to
+// choose a model on the control bar, and launches once one is chosen there.
+await page.goto(`${url}/#/c/${olderLog.id}`)
+await page.locator('.events p.system', { hasText: 'native history could not be read' }).waitFor()
+const olderRows = await page.locator('.events p.system').allTextContents()
+const rowOf = (pattern) => olderRows.find((row) => pattern.test(row))
+check(
+  rowOf(/^Runtime choice_filled · fake-opus-1: filled in from what the harness last reported$/) && rowOf(/^Permission mode plan$/) && rowOf(/^Runtime resuming$/) && rowOf(/^Runtime error: native history could not be read: an old import$/),
+  `each older line shows as a row of its kind, with its text: "${olderRows.slice(-4).join('", "')}"`,
+)
+const olderTail = (await api('GET', `/api/conversations/${olderLog.id}/events?turns=1`)).body
+check(
+  olderLines.every((line) => olderTail.events.some((ev) => ev.status === line.status)) && olderTail.events.some((ev) => ev.text === 'before the older lines'),
+  'the newest turn, read as a page, holds the older lines after it',
+)
+const olderView = await convOf(olderLog.id)
+check(olderView.attention === 'error', `the old failed import, the log's last runtime line, marks an error until the next start: ${olderView.attention}`)
+check(!olderView.model_choice && olderView.effort_choice === 'medium' && olderView.last_seq === olderPrior.at(-1).seq + olderLines.length, `the start filled nothing and recorded nothing: model "${olderView.model_choice ?? ''}", last ${olderView.last_seq}`)
+const refused = await api('POST', `/api/conversations/${olderLog.id}/prompt`, { text: 'echo\nafter the older lines' })
+check(refused.status === 400 && refused.body.message === 'this conversation names no model, so choose one on the control bar', `a launch with no model is refused with what to choose: ${refused.status} "${refused.body.message}"`)
+await page.locator('.events p.system', { hasText: 'the launch failed: this conversation names no model' }).waitFor()
+check((await convOf(olderLog.id)).state === 'none', 'the refusal is recorded as any refused launch, and nothing runs')
+const olderPickers = page.locator('form.reply .control-bar .model-control select')
+await olderPickers.nth(0).selectOption('fake-sonnet')
+await page.getByRole('button', { name: 'Apply the model and effort', exact: true }).click()
+await until('the model chosen on the bar', async () => (await convOf(olderLog.id)).model_choice === 'fake-sonnet')
+check((await convOf(olderLog.id)).effort_choice === 'medium', `the bar chose a model for an idle conversation that had none: ${(await convOf(olderLog.id)).model_choice} · ${(await convOf(olderLog.id)).effort_choice}`)
+check((await api('POST', `/api/conversations/${olderLog.id}/prompt`, { text: 'echo\nafter the older lines' })).status === 202, 'with a model chosen, it launches')
+await t.idle(olderLog.id)
+const olderLaunch = (await api('GET', `/api/conversations/${olderLog.id}/events?since=0`)).body.events.findLast((ev) => ev.status === 'started')
+const olderAfter = await convOf(olderLog.id)
+check(olderLaunch?.facts?.model === 'fake-sonnet-1' && olderAfter.attention !== 'error', `it runs on the model chosen, and the start cleared the old mark: ${olderLaunch?.facts?.model}, ${olderAfter.attention}`)
+await api('POST', `/api/conversations/${olderLog.id}/release`)
+await until('the older conversation released', async () => (await convOf(olderLog.id)).state === 'none')
 
 // Losing a first launch before its identity was recorded still lets the
 // operator acknowledge the loss and remove the Mega conversation.
