@@ -1,5 +1,4 @@
 building:
-  - one-route-for-recorded-history.md
 horizon:
   - start-up-reads-every-log.md
   - request-and-what-ran-follow-ups.md
@@ -48,6 +47,7 @@ researching:
   - first-tagged-release.md
   - mega-on-macos-and-windows.md
 evaluating:
+  - a-failed-read-after-a-reconnect-is-tried-again.md
   - a-failed-model-list-launches-claude-in-default-mode.md
   - the-pi-dialog-row-step-reads-the-row-too-early.md
   - reading-the-workspace-starts-nothing.md

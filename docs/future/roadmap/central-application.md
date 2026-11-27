@@ -22,3 +22,13 @@ That is this card, in his present words, and it sharpens two things the card of 
 
 What the first card got right and still holds: environments dial out, nothing is published, a login stands in front, and a cached last-seen state is never an authority.
 
+## how a recorded event reaches a page on another machine, 2026-11-25
+
+`simplify-the-core` tried giving recorded events one route to the page: the stream carried an event's number, and the page read the event. On one machine a read costs about a millisecond. Through a relay it is a second trip for every event, and while a read is slow a tool row keeps its spinner and the start of a streaming reply can be cleared. It was set aside for that, and for adding lines where it was meant to remove them. The work is on the branch `tried/one-route-for-recorded-history`.
+
+The spec leaves "the event retention and replay contract once a central application caches state" open, and this is part of it. Two shapes are on the table for when it is designed:
+
+- **Announce and read,** as tried: simple to make whole after a reconnect, and two trips for every event.
+- **The stream as the one route:** it carries the events and resumes from the last one the page was given, so nothing is read for live events at all. That is one trip, and it needs the service to replay from a number.
+
+Today the page has both routes and merges them, in `ui/src/log.ts`.

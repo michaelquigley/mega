@@ -84,8 +84,6 @@ The first slice kept two facts about a conversation in two places: its runtime s
 
 **The page has one value for where it stands.** It has two parts, both true at once: what the page knows of the workspace (nothing yet, unreachable, unreadable, current, or only what it last read), and what the service last said about itself, if anything (shutdown asked, or shut down). It is worked out in one place, and everything on the page reads it from there.
 
-**Recorded history has one route to the page.** The stream says how far a conversation has got and carries the text still being written; the events come from the history read, and a read that fails is still owed.
-
 None of this changes what an operator sees when nothing has gone wrong, and none of it touches the promises: a session is resumed by its exact id, permissions are never weakened, nothing is answered for the operator, and a state mega cannot vouch for is never shown as certain.
 
 ## First slice

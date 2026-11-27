@@ -23,13 +23,14 @@ Where things go:
 
 ## What each suite covers
 
-- **`conversation.mjs`** (104 steps): the conversation view, on long conversations and in its layout. Its service runs in `Asia/Kolkata` (`TZ`) and its page in UTC, as a hardened browser reports, so every time it checks is the service's. Two conversations are made about twenty thousand events long with `lib/gen.mjs` while the service is stopped. It checks the following:
+- **`conversation.mjs`** (109 steps): the conversation view, on long conversations and in its layout. Its service runs in `Asia/Kolkata` (`TZ`) and its page in UTC, as a hardened browser reports, so every time it checks is the service's. Two conversations are made about twenty thousand events long with `lib/gen.mjs` while the service is stopped. It checks the following:
   - opening reads only the tail: ten turns, at the newest reply, saying how much is earlier;
   - Show earlier and Show all, each holding the view;
   - the native events toggle refetching what is shown;
   - a log that ends in a native event read through it;
   - a streamed reply re-rendering only the tail with no long task;
   - a dropped stream naming what it waits for, and its reconnect reading only what it missed;
+  - on a second page that hears nothing while a reply is recorded, a history read that fails after a reconnect named while it waits, tried again on that connection, and the reply arriving; against the page before this step, it fails;
   - each upward scroll made with the mouse wheel (`toTop`), as a reader makes it;
   - a held, then failed, opening read naming the request, its time, the attempt and the error;
   - the connecting view naming a failing workspace read;

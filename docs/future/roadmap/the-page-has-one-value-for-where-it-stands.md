@@ -46,4 +46,12 @@ The five values, the gate, and what the page looks like when nothing has gone wr
 
 ## order
 
-Easier after `one-route-for-recorded-history`, which takes the conversation's events out of what the page has to reconcile. Lands on `main`.
+It was to follow a piece that gave a conversation's events one route to the page. That piece was set aside on 2026-11-25, so this one takes the page's two routes as they are: it is about what the page knows of the workspace, not about how a conversation's history is read. Lands on `main`.
+
+## note, 2026-11-25: behind on the open conversation's history
+
+Terminus raised `reconnect-gap-shows-completed-tool-running` (blocking, `honest-runtime-state`) on `a-failed-read-after-a-reconnect-is-tried-again`. A tool finishes while the stream is down, and its turn goes on. After the reconnect the workspace read lands before the history read brings the tool's result. The page is then no longer last known, the old tool row shows its spinner, and the activity line can name the finished tool as current work.
+
+The window opens on every reconnect, for as long as the history read takes. Before that card, a failed history read was never tried again, so the window stayed open until the conversation was opened again or the stream reconnected. That card shortened it to the retry's backoff. It was not fixed there, at Michael's word.
+
+Being behind on the open conversation's history is part of where the page stands: the conversation's `last_seq` in the workspace is past the page's `through`. The tool spinner and the activity line's tool name are two readers that could take it from this card's one value, rather than each working it out or not at all.

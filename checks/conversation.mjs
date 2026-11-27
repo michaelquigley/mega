@@ -15,7 +15,8 @@
 // view; a log ending in a native event is read through it and goes idle; a
 // streamed reply keeps the rendered rows at the tail with no long task; a
 // dropped stream names what it waits for in the footer, and the reconnect
-// reads only what was missed; a held, then failed, opening read names the
+// reads only what was missed; that read, failed, is named and tried again on
+// the same connection, and brings what the page missed; a held, then failed, opening read names the
 // request, its time, the attempt and the error, and lands on the retry; the
 // connecting view names a failing workspace read. and the column: the
 // conversation's 960px column centred in its pane, with the panel open and
@@ -60,7 +61,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { seedExchange } from '../shim/claude/fake/sessionStore.mjs'
 import { appendImported, appendNative, appendTurns } from './lib/gen.mjs'
-import { suite } from './lib/mega.mjs'
+import { reconnectable, suite } from './lib/mega.mjs'
 
 // the service runs in one time zone and the pages in another, UTC, as a
 // hardened browser reports; every time the page says is the service's.
@@ -642,6 +643,59 @@ await until('the reconnect read', async () => reads.some((u) => /events\?since=\
 // before the stream dropped, so it asks from wherever its own through stood.
 const since = Number(/events\?since=(\d+)$/.exec(reads.find((u) => u.includes('since=')))[1])
 check(reads.length === 1 && since >= through, `a reconnect reads only what it missed, after ${through} or later: ${reads.join(', ')}`)
+
+// a history read that fails after a reconnect is tried again on that
+// connection, and the stretch it covers arrives: from where the page was to
+// where the conversation is now. the page first hears nothing while a reply
+// is recorded, so only that read can bring it. the first page leaves B, so
+// the reading position is this page's alone.
+await page.evaluate((id) => {
+  location.hash = `#/p/${id}`
+}, P.id)
+await page.locator('article.detail').waitFor()
+const rp = await t.page()
+const rpStream = await reconnectable(rp)
+let sockets = 0
+rp.on('websocket', () => sockets++)
+const rpReads = []
+rp.on('request', (r) => {
+  if (r.url().includes(`/conversations/${B}/events?since=`)) rpReads.push(r.url().replace(url, ''))
+})
+await rp.goto(`${url}/#/c/${B}`)
+await until('B shown on the second page', async () => (await rp.getByText('Line 60 of a streamed reply').count()) > 0, 30000)
+await rp.locator('.side-foot .stream-connected').waitFor({ timeout: 30000 })
+rpStream.dropFrames(() => true)
+check((await api('POST', `/api/conversations/${B}/prompt`, { text: 'echo\nRECORDED-WHILE-UNHEARD' })).status === 202, 'a reply is recorded that the page hears nothing of')
+await t.idle(B)
+const unheard = rp.locator('.events .message.assistant', { hasText: 'RECORDED-WHILE-UNHEARD' })
+check((await unheard.count()) === 0, 'the page has not been given it')
+let failedOnce = false
+const failFirst = (route) => {
+  if (failedOnce) return route.continue()
+  failedOnce = true
+  return route.fulfill({ status: 500, contentType: 'application/json', body: '{"code":"internal","message":"failed by the check"}' })
+}
+const rpSince = new RegExp(`/api/conversations/${B}/events\\?since=`)
+await rp.route(rpSince, failFirst)
+const socketsBefore = sockets
+rpReads.length = 0
+rpStream.dropFrames(null)
+await rpStream.drop()
+await until('the reconnect', async () => sockets === socketsBefore + 1)
+await until('the failed read named', async () => /Loading history: GET \/api\/conversations\/[0-9a-f]+\/events\?since=\d+ · [^·]+ · last error: failed by the check/.test((await rp.locator('.loading').textContent().catch(() => '')) ?? ''))
+check(true, `the failed read says what it waits for: "${await rp.locator('.loading').textContent()}"`)
+await until('the stretch it covers arrives', async () => (await unheard.count()) === 1)
+const sinceAsked = rpReads.map((u) => Number(/since=(\d+)/.exec(u)[1]))
+check(
+  failedOnce && sockets === socketsBefore + 1 && rpReads.length >= 2 && sinceAsked[1] === sinceAsked[0] && (await rp.locator('.loading').count()) === 0,
+  `a read that failed after a reconnect is tried again on that connection, and what it covers arrives: ${rpReads.join(', ')}`,
+)
+await rpStream.catchUp()
+await until('rp caught up', async () => (await rp.locator('.side-foot .stream').textContent()) === 'Live')
+await until('read through where B is now', async () => (await convOf(B)).read_seq === (await convOf(B)).last_seq)
+check(true, `after the reconnect the page read on from ${sinceAsked[0]} to where B is now, and its reading position followed: ${(await convOf(B)).last_seq}`)
+await rp.unroute(rpSince, failFirst)
+await rp.close()
 
 // loading says what it waits for: a held, then failing, opening read. the
 // check holds each response until it has seen what the page says meanwhile.

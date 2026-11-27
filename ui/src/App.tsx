@@ -155,25 +155,6 @@ export function App() {
     return state.current
   }, [])
 
-  // a reconnect fetches only what the page missed: everything after the
-  // newest event it has been given.
-  const catchUp = useCallback(async (id: string, log: ConversationLog) => {
-    const sentOn = connection.current
-    try {
-      const read = await getHistory(id, { since: log.through, native: log.native })
-      setLog((current) => (current && current.id === id ? caughtUp(current, read) : current))
-    } catch (error) {
-      if (!shuttingDown(error)) {
-        setLoadError(error instanceof Error ? error.message : String(error))
-      } else if (sentOn === connection.current) {
-        // the service has closed: as a dropped stream, the connection is
-        // over, so no workspace read sent on it can mark the page current.
-        connection.current++
-        setSynced(false)
-      }
-    }
-  }, [])
-
   // opening or switching to a conversation reads its newest turns and the turn
   // in flight, never the whole history. a read that fails is tried again, after
   // 1 s and then doubling to at most 8 s, and historyWaiting says what the
@@ -215,6 +196,64 @@ export function App() {
       window.clearTimeout(timer)
     }
   }, [selectedConversationId])
+
+  // a reconnect fetches only what the page missed: everything after the
+  // newest event it has been given. a read that fails is tried again on the
+  // opening read's schedule, saying so in historyWaiting, until one succeeds,
+  // the connection changes, or the conversation is no longer the open one.
+  const catchUp = useCallback((id: string) => {
+    const sentOn = connection.current
+    const since = Date.now()
+    let attempts = 0
+    let error: string | null = null
+    // shown is the waiting line this read last set; done takes it away, and
+    // never a line another read has set since.
+    let shown: (Waiting & { id: string }) | null = null
+    const show = (waiting: Waiting & { id: string }) => {
+      shown = waiting
+      setHistoryWaiting(waiting)
+    }
+    const done = () => setHistoryWaiting((waiting) => (waiting !== null && waiting === shown ? null : waiting))
+    const open = () => {
+      const log = logRef.current
+      return sentOn === connection.current && selectedRef.current === id && log !== null && log.id === id && log.loaded ? log : null
+    }
+    const attempt = async () => {
+      const log = open()
+      if (!log) {
+        done()
+        return
+      }
+      attempts++
+      const read: HistoryRead = { since: log.through, native: log.native }
+      const what = `GET ${historyPath(id, read)}`
+      if (error !== null) {
+        show({ id, what, since, attempts, error })
+      }
+      try {
+        const history = await getHistory(id, read)
+        setLog((current) => (current && current.id === id ? caughtUp(current, history) : current))
+        done()
+      } catch (failure) {
+        if (shuttingDown(failure)) {
+          if (sentOn === connection.current) {
+            // the service has closed: as a dropped stream, the connection is
+            // over, so no workspace read sent on it can mark the page current.
+            connection.current++
+            setSynced(false)
+          }
+          done()
+        } else if (open()) {
+          error = failure instanceof Error ? failure.message : String(failure)
+          show({ id, what, since, attempts, error })
+          window.setTimeout(() => void attempt(), Math.min(1000 * 2 ** (attempts - 1), 8000))
+        } else {
+          done()
+        }
+      }
+    }
+    void attempt()
+  }, [])
 
   // Show earlier and Show all: the turns before what is shown, or everything.
   const [earlierWaiting, setEarlierWaiting] = useState<(Waiting & { id: string }) | null>(null)
@@ -268,7 +307,7 @@ export function App() {
     const current = logRef.current
     // a log still waiting for its opening read gets it from the retry above.
     if (id && current && current.id === id && current.loaded) {
-      void catchUp(id, current)
+      catchUp(id)
     }
   }, [refresh, catchUp])
 

@@ -233,6 +233,18 @@ No environment is resolved in the background. Michael restarted on it before com
 
 The smaller choice was only to retry the read a reconnect makes. Michael took the card's: one route. Measured first, it is modest in lines, some forty to sixty on the page and almost nothing in the service, since adoption still uses the code that copies an event. What it buys is one route where there were two, and catching up after a reconnect becoming the same loop that runs for every event. It changes how every event reaches the page, so it carries the most risk of what is left. Michael: "we should treat it with the same trial approach we used for the last piece we weren't sure about... and i'll try it for a bit and we'll decide?"
 
+### P13. Piece 7 as one route is set aside (ruled 2026-11-25)
+
+It was built with every gate passed and not committed. Against an estimate of forty to sixty lines removed, the page grew by about fifty-five. Michael: "it _sounds_ like this simplification ended up not being as worth it as we'd hoped? the goal is eventually to make the harness orchestration headless, reachable from a central ui... and the overhead of the additional remote hops might not play so well with this change." It makes every event two trips where one served.
+
+The work is on the branch `tried/one-route-for-recorded-history`, made at his word: "if you want to create a branch to stash the work, we can do that." Piece 7 is now the retry alone, `a-failed-read-after-a-reconnect-is-tried-again`. The route question is on `central-application`, where the answer may be the opposite: the stream as the one route.
+
+For the planning agent: the estimate was made by counting what would go and not what would have to be written. The remote cost was on the card as one line and was given too little weight against a direction the spec already states.
+
+### P14. Piece 7 as the retry is built (2026-11-25)
+
+The read a reconnect makes is tried again when it fails. `ui/src` grew by 40 lines with comments, where the estimate was about ten: the retry brought its schedule, its waiting line and its stopping conditions. An untrue banner went with it. A failed history read used to say the workspace could not be read.
+
 ### The plan as it stands
 
 The epic's section "the plan after the review of 2026-11-24" has the order: four small defects as one batch, piece 3, piece 4 with its trial, piece 6, pieces 7 and 8, the adoption limit and then the older-log rules, and then the full-tree review.

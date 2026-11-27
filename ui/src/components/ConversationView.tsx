@@ -13,7 +13,8 @@ interface ConversationViewProps {
   conversation: Conversation
   project: Project
   log: ConversationLog | null
-  // the opening read and a read of earlier history, while the page waits on them.
+  // the opening read, or a reconnect's read that has failed, and a read of
+  // earlier history, while the page waits on them.
   loading: Waiting | null
   loadingEarlier: Waiting | null
   // load the ten turns before what is shown, or everything before it.
@@ -170,7 +171,7 @@ export function ConversationView(props: ConversationViewProps) {
             : undefined
         }
       />
-      {(log === null || !log.loaded) && <Loading waiting={loading} />}
+      {(log === null || !log.loaded || loading) && <Loading waiting={loading} />}
 
       <InputPanel
         conversation={conversation}
