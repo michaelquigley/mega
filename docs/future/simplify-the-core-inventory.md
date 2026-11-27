@@ -87,7 +87,7 @@ Until the first tagged release, mega keeps no rule whose only subject is somethi
 - **Safety is not relaxed:** where an old log leaves it unclear whether a runtime is alive, the conversation is unsupervised.
 - **A change that would break reading gets a conversion** at start-up, carried for a few builds and then deleted. After that, a workspace that skipped those builds is told to run the older build once first.
 - **The fallback is adoption.** Michael: "my naive understanding is that we can always just do a clean full-import (adopt) of a session?" It is right. A conversation can be removed and its session adopted again, and the harness's own history comes back whole. What only mega recorded does not: start and stop rows, approval rows, what each turn ran with, the name and the label.
-- **A limit found later the same day.** `Adopt` refuses a session discovery does not list, and Codex and pi list only the 50 newest in a checkout. "Always" was more than had been checked. The fallback holds for a session that is new or was active when mega went down, and can fail for one left alone for weeks in a busy checkout. No real checkout on this machine is past 50 today. The card is `adoption-reaches-any-session-in-the-checkout`, to be built before the rules for older logs are removed.
+- **A limit found later the same day.** `Adopt` refuses a session discovery does not list, and Codex and pi list only the 50 newest in a checkout. "Always" was more than had been checked. The fallback holds for a session that is new or was active when mega went down, and can fail for one left alone for weeks in a busy checkout. The card is `adoption-reaches-any-session-in-the-checkout`, to be built before the rules for older logs are removed. "No real checkout on this machine is past 50", written here that day, was a count of Codex alone: on 2026-11-26 one pi checkout held 183 sessions. The card removes the cut, so that Codex and pi list a whole checkout as Claude does.
 
 What it puts in question: the one-time fill in `internal/service/choice.go`, the replay of old import markers in `internal/service/live.go`, and the `mode_confirmed` rows on the page. Open: whether Michael's other two machines still hold conversations from before 2026-11-13, which the fill has not yet run on.
 
@@ -244,6 +244,12 @@ For the planning agent: the estimate was made by counting what would go and not 
 ### P14. Piece 7 as the retry is built (2026-11-25)
 
 The read a reconnect makes is tried again when it fails. `ui/src` grew by 40 lines with comments, where the estimate was about ten: the retry brought its schedule, its waiting line and its stopping conditions. An untrue banner went with it. A failed history read used to say the workspace could not be read.
+
+### P15. Piece 8 is taken out, and its card removed (ruled 2026-11-26)
+
+Michael: "if you think it's something that won't impact anything now and will likely be adjusted as part of the future multi-tier implementation, then sure... we can leave it. do we even need the card in that case... if it's likely to be an obvious cleanup during that work?" It changed almost no behaviour, three page pieces in a row had come out larger than estimated, and the central application will redraw what the page knows of where it stands. What the card had worked out is on `central-application`, with the one finding matched to it.
+
+What is left of the epic: the adoption limit, the older-log rules, the Claude Code version past the tested range, and one closing full-tree review.
 
 ### The plan as it stands
 

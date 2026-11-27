@@ -44,5 +44,5 @@ Built on 2026-11-25. `catchUp` in `ui/src/App.tsx` tries the read again on the o
 - **The workspace's error banner no longer appears for this read.** It said "The workspace could not be read", which was untrue of a failed history read, and it set off the workspace's retry in place of the history's. The line "Loading history:" shows instead, on a loaded conversation too.
 - **The check step was lifted from the branch** `tried/one-route-for-recorded-history`, with one change. Against the page as it was it fails: the page named the workspace and never read again.
 
-The last terminus review, `12b235319ef7`, was `not_clean` on one finding, `reconnect-gap-shows-completed-tool-running`: a tool that finishes while the stream is down keeps its spinner until the history read lands. The window is open on every reconnect and this card shortened it. Michael left it for `the-page-has-one-value-for-where-it-stands`, whose card has the note.
+The last terminus review, `12b235319ef7`, was `not_clean` on one finding, `reconnect-gap-shows-completed-tool-running`: a tool that finishes while the stream is down keeps its spinner until the history read lands. The window is open on every reconnect and this card shortened it. Michael left it. The note is on `central-application`, where what the page knows of where it stands is to be drawn.
 

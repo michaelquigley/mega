@@ -32,3 +32,16 @@ The spec leaves "the event retention and replay contract once a central applicat
 - **The stream as the one route:** it carries the events and resumes from the last one the page was given, so nothing is read for live events at all. That is one trip, and it needs the service to replay from a number.
 
 Today the page has both routes and merges them, in `ui/src/log.ts`.
+
+## what the page knows of where it stands, 2026-11-26
+
+`simplify-the-core` had a piece, `the-page-has-one-value-for-where-it-stands`, to gather into one function what the page knows of the workspace and what the service last said about itself. It was taken out on 2026-11-26 and its card removed. It changed almost no behaviour, and a page that reaches an environment through this application has more to know: whether the application answers, whether the environment is connected to it, and whether what is shown is live or last seen. So the one value is drawn here, once, for both hops. Michael: "if it's likely to be an obvious cleanup during that work", no card is needed for it.
+
+What that card had worked out, for whoever draws it:
+
+- **The page's standing has two parts, both true at once:** what it knows of the workspace (nothing yet, unreachable, unreadable, current, or only what it last read, the five values in `ui/src/stream.ts`), and what the service last said about itself (shutdown asked, or shut down).
+- **A read of the workspace counts only if it was asked for on the connection the page is on now.**
+- **The reply to the page's own shutdown request sets nothing when it succeeds.** That the shutdown finished comes only from the stream. Until then the banner says only that it was asked for.
+- **Being behind on the open conversation's history is part of where the page stands.** After a reconnect the workspace read can land before the history read, and a tool that finished meanwhile keeps its spinner until the history arrives. Terminus raises this as `reconnect-gap-shows-completed-tool-running`. The window opens on every reconnect and closes when the read lands. It was left as it is, at Michael's word, on 2026-11-25. A review that raises it again is matched to this card.
+
+Cases the card listed to show it right: a page that reconnects to a replacement service already armed for shutdown shows that gate and not the one it remembered; a workspace read that fails on a connected stream says so, holds the controls and acknowledges no read; a workspace response that arrives after the page has moved to a later connection changes nothing; a shutdown request still in the browser reads as asked for, and not as runtimes being released; a reply to a shutdown request that arrives after the stream's last frame leaves the shutdown showing as finished, and a refusal takes the mark back.

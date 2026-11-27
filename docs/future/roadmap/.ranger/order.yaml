@@ -1,4 +1,5 @@
 building:
+  - adoption-reaches-any-session-in-the-checkout.md
 horizon:
   - start-up-reads-every-log.md
   - request-and-what-ran-follow-ups.md
@@ -21,18 +22,17 @@ horizon:
   - retired-conversations.md
 researching:
   - simplify-the-core.md
-  - the-page-has-one-value-for-where-it-stands.md
-  - adoption-reaches-any-session-in-the-checkout.md
   - an-older-log-is-read-as-todays-build-reads-it.md
+  - claude-code-21331-is-past-the-tested-range.md
+  - harden-requests-stops-and-restarts.md
+  - first-tagged-release.md
   - codex-sessions-leave-an-empty-tmpgit-on-the-host.md
   - the-codex-round-trips-leave-an-empty-tmpgit-behind.md
   - shown-environment-values-can-outlive-their-resolution.md
   - the-failed-model-list-sentence-overstates-the-refusal.md
-  - claude-code-21331-is-past-the-tested-range.md
   - a-checks-suite-empties-its-scratch-before-it-knows-its-port-is-free.md
   - the-register-dialogs-prefill-can-land-on-what-is-typed.md
   - codex-discovery-e2e-reads-its-own-thread.md
-  - harden-requests-stops-and-restarts.md
   - escape-interrupts-a-running-turn.md
   - keyboard-shortcut-pop-open.md
   - darklight-mode-toggle.md
@@ -44,7 +44,6 @@ researching:
   - imported-turns-carry-their-own-times.md
   - the-checks-run-in-a-browser-michael-does-not-use.md
   - reviewing-changes-from-outside.md
-  - first-tagged-release.md
   - mega-on-macos-and-windows.md
 evaluating:
   - a-failed-read-after-a-reconnect-is-tried-again.md
