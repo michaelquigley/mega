@@ -53,7 +53,7 @@ Built so far: pieces 1, 2 and 5, and the four removals listed below. What remain
 3. Built on 2026-11-25, and kept after Michael's trial: piece 4, `a-turn-is-inferred-from-a-message`, in the simpler direction ruled on 2026-11-24: a turn is what the harness says it is. The card for a Codex interrupt lost while a turn is starting closed with it.
 4. Built on 2026-11-25, and kept after Michael's trial: piece 6, `reading-the-workspace-starts-nothing`, in its larger size: no environment is resolved in the background at all.
 5. Built on 2026-11-25: piece 7, now `a-failed-read-after-a-reconnect-is-tried-again`: the read a reconnect makes is retried when it fails.
-6. `adoption-reaches-any-session-in-the-checkout`, then `an-older-log-is-read-as-todays-build-reads-it`, which waits on it. Both come before the first tagged release, since the rule that an older log is read as today's build reads it lapses there.
+6. Built on 2026-11-26: `adoption-reaches-any-session-in-the-checkout`. Codex and pi list a whole checkout, as Claude does. Then `an-older-log-is-read-as-todays-build-reads-it`, which waited on it and is a plan in building. Both come before the first tagged release, since the rule that an older log is read as today's build reads it lapses there.
 7. `claude-code-21331-is-past-the-tested-range`, so a release states a tested range that is true.
 8. The full-tree review resumes on `harden-requests-stops-and-restarts`.
 

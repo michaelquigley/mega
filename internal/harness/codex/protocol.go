@@ -98,12 +98,15 @@ type turn struct {
 }
 
 type threadListParams struct {
-	Cwd   string `dd:"cwd"`
-	Limit int    `dd:"limit"`
+	Cwd     string `dd:"cwd"`
+	Limit   int    `dd:"limit"`
+	SortKey string `dd:"sortKey"`
+	Cursor  string `dd:"cursor,+omitempty"`
 }
 
 type threadList struct {
-	Data []thread `dd:"data,+nullable"`
+	Data       []thread `dd:"data,+nullable"`
+	NextCursor string   `dd:"nextCursor,+nullable"`
 }
 
 type threadReadParams struct {

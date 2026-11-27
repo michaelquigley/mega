@@ -165,7 +165,7 @@ Installed defaults observed: `approvalPolicy: on-request`, `sandbox: {type: read
 
 - Launch: `initialize` + `initialized`, then `thread/start {cwd, approvalPolicy?, sandbox?}`; response carries `thread.id`, `thread.path` (rollout file), `model`, `approvalPolicy`, `sandbox`, `instructionSources` (the fixture `AGENTS.md` was listed). `thread/resume {threadId, cwd}` returns the stored turns.
 - Persistence: `~/.codex/sessions/YYYY/MM/DD/rollout-<timestamp>-<thread id>.jsonl` with `session_meta`, `turn_context`, `response_item/*`, `event_msg/*` (`task_started`, `task_complete`, `turn_aborted`, ...). A dead server leaves `turn_aborted`, not a dangling turn.
-- Discovery: `thread/list {cwd}` and `thread/read {threadId, includeTurns}` work against stored rollouts from any app-server process (`status: notLoaded`); `thread/loaded/list` shows threads loaded in that process.
+- Discovery: `thread/list {cwd}` and `thread/read {threadId, includeTurns}` work against stored rollouts from any app-server process (`status: notLoaded`); `thread/loaded/list` shows threads loaded in that process. `thread/list` pages at most 100 at a time, and under its default sort it can skip threads at a page boundary (follow-up 2026-11-26).
 - Turn lifecycle: `turn/started`, `item/started`, `item/completed`, `turn/completed {turn.status: completed|interrupted|failed}`, and `thread/status/changed {idle | active{activeFlags}}` where `activeFlags: ["waitingOnApproval"]` is the explicit input-required signal (schema also lists `waitingOnUserInput`).
 - Permission request: server-originated JSON-RPC request `item/commandExecution/requestApproval` with `command`, `cwd`, `reason`, `availableDecisions`; answered with `{decision: "accept"}` etc. Ids start at 0 per connection. `serverRequest/resolved {threadId, requestId}` is emitted when any client answers or the turn ends.
 - Explicit user question: `item/tool/requestUserInput` exists in the schema but never fired; server stderr said `request_user_input is unavailable in Default mode`. The model instead emitted an `agentMessage` with `delivery: "async"` and a `questions[]` array and polled with 60 s `sleep` items; the turn did not end on its own `[observed]`. The answer was accepted as the next `turn/start` after resume.
@@ -1023,6 +1023,36 @@ The probe in `probes/versions/` and the e2e round trips gained an idle model swi
 - **No message reaches the stream,** and no turn opens `[observed]`.
 - **The next turn ran on the new model,** `ollama/qwen3.8-27b` to `openai-codex/gpt-6-luna` at `low` `[observed]`. Since the default model is the operator's local one, the round trip switches to a hosted one.
 - **This is an e2e round trip, not a probe run:** pi has no versions probe.
+
+## Follow-up (2026-11-26): listing a whole checkout
+
+Mega's discovery used to cut Codex and pi at the 50 newest sessions in a checkout. Before the cut was removed, this follow-up checked whether each harness can list a whole checkout. Nothing was written to a harness's store. The Codex fixture checkout `codex-rt1` and the Claude fixture checkout `claude-rt1` were read in place. Only ids, times and counts were recorded, never a prompt.
+
+### Claude Code, Agent SDK 0.3.318
+
+- **`listSessions({ dir })` with no `limit` returned every session** `[observed]`. The shim's `list` gave 436 rows for `claude-rt1`, in 661 ms, and the checkout's folder in `~/.claude/projects` holds 436 session files, the same ids.
+- **The SDK's types give `limit` and `offset` as optional, with no default** `[docs]`. The bundle itself was not read.
+
+### codex-cli 0.166.0
+
+`probes/codex/probe.mjs pages --cwd DIR --limit N [--sort-key K] [--direction asc|desc]` follows `thread/list`'s `nextCursor` to the end. It names any thread the paged read missed against the same list read in pages of 100. Rerun it when Codex is upgraded.
+
+- **`thread/list` pages.** A page smaller than the checkout comes back with a `nextCursor`, and following it reaches the end, where `nextCursor` is null `[observed]`.
+- **A page holds at most 100 threads,** whatever `limit` asks for. A `limit` of 1000 returned 100 and a cursor `[observed]`. So no single call lists a checkout past 100.
+- **The whole list.** `codex-rt1` lists 344 threads, which matches the interactive rollouts on disk for it, 342 `vscode` and 2 `cli`. One `exec` rollout is left out by `thread/list`'s default `sourceKinds`, the interactive ones `[observed]`. In pages of 50 or 100 the list took 1.0 to 1.3 s after `initialize`.
+- **Under `created_at`, the default, the cursor skips threads that share a second** `[observed]`. When a page ends partway through threads created in the same second, the next page starts after that second, and the rest of them are never listed.
+  - The fixture has one such group of five.
+  - Newest first, pages of 1, 2 and 3 listed 340, 341 and 340 of the 344. Every missing thread was from that group.
+  - Ascending order, pages of 2, listed 340 and skipped the same way.
+  - Pages of 50 and 100 missed nothing only because no page boundary fell inside the group.
+  - The cursor's text is a whole-second time, such as `2026-11-25T21:05:37Z`.
+  - The schema says `backwardsCursor`, the cursor for reversing direction, is anchored so that same-second threads are not skipped. It promises nothing of the kind for `nextCursor` `[docs]`.
+- **Under `updated_at`, nothing was missed** `[observed]`. Pages of 1, 2 and 3 each listed 344 of the 344, across the fixture's one tie of two threads updated in the same second, with a page boundary inside it. The cursor's text carries milliseconds, such as `2026-11-26T02:05:44.478Z`, which is probably why. No thread id appears in either cursor. **This is observed, not promised by Codex.** Two threads updated in the same millisecond could still be split, and one tie of two is all the fixture had.
+- **What mega does with it.** Discovery pages by `updated_at`, 100 a page, to the end, and drops a thread id it has already listed. A thread updated while the list is read can move between pages and be missed once, and reopening the dialog reads the list again. Only discovery's one-minute deadline bounds the read.
+
+### pi 1.5.2
+
+- **Discovery is a scan of the checkout's session folder,** since the protocol lists no sessions `[docs]`. Every file in it was already read before the cut, so removing the cut reads nothing more. One pi checkout on this machine held 183 session files on 2026-11-26, as counted by the planning agent.
 
 ## Recommendations
 

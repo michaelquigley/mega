@@ -20,10 +20,15 @@
 // its title, the id small on one line), newest first; each harness's count
 // on its control and the held one counted; the filter; the look at a picked
 // session for each harness, beside the list; the terminal warning, pi's
-// saying it has no lock; and adopting. it saves shots/register.png and
+// saying it has no lock; and adopting. then a checkout with more sessions
+// than a page of codex's list and more than fifty, seeded into the fakes'
+// stores: every one listed, the filter by id and by first prompt, and the
+// oldest of each adopted. it saves shots/register.png and
 // shots/adopt-{narrow,1280,wide}.png.
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { seedThreads } from '../internal/harness/codex/fake/threads.mjs'
+import { seedSessions } from '../internal/harness/pi/fake/sessions.mjs'
 import { suite } from './lib/mega.mjs'
 
 const t = await suite('dialogs', { projectsRoot: '~/Repos' })
@@ -259,5 +264,67 @@ await ad.getByRole('textbox', { name: 'Name' }).fill('adopted from the dialog')
 await ad.getByRole('button', { name: 'Adopt' }).click()
 await until('adopted', async () => (await workspace()).conversations.some((c) => c.name === 'adopted from the dialog' && c.harness === 'claude'))
 check(true, 'adopting binds the picked session to a new conversation')
+
+// a checkout with more sessions than a page of codex's list, and more than
+// the fifty mega used to keep: each harness's fake store is seeded directly,
+// by the helper beside its fake, the oldest first. codex's threads are
+// created three to a second, the newest two alone in theirs, so the first
+// page of 100 ends inside a second, and a list read by creation time loses a
+// thread there, as codex's does.
+const manyPath = t.checkout('many', { git: true })
+const M = await t.register('many', manyPath)
+const base = Math.floor(Date.now() / 1000) - 86400 * 30
+const codexIDs = seedThreads(
+  home,
+  realpathSync(manyPath),
+  Array.from({ length: 130 }, (_, i) => ({ preview: `codex thread ${i}`, createdAt: base + Math.floor((i + 1) / 3), updatedAt: base + i * 60 })),
+)
+const piIDs = seedSessions(
+  home,
+  manyPath,
+  Array.from({ length: 120 }, (_, i) => ({ prompt: `pi session ${i}`, at: new Date((base + i * 60) * 1000) })),
+)
+const mp = await t.page({ width: 1280, height: 900 })
+await mp.goto(`${url}/#/p/${M.id}`)
+await mp.getByRole('button', { name: /Adopt a session/ }).click()
+const md = mp.locator('dialog[open].adopt-dialog')
+const mchoice = (h) => md.locator('.harness-choice', { hasText: h })
+await until('the many sessions counted', async () => (await text(mchoice('Codex').locator('.count'))) === '130' && (await text(mchoice('pi').locator('.count'))) === '120')
+check(true, 'a checkout past one page of codex’s list and past fifty sessions lists every one: Codex 130, pi 120')
+const filter = md.getByRole('searchbox', { name: 'Filter the sessions by their first prompt or id' })
+check((await filter.getAttribute('placeholder')) === 'Filter by first prompt or id', 'the filter says it matches a first prompt or an id')
+for (const [label, harness, ids, prefix] of [
+  ['Codex', 'codex', codexIDs, 'codex thread'],
+  ['pi', 'pi', piIDs, 'pi session'],
+]) {
+  await mchoice(label).click()
+  await until(`${harness}'s rows`, async () => (await md.locator('label.session-row').count()) === ids.length)
+  const last = await text(md.locator('label.session-row').last().locator('.session-preview'))
+  check(last === `${prefix} 0`, `${harness}: the oldest session is listed, last: "${last}"`)
+  // an id pasted whole, as copied from a conversation's header.
+  await filter.fill(ids[57])
+  await until(`${harness}: filtered by id`, async () => (await md.locator('label.session-row').count()) === 1)
+  check((await text(md.locator('label.session-row .session-id'))) === ids[57] && (await text(md.locator('[data-counts]'))).includes('1 matching'), `${harness}: an id typed into the filter leaves that session’s row`)
+  await filter.fill(`${prefix} 11`)
+  await until(`${harness}: filtered by prompt`, async () => (await md.locator('label.session-row').count()) === 11)
+  check(true, `${harness}: a first prompt still filters: "${prefix} 11" leaves 11 and 110 to 119`)
+  await filter.fill('no such session anywhere')
+  await until(`${harness}: nothing matching`, async () => (await md.locator('label.session-row').count()) === 0)
+  check((await text(md.locator('.session-list'))).includes('No session’s first prompt or id matches.'), `${harness}: with nothing matching, the empty line names a first prompt or an id`)
+  await filter.fill('')
+  // the oldest, adopted.
+  await until(`${harness}'s rows again`, async () => (await md.locator('label.session-row').count()) === ids.length)
+  await md.locator('label.session-row').last().click()
+  await md.getByRole('textbox', { name: 'Name' }).fill(`the oldest ${harness} session`)
+  await md.getByRole('button', { name: 'Adopt' }).click()
+  await until(`${harness}: the oldest adopted`, async () => (await workspace()).conversations.some((c) => c.name === `the oldest ${harness} session` && c.harness === harness && c.native_id === ids[0]))
+  check(true, `${harness}: the oldest session in the checkout is adopted`)
+  if (harness === 'codex') {
+    await mp.goto(`${url}/#/p/${M.id}`)
+    await mp.getByRole('button', { name: /Adopt a session/ }).click()
+    await until('pi offered again', async () => (await mchoice('pi').count()) === 1)
+  }
+}
+await mp.close()
 
 await t.done()

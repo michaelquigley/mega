@@ -19,8 +19,16 @@ const (
 	// includes MCP startup.
 	startTimeout = 2 * time.Minute
 	// closeTimeout bounds how long a short-lived app-server gets to exit.
-	closeTimeout  = 10 * time.Second
-	discoverLimit = 50
+	closeTimeout = 10 * time.Second
+	// listPage is the most threads codex returns in one thread/list page,
+	// whatever is asked (codex-cli 0.166.0, capability report).
+	listPage = 100
+	// listSort is the order discovery pages in. under created_at, codex's
+	// cursor is a whole second, and a page that ends inside a second skips
+	// the rest of it; under updated_at it carries milliseconds, and the
+	// fixture's list was read whole at every page size tried. observed, not
+	// promised (capability report, 2026-11-26).
+	listSort = "updated_at"
 )
 
 // Config locates the codex executable.
@@ -149,26 +157,46 @@ func (h *Harness) History(ctx context.Context, place harness.Place, nativeID str
 	return history, nil
 }
 
-// Discover lists the threads codex stores for the place's checkout.
+// Discover reads codex's listing for the place's checkout page by page to
+// the end: every thread codex lists by default, which leaves out archived
+// threads and those from non-interactive sources such as codex exec. a
+// thread already listed is not listed again. only the caller's deadline
+// bounds the read, so a list that never ends fails and is never cut short.
 func (h *Harness) Discover(ctx context.Context, place harness.Place) ([]harness.Session, error) {
 	cwd := place.Cwd
-	list := &threadList{}
-	if err := h.once(ctx, place, "thread/list", &threadListParams{Cwd: cwd, Limit: discoverLimit}, list); err != nil {
+	c, err := dial(h.cfg.Binary, place, quiet{})
+	if err != nil {
+		return nil, fmt.Errorf("listing threads in '%s': %w", cwd, err)
+	}
+	defer shutDown(c)
+	if err := c.initialize(ctx); err != nil {
 		return nil, fmt.Errorf("listing threads in '%s': %w", cwd, err)
 	}
 	var sessions []harness.Session
-	for _, t := range list.Data {
-		if t.Cwd != "" && t.Cwd != cwd {
-			continue
+	seen := map[string]bool{}
+	params := &threadListParams{Cwd: cwd, Limit: listPage, SortKey: listSort}
+	for {
+		list := &threadList{}
+		if err := c.call(ctx, "thread/list", params, list); err != nil {
+			return nil, fmt.Errorf("listing threads in '%s': %w", cwd, err)
 		}
-		sessions = append(sessions, harness.Session{
-			NativeID:  t.ID,
-			Preview:   t.Preview,
-			CreatedAt: seconds(t.CreatedAt),
-			UpdatedAt: seconds(t.UpdatedAt),
-		})
+		for _, t := range list.Data {
+			if (t.Cwd != "" && t.Cwd != cwd) || seen[t.ID] {
+				continue
+			}
+			seen[t.ID] = true
+			sessions = append(sessions, harness.Session{
+				NativeID:  t.ID,
+				Preview:   t.Preview,
+				CreatedAt: seconds(t.CreatedAt),
+				UpdatedAt: seconds(t.UpdatedAt),
+			})
+		}
+		if list.NextCursor == "" {
+			return sessions, nil
+		}
+		params.Cursor = list.NextCursor
 	}
-	return sessions, nil
 }
 
 // once runs one call against a short-lived app-server with no thread loaded.

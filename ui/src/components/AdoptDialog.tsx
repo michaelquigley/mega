@@ -77,7 +77,8 @@ export function AdoptDialog({ projectId, onClose, onAdopted }: AdoptDialogProps)
   const here = found[harness]
   const listed = here && 'sessions' in here ? [...here.sessions].sort((a, b) => when(b) - when(a)) : []
   const needle = filter.trim().toLowerCase()
-  const rows = needle ? listed.filter((s) => s.preview.toLowerCase().includes(needle)) : listed
+  // an id copied from a conversation's header finds its session too.
+  const rows = needle ? listed.filter((s) => s.preview.toLowerCase().includes(needle) || s.native_id.toLowerCase().includes(needle)) : listed
   const entry = harnesses.find((h) => h.value === harness)
 
   const choose = (value: string) => {
@@ -136,8 +137,8 @@ export function AdoptDialog({ projectId, onClose, onAdopted }: AdoptDialogProps)
           <input
             type="search"
             className="adopt-filter"
-            placeholder="Filter by first prompt"
-            aria-label="Filter the sessions by their first prompt"
+            placeholder="Filter by first prompt or id"
+            aria-label="Filter the sessions by their first prompt or id"
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
           />
@@ -166,7 +167,7 @@ export function AdoptDialog({ projectId, onClose, onAdopted }: AdoptDialogProps)
               )
             })}
             {here && 'sessions' in here && rows.length === 0 && (
-              <p className="muted">{needle ? 'No session’s first prompt matches.' : 'No sessions here that a conversation does not already hold.'}</p>
+              <p className="muted">{needle ? 'No session’s first prompt or id matches.' : 'No sessions here that a conversation does not already hold.'}</p>
             )}
           </fieldset>
           <section className="session-look" aria-label="The session picked" aria-live="polite">

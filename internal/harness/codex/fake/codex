@@ -323,11 +323,26 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       break
     }
     case 'thread/list': {
-      const data = Object.values(loadThreads())
+      // newest first, in pages of at most 100 whatever is asked, as
+      // codex-cli 0.166.0 pages (capability report, 2026-11-26). under
+      // created_at, its default, the cursor is the last thread's second, and
+      // the next page starts after that second, skipping the rest of it, as
+      // codex's does. under updated_at codex's cursor carries milliseconds;
+      // the fake's times are whole seconds, so its cursor is a position.
+      const key = p.sortKey ?? 'created_at'
+      const field = key === 'updated_at' ? 'updatedAt' : 'createdAt'
+      const all = Object.values(loadThreads())
         .filter((t) => !p.cwd || t.cwd === p.cwd)
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .map(({ turns, ...t }) => t)
-      send({ id: msg.id, result: { data, nextCursor: null } })
+        .sort((a, b) => b[field] - a[field])
+      const limit = Math.min(p.limit ?? 25, 100)
+      let from = 0
+      if (p.cursor && key === 'updated_at') from = Number(p.cursor)
+      else if (p.cursor) from = all.findIndex((t) => t.createdAt < Number(p.cursor))
+      if (from < 0) from = all.length
+      const page = all.slice(from, from + limit)
+      const more = from + limit < all.length
+      const nextCursor = !more ? null : key === 'updated_at' ? String(from + limit) : String(page[page.length - 1].createdAt)
+      send({ id: msg.id, result: { data: page.map(({ turns, ...t }) => t), nextCursor } })
       break
     }
     case 'turn/start': {

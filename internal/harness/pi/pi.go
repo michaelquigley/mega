@@ -23,8 +23,7 @@ const (
 	// startTimeout bounds a launch's first answer from pi.
 	startTimeout = 2 * time.Minute
 	// stopTimeout bounds how long a short-lived pi gets to exit.
-	stopTimeout   = 10 * time.Second
-	discoverLimit = 50
+	stopTimeout = 10 * time.Second
 )
 
 // Config locates the pi executable. Where says where Binary is set, for a
@@ -206,10 +205,10 @@ func historyOf(path, want string) (harness.History, error) {
 	return harness.History{Events: eventsOf(entries)}, nil
 }
 
-// Discover lists the sessions pi stored for the checkout. pi's protocol lists
+// Discover lists every session pi stored for the checkout. pi's protocol lists
 // none, so it is a scan of the checkout's session folder.
 func (h *Harness) Discover(_ context.Context, place harness.Place) ([]harness.Session, error) {
-	return discover(place.Env, place.Cwd, discoverLimit)
+	return discover(place.Env, place.Cwd)
 }
 
 // Models lists the models pi offers in the place, those whose provider has

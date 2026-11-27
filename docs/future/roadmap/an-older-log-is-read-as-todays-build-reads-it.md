@@ -1,31 +1,72 @@
 ---
 title: an older log is read as today's build reads it
-state: researching
+state: building
 created: 2026-11-24
 tags: [story]
 ---
 
 Remove the rules whose only subject is something an earlier build wrote. An older log opens and shows its history, and its lines are read with today's meaning.
 
-A removal from the review of `simplify-the-core`, ruling 2 in `docs/future/simplify-the-core-inventory.md`. Michael, 2026-11-23: "yes, i think so."
+A removal from the review of `simplify-the-core`, ruling 2 in `docs/future/simplify-the-core-inventory.md`. Michael, 2026-11-23: "yes, i think so." The card is the whole plan; there is no work order.
 
-## what goes
+## why
 
-- **The one-time fill of a conversation's choices,** in `internal/service/choice.go`, with its `choice_filled` status and its row on the page. It completed conversations created before 2026-11-13.
-- **The replay of old import markers,** `legacyImport` in `internal/service/live.go`, added so a failed import under an older build does not show as a current error.
-- **The `mode_confirmed` rows** on the page, and the `ModeConfirmed` field nothing records any more.
+Three rules in the core read what only an earlier build wrote:
 
-A line of one of these kinds in an older log still shows, as any line of its kind does.
+- **The fill of a conversation's request.** Conversations created before 2026-11-13 could lack a model, an effort or a mode. At start-up each takes what its log last reported, and at its next launch the rest from the harness's settings. Each fill is recorded as a `choice_filled` line before the registry is written, and a fill interrupted between the two is found in the log and applied again.
+- **The replay of old import markers.** An earlier build wrote `resuming` before an import's result. Opening a log tracks that pair, so that a failed import under that build does not show as a current error.
+- **The `mode_confirmed` flag.** Nothing records it any more. The page still hides a mode report that carries it.
+
+Counted in Michael's workspace on `fortyfive` on 2026-11-26, as kinds of line only: 30 logs, six `choice_filled` lines in six logs, no `mode_confirmed` flag, and no failed import of the old form. All 30 conversations hold a model. Michael, the same day, on his other two machines: "the other two machines have been taking new builds regularly." So the start-up fill has run everywhere it had work. The outside operators installed after 2026-11-13, when every new conversation already held its whole request.
+
+## the failure that becomes impossible
+
+A conversation's request can no longer be changed by anything but the operator after it is created, and what a log line means no longer depends on which build wrote it.
+
+## what changes
+
+- **The start-up fill goes:** `fillChoicesLocked` and `lastReported` in `internal/service/choice.go`, and the call in `internal/service/service.go`.
+- **The fill at launch goes:** `fillAtLaunch` and `applyFillLocked`, the two fill sources, and `StatusChoiceFilled` in `internal/model/event.go`.
+- **A launch refuses a conversation whose request lacks something,** and says to choose it on the control bar. For a Claude conversation with no effort that is the refusal it gets today, `errChooseEffort`.
+- **The import replay goes:** `legacyImport` in `liveLocked`, `internal/service/live.go`.
+- **`ModeConfirmed` goes** from `model.RuntimeFacts`, with `mode_confirmed` in `ui/src/types.ts` and the page's case for it.
+- **The page's row for `choice_filled` goes.**
+
+A line of one of these kinds in an older log still shows, as any line of its kind does, with its text.
+
+## the one case that is not an older log
+
+Adoption copies a request from the harness's settings and does not refuse when the settings name no effort (`Adopt`, `internal/service/adopt.go`). So a Claude conversation can be adopted today with no effort. Its first launch is refused until the operator chooses one, and that stays.
+
+What changes for it is small. Today a launch tries the settings once more before it refuses. After this card it does not: a request is copied once, when the conversation is created or adopted, and after that only the operator changes it. `choice.go` already states that rule at its head.
+
+## what does not change
+
+`copyFor`, and what a new or an adopted conversation copies. `errChooseEffort` and its sentence. Choosing a model, an effort or a mode on the control bar, with a runtime or without one. `missingLocked`. Everything else.
 
 ## what it costs
 
-A mark that is wrong once on a rare old conversation. Safety is not relaxed: where an older log leaves it unclear whether a runtime is alive, the conversation is Unsupervised.
+A mark that is wrong once on a rare old conversation: a failed import of the old form, as the last runtime line of a log, shows as an error until that conversation next starts. Safety is not relaxed. Where an older log leaves it unclear whether a runtime is alive, the conversation is Unsupervised.
 
-## before it is built
+## how it is shown
 
-- **`adoption-reaches-any-session-in-the-checkout` comes first.** The fallback for a conversation an upgrade misreads is to remove it and adopt its session again, and today adoption cannot reach a Codex or pi session outside the 50 newest in its checkout.
-- **The fill has to have run everywhere it is needed.** It has nothing left to do on `fortyfive`. Michael's other two machines may still hold conversations from before 2026-11-13, and each needs one start on a build that has the fill.
+- a conversation whose registry entry lacks a model is not filled at start-up: nothing is written to its log or to the registry, a launch is refused with what to choose, and it launches once that is chosen;
+- a Claude conversation adopted with no effort is refused as it is today, and no `choice_filled` line is written;
+- a log holding a `choice_filled` line, an old failed import and a `mode_confirmed` report opens, pages, and shows a row for each;
+- nothing in the tree reads `choice_filled` or `mode_confirmed`.
+
+## how it is run
+
+- **It starts by reading every path that can leave a request incomplete today.** Adoption is the one this card knows of. If there is another, or if the control bar cannot choose a model for an idle conversation that has none, the work stops and asks.
+- **Tests of the removed behaviour go, or are rewritten to the rule.** In `internal/service/choice_test.go`: `TestStartUpFillTakesWhatTheLogReportedOnce`, `TestInterruptedFillIsAppliedOnceFromItsRecord`, `TestConversationWithNoReportIsFilledAtLaunch` and `TestAFilledFullIdTakesItsAliasEfforts`. In `attention_test.go`: `TestLegacyImportFailureDoesNotChangeRuntimeAttention`. The report names each and says which. A test or a check that fails for any other reason is a change in behaviour, and stops and asks.
+- **Documents:** "The one-time fill" and the list of runtime statuses in `docs/current/mega.md`, the glossary if it names the fill, and the changelog.
+- **The canon needs no change.** `honest-runtime-state` and `bookkeeping-never-creates-attention` already carry the paragraph on older logs.
+- **The gates are the epic's:** `make test`, all of `make checks`, `make e2e` with the harness versions and every skip named, and terminus on the working tree, then Michael. Run them from a disposable copy of the tree, so the Makefile's reinstall of the shim leaves Michael's running mega alone. Run all of `make checks` once more on the final code.
+- **A terminus finding in code this card did not touch and did not make newly reachable** is matched to an existing card or captured in inbox, and listed at handoff.
+- **A finding that is only wording,** or a fix that only changes this card's own check or test, is made and reported at handoff.
+- **A finding whose fix would add state, a hold or an ordering rule** is brought to Michael as a question of whether to fix it at all. Anything else this card caused comes to him one at a time.
+- **Size.** `internal/service` was 6,096 non-test lines when `adoption-reaches-any-session-in-the-checkout` was built. Counted by reading: the four fill functions are about 160 lines of `choice.go`, and the import replay about 15 of `live.go`. What is written is the refusal at launch, a few lines. The report gives the figures afterwards.
 
 ## when it lapses
 
-This rule holds until the first tagged release. `first-tagged-release` carries the reminder.
+Ruling 2 holds until the first tagged release. `first-tagged-release` carries the reminder.

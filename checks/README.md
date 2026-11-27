@@ -86,7 +86,7 @@ Where things go:
     - **an update behind the same path, with mega running:** Claude Code found through `bin/claude`, a link the check moves to a new build, and Codex and pi as packages whose programs the check replaces in place with the modification time npm's tarballs carry. The open version panel follows all three within seconds, with no restart and no reload, and so does the first page.
 
   It prints the words each step showed, so its output is a record of what a newcomer reads. It saves `shots/{empty,empty-dark,register,register-refused,project,launch-missing,restarted,versions-newer,versions-older}.png`.
-- **`dialogs.mjs`** (58 steps): the project page's two dialogs. Its config names `~/Repos`, in its scratch `HOME`, as the projects root. It checks the following:
+- **`dialogs.mjs`** (70 steps): the project page's two dialogs. Its config names `~/Repos`, in its scratch `HOME`, as the projects root. It checks the following:
   - the register dialog's folder picker:
     - the field starting at the root;
     - folders only, a git checkout marked, and no dot-folder, file or link leading out;
@@ -108,6 +108,13 @@ Where things go:
     - the look at a picked session for each harness, beside the list, or below it when narrow;
     - the terminal warning, pi's saying it has no lock;
     - adopting.
+  - a checkout with more sessions than one page of Codex's list and more than fifty, seeded straight into the fakes' stores by the helpers beside the fakes (`internal/harness/codex/fake/threads.mjs`, `internal/harness/pi/fake/sessions.mjs`): 130 Codex threads, three created to a second, and 120 pi sessions. For each:
+    - every one listed and counted, the oldest last;
+    - an id typed into the filter leaving that session's row, and a first prompt still filtering;
+    - the filter's label and its empty line naming a first prompt or an id;
+    - the oldest adopted.
+
+    Against the adapters and page before this step, the dialog lists 50 of each and the step fails.
 
   It saves `shots/register.png` and `shots/adopt-{narrow,1280,wide}.png`.
 - **`environment.mjs`** (32 steps): a project's environment on its page. It checks the following:

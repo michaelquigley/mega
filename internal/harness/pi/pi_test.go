@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -839,4 +840,35 @@ func TestAHandledPromptIsReturnedAndReportsNoTurn(t *testing.T) {
 		t.Errorf("a handled prompt declared a turn start")
 	}
 	s.mu.Unlock()
+}
+
+// discovery lists every session in the checkout's folder, newest first, past
+// the fifty a cut used to keep: the oldest is listed with its first prompt.
+func TestDiscoverListsTheWholeCheckout(t *testing.T) {
+	p := place(t)
+	dir := checkoutDir(p.Env, p.Cwd)
+	const stored = 183
+	start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	for i := range stored {
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012d", i)
+		at := start.Add(time.Duration(i) * time.Hour)
+		path := filepath.Join(dir, at.Format("2006-01-02T15-04-05-000Z")+"_"+id+".jsonl")
+		write(t, path, fmt.Sprintf(`{"type":"session","version":3,"id":%q,"timestamp":%q,"cwd":%q}
+{"type":"message","id":"m1","parentId":null,"timestamp":%q,"message":{"role":"user","content":[{"type":"text","text":"prompt %d"}],"timestamp":0}}
+`, id, at.Format(time.RFC3339Nano), p.Cwd, at.Format(time.RFC3339Nano), i))
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found, err := New(Config{}).Discover(t.Context(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != stored {
+		t.Fatalf("discovered %d sessions, want %d", len(found), stored)
+	}
+	newest, oldest := found[0], found[len(found)-1]
+	if newest.Preview != fmt.Sprintf("prompt %d", stored-1) || oldest.NativeID != "00000000-0000-4000-8000-000000000000" || oldest.Preview != "prompt 0" {
+		t.Errorf("newest %+v, oldest %+v", newest, oldest)
+	}
 }

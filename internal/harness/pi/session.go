@@ -344,9 +344,9 @@ func eventsOf(entries []*entry) []*model.Event {
 	return evs
 }
 
-// discover lists the sessions stored for a checkout, newest first, with the
+// discover lists every session stored for a checkout, newest first, with the
 // first prompt as a preview.
-func discover(env []string, cwd string, limit int) ([]harness.Session, error) {
+func discover(env []string, cwd string) ([]harness.Session, error) {
 	dir := checkoutDir(env, cwd)
 	files, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -379,8 +379,5 @@ func discover(env []string, cwd string, limit int) ([]harness.Session, error) {
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
-	}
 	return out, nil
 }

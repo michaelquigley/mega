@@ -23,8 +23,11 @@ node probe.mjs run --cwd <fixture-dir> --turns scenarios/rt1-managed.json \
   --log logs/rt1-managed.jsonl --approve 'approval-probe' --approve-delay-ms 4000 --answer '^Blue$'
 node probe.mjs run --cwd <fixture-dir> --resume <thread-id> --turns scenarios/rt1-resume.json --log logs/x.jsonl --approve 'approval-probe'
 node probe.mjs list --cwd <fixture-dir>
+node probe.mjs pages --cwd <fixture-dir> --limit 2 [--sort-key updated_at] [--direction asc]
 node probe.mjs read --thread <thread-id>
 ```
+
+`pages` follows `thread/list`'s `nextCursor` to the end and names any thread it missed against the same list read in pages of 100, with the creation times around it. It prints ids and times only, and writes no log, since `thread/list`'s replies carry each thread's first prompt. Rerun it when Codex is upgraded: on 0.166.0, pages under the default `created_at` skip threads created in the same second as a page's last one, and `updated_at`, which mega's discovery uses, missed none (capability report, follow-up 2026-11-26).
 
 Flags: `--approve REGEX` (accept matching command approvals, else decline), `--approve-delay-ms N`, `--answer REGEX` (option label for `item/tool/requestUserInput`), `--interrupt-after-ms N [--interrupt-turn I]`, `--interrupt-on-approval`, `--stale-after-interrupt`, `--kill-owner-after-ms N`, `--kill-server-after-ms N`, `--approval-policy`, `--sandbox`, `--timeout-ms`.
 

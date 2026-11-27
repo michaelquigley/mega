@@ -1,6 +1,6 @@
 ---
 title: adoption reaches any session in the checkout
-state: building
+state: evaluating
 created: 2026-11-23
 tags: [defect]
 ---
@@ -59,3 +59,19 @@ A session in the checkout can no longer be out of adoption's reach because of wh
 - **A finding that is only wording,** or a fix that only changes this card's own check or test, is made and reported at handoff.
 - **A finding whose fix would add state, a hold or an ordering rule** is brought to Michael as a question of whether to fix it at all. Anything else this card caused comes to him one at a time.
 - **Size.** What is counted to change: pi loses a constant and a parameter, Codex gains a loop like the one in `mcp.go`, and the page changes one test and two strings. `internal/service` was 6,096 non-test lines when piece 7 was built. The report gives the figures afterwards.
+
+## as built
+
+Built on 2026-11-26. `internal/service` is unchanged at 6,096 non-test lines. The Codex adapter went from 2,708 to 2,738, pi from 1,748 to 1,744, and `ui/src` from 7,963 to 7,964.
+
+- **Codex pages by `updated_at`, 100 a page, to the end.** Codex 0.166.0 returns at most 100 threads a page whatever is asked. Under its default sort, `created_at`, the cursor is a whole second, and a page that ends inside a second skips the rest of it: pages of one, two and three returned 340 or 341 of the fixture's 344. Under `updated_at` the cursor carries milliseconds and every page size read all 344. That is observed and not promised by Codex. Michael ruled for it on 2026-11-26. The capability report has the observation with its version, and the `pages` command in `probes/codex/probe.mjs` is what to run again when Codex is upgraded.
+- **The read has no page bound.** It runs under discovery's one-minute deadline, so a list that never ends fails and is never cut short. The fixture's 344 threads came back over four pages in 1.4 s.
+- **A thread already listed is not listed again.** A thread updated while the list is read can be missed that once, and reopening the dialog reads the list again. Nothing was built for it.
+- **Codex's own defaults still decide what is listed.** A thread made by `codex exec`, or one archived in Codex, is not listed and cannot be adopted, as before.
+- **The SDK's `listSessions` has no cap of its own** at 0.3.318: 436 rows for 436 session files.
+
+The last terminus review, `71eba39f3e59`, was `clean`. An earlier one raised `codex-pagination-outside-adapter` against the probe. The probe stayed as it was, and the canon's `protocol-confined-to-adapters` now says a probe speaking a harness's protocol is not flagged.
+
+The full `make checks` passed after the first round of review fixes, and `dialogs` alone was run again on the final code. `environment` and `panel` also open discovery and were not run again.
+
+Captured during the gates: `the-shutdown-step-can-miss-the-asking-pages-banner`.

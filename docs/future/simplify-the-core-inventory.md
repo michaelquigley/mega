@@ -162,7 +162,7 @@ The canon was brought in step first: the transcript sentence left `exact-id-resu
 
 **Built 2026-11-24.** `internal/service` is at 6,419 non-test lines, against 6,638 when the review began. One finding was this card's: a release in the middle of a turn no longer has the gap flag to separate that turn from the next. Michael ruled to leave it and add nothing. It is noted on `a-turn-is-inferred-from-a-message`, to be decided with the turn model.
 
-Still to review from the landed work: the rules for older logs under ruling 2, which wait on `adoption-reaches-any-session-in-the-checkout`.
+Still to review from the landed work: the rules for older logs under ruling 2. They waited on `adoption-reaches-any-session-in-the-checkout`, built on 2026-11-26, and their card is now a plan.
 
 ## The plan, reviewed
 
@@ -181,7 +181,7 @@ Michael: "give the entire roadmap a pass... order anything that is unordered. fe
 - **Proposed next:** `reads-after-the-service-closes`, as "refuse the read". It removes the copy `Close` sets aside for late reads, and makes the finding terminus raised three times on piece 5 unreachable.
 - **Then three small defects,** which could go as one batch: the flaky `dialogs` suite, the shared turn record, and the test that writes the registry behind the service.
 - **Parked findings now have cards:** `a-copied-event-shares-its-turn-record` for the turn record, and `codex-interrupt-while-a-turn-is-starting` placed after piece 4, where its window lives. `an-answer-racing-a-release-retires-a-live-pi-dialog` sits after piece 9.
-- **Ruling 2 has its card,** `an-older-log-is-read-as-todays-build-reads-it`, placed after `adoption-reaches-any-session-in-the-checkout`, which it waits on.
+- **Ruling 2 has its card,** `an-older-log-is-read-as-todays-build-reads-it`, placed after `adoption-reaches-any-session-in-the-checkout`, which it waited on. The adoption card was built on 2026-11-26 by removing the cut, and Michael confirmed the same day that his other two machines have been taking new builds, so the start-up fill has run everywhere it had work.
 - **To horizon:** `a-directory-mega-creates-may-not-be-synced`, and three of Michael's own captures, tagged: `dfw-window-mode`, `harness-session-names` and `retired-conversations`.
 - **Pieces 9, 10 and 11 keep their old places** until the plan questions about them are answered.
 

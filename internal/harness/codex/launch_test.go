@@ -53,6 +53,8 @@ func fakeAppServer(mode string) {
 			fmt.Printf(`{"id":%v,"result":{"thread":{"id":"t-1","turns":[`+
 				`{"id":"turn-1","status":"completed","items":[{"type":"agentMessage","id":"a-1","text":"done"},{"type":"commandExecution","id":"c-1","command":"sleep 99","status":"inProgress"}]},`+
 				`{"id":"turn-2","status":"inProgress","items":[{"type":"userMessage","id":"u-2","content":[{"type":"text","text":"next"}]},{"type":"agentMessage","id":"a-2","text":"going"}]}]}}}`+"\n", frame["id"])
+		case "thread/list":
+			fakeThreadList(mode, frame)
 		case "model/list":
 			fmt.Printf(`{"id":%v,"result":{"data":[`+
 				`{"id":"gpt-a","displayName":"A","isDefault":true,"hidden":false,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"medium"}]},`+

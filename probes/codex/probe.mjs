@@ -20,6 +20,8 @@
 //        [--stale-after-harness-resolve]  in relay mode, send a raw late JSON-RPC accept 2 s after the
 //                                 server itself resolved a pending request (records the server's reaction)
 //   node probe.mjs list --cwd DIR
+//   node probe.mjs pages --cwd DIR [--limit N] [--sort-key K] [--direction asc|desc]
+//                            follow thread/list's nextCursor to the end; name what it missed
 //   node probe.mjs read --thread THREAD_ID
 //
 // Policy: an approval whose "<command or reason>" matches --approve is accepted
@@ -44,8 +46,10 @@ for (let i = 0; i < argv.length; i++) {
 }
 const ts = () => new Date().toISOString();
 const say = s => process.stderr.write(`[probe ${ts()}] ${s}\n`);
-let logEnded = false;
-const log = createWriteStream(opt.log ?? `logs/run-${Date.now()}.jsonl`, { flags: 'a' });
+// pages writes no log: thread/list's replies carry each thread's first
+// prompt, and pages reports ids and times only.
+let logEnded = cmd === 'pages';
+const log = logEnded ? null : createWriteStream(opt.log ?? `logs/run-${Date.now()}.jsonl`, { flags: 'a' });
 const rec = (kind, data) => { if (!logEnded) log.write(JSON.stringify({ t: ts(), kind, ...data }) + '\n'); };
 
 // ---- transport -----------------------------------------------------------
@@ -231,6 +235,47 @@ if (cmd === 'list') {
   await init();
   const r = await request('thread/list', { cwd: resolve(opt.cwd ?? '.'), limit: Number(opt.limit ?? 20) });
   console.log(JSON.stringify(r.data.map(t => ({ id: t.id, cwd: t.cwd, path: t.path, preview: t.preview?.slice(0, 80), status: t.status, model: t.model, createdAt: t.createdAt, updatedAt: t.updatedAt, source: t.source })), null, 2));
+  await shutdown(); process.exit(0);
+}
+if (cmd === 'pages') {
+  // thread/list page by page, as mega's discovery reads it: each page's size,
+  // whether a cursor came back, and how long the whole list took. ids and
+  // times only, printed and nowhere else. the reference is the same list
+  // read in pages of 100, the most the server returns at once, and the
+  // report names any thread the paged read missed, with its neighbours'
+  // creation times.
+  await init();
+  const cwd = resolve(opt.cwd ?? '.');
+  const limit = Number(opt.limit ?? 2);
+  const extra = {};
+  if (opt['sort-key']) extra.sortKey = opt['sort-key'];
+  if (opt.direction) extra.sortDirection = opt.direction;
+  const readAll = async (size) => {
+    const pages = [];
+    let cursor = null;
+    for (;;) {
+      const params = { cwd, limit: size, ...extra };
+      if (cursor) params.cursor = cursor;
+      const r = await request('thread/list', params);
+      pages.push((r.data ?? []).map(x => ({ id: x.id, createdAt: x.createdAt, updatedAt: x.updatedAt })));
+      cursor = r.nextCursor ?? null;
+      if (!cursor) return pages;
+      if (pages.length >= 1000) throw new Error(`thread/list still had a cursor after 1000 pages of ${size}: the read is incomplete`);
+    }
+  };
+  const t = Date.now();
+  const pages = await readAll(limit);
+  const ms = Date.now() - t;
+  const ref = await readAll(100);
+  const got = new Set(pages.flat().map(x => x.id));
+  const all = ref.flat();
+  const single = await request('thread/list', { cwd, limit: 1000, ...extra });
+  const missing = all.filter(x => !got.has(x.id)).map(x => {
+    const i = all.findIndex(y => y.id === x.id);
+    return { id: x.id, createdAt: x.createdAt, updatedAt: x.updatedAt, neighbours: all.slice(Math.max(0, i - 2), i + 3).map(y => [y.id.slice(-6), y.createdAt, got.has(y.id)]) };
+  });
+  const boundaries = pages.slice(0, -1).map((p, i) => [p[p.length - 1]?.createdAt, pages[i + 1][0]?.createdAt]);
+  console.log(JSON.stringify({ cwd, limit, ...extra, ms, pages: pages.length, total: pages.flat().length, distinct: got.size, reference: all.length, oneCall: (single.data ?? []).length, oneCallCursor: single.nextCursor ? 'present' : null, missing, sameSecondBoundaries: boundaries.filter(([a, b]) => a === b).length }, null, 2));
   await shutdown(); process.exit(0);
 }
 if (cmd === 'models') {
