@@ -66,7 +66,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { seedExchange } from '../shim/claude/fake/sessionStore.mjs'
 import { appendImported, appendNative, appendTurns } from './lib/gen.mjs'
-import { reconnectable, suite } from './lib/mega.mjs'
+import { reconnectable, suite, tested } from './lib/mega.mjs'
 
 // the service runs in one time zone and the pages in another, UTC, as a
 // hardened browser reports; every time the page says is the service's.
@@ -486,7 +486,7 @@ await until('C shown again', async () => (await page.locator('.events .message.a
 // updates itself, are not marked and gain no words; nothing is refused for
 // its version. the fake shim reports the version a file beside it names.
 const versionFile = join(t.dir, 'fakeshim', 'claude-version')
-const claudeTested = '2.1.318 to 2.1.326'
+const claudeTested = tested('claude')
 const startLine = page.locator('.events p.system', { hasText: /^Runtime started/ }).first()
 const startedWith = async (version, name) => {
   writeFileSync(versionFile, version + '\n')

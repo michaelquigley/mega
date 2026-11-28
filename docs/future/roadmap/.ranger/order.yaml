@@ -1,5 +1,4 @@
 building:
-  - the-tested-ranges-reach-the-builds-in-use.md
 horizon:
   - start-up-reads-every-log.md
   - request-and-what-ran-follow-ups.md
@@ -23,6 +22,9 @@ horizon:
 researching:
   - simplify-the-core.md
   - harden-requests-stops-and-restarts.md
+  - the-planner-deny-step-does-not-check-the-tool.md
+  - the-idle-switch-round-trip-reads-claudes-replay-label.md
+  - the-codex-release-round-trip-does-not-see-its-command-running.md
   - first-tagged-release.md
   - codex-sessions-leave-an-empty-tmpgit-on-the-host.md
   - the-codex-round-trips-leave-an-empty-tmpgit-behind.md
@@ -32,7 +34,6 @@ researching:
   - a-checks-suite-empties-its-scratch-before-it-knows-its-port-is-free.md
   - the-shutdown-step-can-miss-the-asking-pages-banner.md
   - the-register-dialogs-prefill-can-land-on-what-is-typed.md
-  - codex-discovery-e2e-reads-its-own-thread.md
   - escape-interrupts-a-running-turn.md
   - keyboard-shortcut-pop-open.md
   - darklight-mode-toggle.md
@@ -46,6 +47,8 @@ researching:
   - reviewing-changes-from-outside.md
   - mega-on-macos-and-windows.md
 evaluating:
+  - the-tested-ranges-reach-the-builds-in-use.md
+  - codex-discovery-e2e-reads-its-own-thread.md
   - an-older-log-is-read-as-todays-build-reads-it.md
   - adoption-reaches-any-session-in-the-checkout.md
   - a-failed-read-after-a-reconnect-is-tried-again.md

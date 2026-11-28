@@ -32,7 +32,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-import { reconnectable, suite } from './lib/mega.mjs'
+import { reconnectable, suite, tested } from './lib/mega.mjs'
 
 const t = await suite('side', { megaName: 'side-check' })
 const { url, check, must, until, api, convOf, workspace } = t
@@ -334,7 +334,7 @@ const codexSaid = ((await panel.locator('dd[data-harness="codex"]').textContent(
 const claudeSaid = ((await panel.locator('dd[data-harness="claude"]').textContent()) ?? '').trim()
 t.say(`  the panel on Codex: "${codexSaid}"`)
 t.say(`  the panel on Claude Code: "${claudeSaid}"`)
-check(about.tested?.codex === '0.163.0 to 0.169.0' && codexSaid === 'Version 0.166.0; tested 0.163.0 to 0.169.0.', 'its panel gives Codex’s version found and its tested range')
+check(about.tested?.codex === tested('codex') && codexSaid === `Version 0.166.0; tested ${tested('codex')}.`, 'its panel gives Codex’s version found and its tested range')
 check(
   claudeSaid.startsWith(`Version unknown; tested ${about.tested?.claude}.`) && claudeSaid.includes('could not be read') && (await panel.locator('dd[data-harness="claude"] .notice-text').count()) === 1,
   'and Claude Code’s, whose version could not be read, saying so',

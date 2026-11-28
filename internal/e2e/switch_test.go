@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,10 +129,11 @@ func ranOn(t *testing.T, svc *service.Service, s *session, chosen, runsAs string
 // TestClaudeModelSwitchWhileIdle starts a released conversation with no
 // prompt, switches its model while idle, which claude confirms at once, and
 // checks it stays idle, takes a prompt, and that the turn ran on the new
-// model.
+// model. then the session is adopted again, and its prompts are exactly the
+// two the test sent, so claude's local /model command is not one of them.
 func TestClaudeModelSwitchWhileIdle(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
-	svc := newE2EService(t, newClaudeHarness(t))
+	svc := newE2EService(t, mustNewClaudeHarness(t))
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
 		t.Fatal(err)
@@ -145,12 +147,41 @@ func TestClaudeModelSwitchWhileIdle(t *testing.T) {
 	view := startedSession(t, svc, s)
 	chosen, runsAs, natives := idleSwitch(t, svc, s, project.ID, model.HarnessClaude, env("MEGA_E2E_CLAUDE_MODEL", "sonnet"), service.ModeConfirmed, false)
 	t.Logf("claude %s echoed the switch as a replay: %v", view.Facts.Version, slices.Contains(natives, "user/replay"))
-	s.prompt("Reply with the word BETA-SWITCH-4c2d. Nothing else.")
+	s.prompt(switchPrompt)
 	s.idle()
 	s.expectReply("BETA-SWITCH-4c2d")
 	ranOn(t, svc, s, chosen, runsAs)
+
+	// released, the session holds what claude wrote for the switch, its
+	// local /model command among it. adopted again, the snapshot's prompts
+	// are exactly the two this test sent, so the command is not shown as a
+	// prompt, and the reply after the switch is speech. what else the
+	// assistant's speech holds is not checked.
+	if err := svc.Release(s.id); err != nil {
+		t.Fatal(err)
+	}
+	s.waitFor("the runtime to exit", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
+	var prompts []string
+	var speech strings.Builder
+	for _, ev := range s.replaceConversationByAdopting(project.ID, model.HarnessClaude, conv.NativeID) {
+		switch ev.Kind {
+		case model.EventUser:
+			prompts = append(prompts, ev.Text)
+		case model.EventAssistant:
+			speech.WriteString(ev.Text + "\n")
+		}
+	}
+	if sent := []string{markerPrompt, switchPrompt}; !slices.Equal(prompts, sent) {
+		t.Errorf("the snapshot's prompts are %d, want exactly the %d this test sent", len(prompts), len(sent))
+	}
+	if !strings.Contains(speech.String(), "BETA-SWITCH-4c2d") {
+		t.Error("the snapshot's assistant speech lacks the reply after the switch")
+	}
 	shutdown(t, svc, s)
 }
+
+// switchPrompt is the prompt after an idle model switch.
+const switchPrompt = "Reply with the word BETA-SWITCH-4c2d. Nothing else."
 
 // TestCodexModelSwitchWhileIdle starts a released conversation with no
 // prompt and switches its model while idle. codex takes a model choice with

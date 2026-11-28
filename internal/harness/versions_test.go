@@ -53,7 +53,7 @@ func TestStandAgainstTheTestedRange(t *testing.T) {
 		{model.HarnessClaude, claude.High, StandingTested, nil},
 		{model.HarnessClaude, "2.1.999", StandingNewer, nil},
 		{model.HarnessClaude, "2.1.300", StandingOlder, []string{"Claude Code '2.1.300' is older", "expects Claude Code '" + claude.Low + "' or later", "may fail"}},
-		{model.HarnessCodex, "0.170.0", StandingNewer, nil},
+		{model.HarnessCodex, "0.999.0", StandingNewer, nil},
 		{model.HarnessCodex, "0.150.0", StandingOlder, []string{"Codex '0.150.0' is older", codex.String()}},
 		{model.HarnessClaude, "", StandingUnknown, []string{"could not be read", claude.String()}},
 		{model.HarnessCodex, "fake", StandingUnknown, []string{"could not be read"}},

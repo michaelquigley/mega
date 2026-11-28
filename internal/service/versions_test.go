@@ -78,7 +78,7 @@ func TestTheVersionReadBeforeALaunchFillsAnEmptyReport(t *testing.T) {
 // harness can still run.
 func TestTheStartUpCheckReadsVersions(t *testing.T) {
 	claude := harnesstest.New(model.HarnessClaude)
-	claude.SetVersion("2.1.330", nil)
+	claude.SetVersion("2.1.999", nil)
 	codex := harnesstest.New(model.HarnessCodex)
 	codex.SetVersion("", errors.New("printed no version"))
 	svc := newService(t, filepath.Join(t.TempDir(), "registry.yaml"), allTrusted, claude, codex)
@@ -86,13 +86,13 @@ func TestTheStartUpCheckReadsVersions(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("harnesses = %+v", got)
 	}
-	if c := got[0]; !c.Found || c.Version != "2.1.330" || c.Standing != harness.StandingNewer || c.Tested != harness.Tested[model.HarnessClaude].String() || c.Note != "" {
+	if c := got[0]; !c.Found || c.Version != "2.1.999" || c.Standing != harness.StandingNewer || c.Tested != harness.Tested[model.HarnessClaude].String() || c.Note != "" {
 		t.Errorf("claude = %+v", c)
 	}
 	if x := got[1]; !x.Found || x.Version != "" || x.Standing != harness.StandingUnknown || !strings.Contains(x.Note, "could not be read") {
 		t.Errorf("codex = %+v", x)
 	}
-	if h, err := svc.Harnesses(); err != nil || len(h) != 2 || h[0].Version != "2.1.330" {
+	if h, err := svc.Harnesses(); err != nil || len(h) != 2 || h[0].Version != "2.1.999" {
 		t.Errorf("Harnesses() = %+v %v", h, err)
 	}
 }

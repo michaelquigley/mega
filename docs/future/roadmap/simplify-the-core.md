@@ -54,8 +54,8 @@ Built so far: pieces 1, 2 and 5, and the four removals listed below. What remain
 4. Built on 2026-11-25, and kept after Michael's trial: piece 6, `reading-the-workspace-starts-nothing`, in its larger size: no environment is resolved in the background at all.
 5. Built on 2026-11-25: piece 7, now `a-failed-read-after-a-reconnect-is-tried-again`: the read a reconnect makes is retried when it fails.
 6. Built on 2026-11-26: `adoption-reaches-any-session-in-the-checkout`. Codex and pi list a whole checkout, as Claude does. Then `an-older-log-is-read-as-todays-build-reads-it`, which waited on it, built the same day: the fill of a conversation's request, the replay of old import markers and the `mode_confirmed` flag are gone, and `internal/service` is 5,955 non-test lines. Both come before the first tagged release, since the rule that an older log is read as today's build reads it lapses there.
-7. `the-tested-ranges-reach-the-builds-in-use`, so a release states tested ranges that are true: Claude Code 2.1.331 and, since Michael updated it on 2026-11-27, pi 1.6.1. Until that day the card was `claude-code-21331-is-past-the-tested-range`.
-8. The full-tree review resumes on `harden-requests-stops-and-restarts`.
+7. Built on 2026-11-27: `the-tested-ranges-reach-the-builds-in-use`. `make e2e` admits a build to its tested range, a map in `internal/e2e` says what the round trips cover and the ordinary gate keeps it, and the three ranges reach the builds in use: Claude Code 2.1.331, Codex 0.172.0 and pi 1.6.1. Until that day the card was `claude-code-21331-is-past-the-tested-range`.
+8. The full-tree review resumes on `harden-requests-stops-and-restarts`. It is next: every card of the sequence is built, and `internal/service` is 5,955 non-test lines against 6,638 when the review of 2026-11-23 began. How the epic closes is decided after the review's first pass.
 
 ## removals from the review of 2026-11-23
 

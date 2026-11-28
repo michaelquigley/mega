@@ -15,11 +15,13 @@ import (
 	"github.com/michaelquigley/mega/internal/model"
 )
 
-// Range is a harness's tested range, lowest and highest: the builds between
-// which every build that harness's probe ran passed its steps, the version
-// probe's for claude code and codex (probes/versions/README.md), probes/pi
-// for pi. it says what the probe ran, a fixed list of mega's calls, not that
-// every call mega makes was seen to work, nor that every build in it was run.
+// Range is a harness's tested range, lowest and highest. the upper end is
+// the newest build `make e2e` admitted: every one of that harness's round
+// trips, the ones internal/e2e's map names, passed on it and none was
+// skipped. the lower end is the oldest build tested, by the tests of its day:
+// the version probe for claude code and codex (probes/versions/README.md),
+// the pi probes and round trips for pi. so only the upper end is known
+// to pass today's round trips, and no build between the ends is promised to.
 type Range struct {
 	Low  string
 	High string
@@ -28,16 +30,14 @@ type Range struct {
 func (r Range) String() string { return fmt.Sprintf("%s to %s", r.Low, r.High) }
 
 // Tested is each harness's tested range, the one place mega keeps them. a
-// range is what probes/versions ran: its steps, against the builds it was run
-// on, each recorded in docs/research/harness-capabilities.md. extending it
-// means running that probe against the new build and recording what it
-// saw, then changing it here. claude code is with the shim's pinned agent
-// sdk; codex is installed whole, with its helper programs. pi's range is the
-// one build probed, 1.5.2 (probes/pi, capability report, 2026-11-16).
+// build enters its range when `make e2e` admits it, as the summary that run
+// ends with says, and is widened here in the same change, with the summary
+// line in the day's journal. claude code is with the shim's pinned agent
+// sdk; codex is installed whole, with its helper programs.
 var Tested = map[string]Range{
-	model.HarnessClaude: {Low: "2.1.318", High: "2.1.326"},
-	model.HarnessCodex:  {Low: "0.163.0", High: "0.169.0"},
-	model.HarnessPi:     {Low: "1.5.2", High: "1.5.2"},
+	model.HarnessClaude: {Low: "2.1.318", High: "2.1.331"},
+	model.HarnessCodex:  {Low: "0.163.0", High: "0.172.0"},
+	model.HarnessPi:     {Low: "1.5.2", High: "1.6.1"},
 }
 
 // labels are the harnesses' names in a sentence.

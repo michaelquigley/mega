@@ -1,6 +1,6 @@
 # Harness versions probe
 
-This probe is how mega's tested ranges are extended. `harness.Tested` in `internal/harness/versions.go` names, for Claude Code and Codex, the lowest and highest build between which every build this probe ran passed the steps below; pi has no runner here, and its range is the build `probes/pi` ran. That is what the range claims: these steps, on the builds the capability report lists, not every call mega makes on every build in it. To add a build to a range, run this probe against it, record what it saw, then widen the range.
+A harness build enters mega's tested range when `make e2e` admits it: every round trip that `internal/e2e`'s map names for its harness passed on it, and none was skipped. `make e2e` runs only the installed build. This probe runs one that is not installed, safely. Use it for a range's lower end, an older build, or as a control when a round trip fails on a new build: the range's newest admitted build, run through the same calls. The tested range is `harness.Tested` in `internal/harness/versions.go`. pi has no runner here; its scenarios are `probes/pi`.
 
 Each run starts a scratch mega built from this checkout. The build under test is named in the scratch config, and the run makes the e2e round trips' calls (`internal/e2e`) over mega's HTTP API. The e2e tests cannot do this themselves: a project's environment never takes mega's own, so they cannot switch Claude Code's updater off or point Codex at a scratch `CODEX_HOME`. Here the fixture project's local override does both.
 
@@ -76,18 +76,18 @@ Each step prints `ok` or `FAIL`, and a run ends with a JSON summary, which is al
 - for Claude, the adopted conversation, the snapshot’s count of prompts and replies, and the results of the speech checks;
 - the turns and any that differed.
 
-A build is fit to add to a range when every step passed and the state checks found nothing changed.
+A build has passed the probe when every step passed and the state checks found nothing changed.
 
 Claude Code can write “No response requested.” after the interrupted turn and record the local `/model` command in its native transcript. The exact-id resume must import zero events, just as a start without a prompt does. The adoption’s snapshot must show the known assistant reply `DELTA-7a8b` as speech and omit both bookkeeping records from speech.
 
 Each run directory holds `driver.out`, `summary.json`, `version.txt`, `state-before.txt` and `state-after.txt`. It also holds mega's own output in `mega.out` and its log in `xdg/state/mega/mega.log`; a warning about versions would show there. A Codex run's `adopt/` holds the second mega's run.
 
-## Extending a range
+## Where it fits
 
-1. Run the probe against the new build, and against the range's current end as a control if anything looks different.
-2. Record what it saw in `docs/research/harness-capabilities.md`, with the build's version and the date.
-3. Change `harness.Tested` in `internal/harness/versions.go`.
-4. Note the run and the change in the day's journal.
+1. **An installed build** is admitted by `make e2e`, never by this probe. `AGENTS.md` has the routine.
+2. **A lower end.** Run the probe against the older build. If every step passes, lower `harness.Tested` in the same change, and put the probe's summary in the day's journal.
+3. **A control.** A round trip that fails on a new build is tried on `HEAD` first. Where the range's newest admitted build is still on disk, the probe can also run it through the same calls. If it passes there, the failure is the new build's. Nothing is installed or downgraded for a control.
+4. **An observation.** When a run contradicts something the capability report records, record the new observation there with the build's version and the date.
 
 ## Cleaning up
 

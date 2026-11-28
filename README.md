@@ -13,11 +13,11 @@ build your constellation. mega is where a solo operator runs an orienteering pra
 - **Linux.** It is what mega is built and used on; see [Platforms](#platforms).
 - **git, Go 1.27.4 or later, and Node 24**, to build mega. Go's and Node's own pages say how to install them: [go.dev/doc/install](https://go.dev/doc/install), [nodejs.org/en/download](https://nodejs.org/en/download).
 - **At least one harness**, installed and logged in as you:
-  - **Claude Code**, tested with 2.1.318 to 2.1.326. It updates itself, and a newer build is the normal state.
-  - **Codex**, tested with 0.163.0 to 0.169.0, installed whole.
-  - **pi**, tested with 1.5.2. Optional.
+  - **Claude Code**, tested with 2.1.318 to 2.1.331. It updates itself, and a newer build is the normal state.
+  - **Codex**, tested with 0.163.0 to 0.172.0, installed whole.
+  - **pi**, tested with 1.5.2 to 1.6.1. Optional.
 
-A build outside its tested range still runs. mega says where each build stands on its first page, in `mega version` and in the version panel, and marks one older than the range, which is the likelier to fail.
+A range's upper end is the newest build mega's harness round trips, `make e2e`, admitted. A build outside its tested range still runs. mega says where each build stands on its first page, in `mega version` and in the version panel, and marks one older than the range, which is the likelier to fail.
 
 ### 1. Install a harness and log in
 
@@ -99,7 +99,7 @@ Each of these is what mega, or your shell, says, and what to do.
 - **"Claude Code cannot run: 'claude' was not found on your shell's PATH, and no build is installed in '…/.local/share/claude/versions'; …"** on the first page. Claude Code is not installed, or not on the `PATH` your shell profile builds. Install it and reload the page. If you had to change your profile's `PATH`, restart mega first. The same holds for Codex and pi: "'codex' was not found on your shell's PATH".
 - **"Claude Code cannot run: 'node' was not found on your shell's PATH"**, while `node` works in your terminal. Your shell profile does not put Node on the `PATH`. Add it there, and restart mega.
 - **"'codex' at '…' is a lone binary; install Codex with npm or from the release's codex-package archive, whose helper programs it needs".** Reinstall Codex whole, as step 1 says.
-- **A build outside the tested range.** A newer build is said plainly: "version 2.1.330, … newer than the 2.1.318 to 2.1.326 mega was tested with". An older one is marked: "Claude Code '2.1.300' is older than the builds mega was tested with, '2.1.318 to 2.1.326'; the Agent SDK mega runs expects Claude Code '2.1.318' or later, so some calls may fail". Update the harness.
+- **A build outside the tested range.** A newer build is said plainly: "version 2.1.340, … newer than the 2.1.318 to 2.1.331 mega was tested with". An older one is marked: "Claude Code '2.1.300' is older than the builds mega was tested with, '2.1.318 to 2.1.331'; the Agent SDK mega runs expects Claude Code '2.1.318' or later, so some calls may fail". Update the harness.
 - **"Claude has not been trusted in this checkout, so it ignores the project's permission rules. Run claude here once and accept the trust dialog; mega will not accept it for you."** Do as it says, in that checkout. For pi: "pi has not been trusted in this checkout, so its project extensions, settings and MCP servers did not load…": run `pi` there once.
 - **"Claude Code cannot run: claude shim: stat …/shim/claude/shim.mjs: no such file or directory"** after moving or deleting the clone mega was built from. Put it back, or run `make` again where it is now.
 - **"another mega is already running at 'http://127.0.0.1:6342'; open it there, or stop it (Quit in its tray, or Ctrl+C where it runs) before starting this one"**, or the port being in use by another program. Open that one or stop it, or serve this one on another port with `--listen`.

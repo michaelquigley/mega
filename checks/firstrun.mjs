@@ -60,7 +60,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { checkPort, requireScratchPort, suite } from './lib/mega.mjs'
+import { checkPort, requireScratchPort, suite, tested } from './lib/mega.mjs'
 
 // the other megas this suite starts take the four ports above its own, each
 // refused before anything starts if it is the operator's or something
@@ -330,8 +330,8 @@ check(refusedCode !== 0 && refusedCode !== 'still running' && refusal.includes("
 // with them found: first with a Claude Code newer than its range, the normal
 // state for a harness that updates itself, said plainly; then with one
 // older, which needs a look and is marked.
-const claudeTested = '2.1.318 to 2.1.326'
-const codexTested = '0.163.0 to 0.169.0'
+const claudeTested = tested('claude')
+const codexTested = tested('codex')
 const codexVersion = '0.166.0'
 symlinkSync(join(t.repo, 'internal/harness/codex/fake/codex'), join(t.dir, 'bin/codex'))
 const installBuild = (version) => {
@@ -366,8 +366,9 @@ const freshClaude = page.locator('main .first-run [data-harness="claude"]')
 const freshCodex = page.locator('main .first-run [data-harness="codex"]')
 const classes = async (loc) => ((await loc.getAttribute('class')) ?? '').split(' ')
 
-// a newer Claude Code: plain wherever the version is said.
-const newer = '2.1.330'
+// a newer Claude Code: plain wherever the version is said, past any range
+// the round trips have admitted.
+const newer = '2.1.999'
 installBuild(newer)
 const n = freshMega('fresh-newer', t.port + 2)
 const newerRead = await soon(async () => harnessLine(n.log(), 'claude').line !== '' && harnessLine(n.log(), 'codex').line !== '', 20000)

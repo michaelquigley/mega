@@ -88,6 +88,22 @@ func (s *session) expectDialog(title string) model.Request {
 	return req
 }
 
+// idleAfter waits for the turn a dialog was answered in to end. a dialog
+// raised after it fails the test at once, unanswered: a local model can
+// run the command it was allowed a second time, which the test never
+// answers, and it says so rather than waiting out the turn's time.
+func (s *session) idleAfter(answered model.Request) {
+	s.t.Helper()
+	view := s.waitFor("the turn to end", func(v service.ConversationView) bool {
+		return slices.ContainsFunc(v.Pending, func(r model.Request) bool { return r.ID != answered.ID }) || (v.State == service.StateRunning && s.settled(v))
+	})
+	for _, r := range view.Pending {
+		if r.ID != answered.ID {
+			s.t.Fatalf("after %q was answered, pi raised %q; the model asked again, and it was not answered", dialogTitle(answered), dialogTitle(r))
+		}
+	}
+}
+
 func dialogTitle(req model.Request) string {
 	payload, _ := req.Payload.(map[string]any)
 	questions, _ := payload["questions"].([]any)
@@ -116,6 +132,8 @@ func TestPiRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// the service holds no other conversation, so every delta is this one's.
+	count := deltas(svc, "")
 	conv, err := svc.StartConversation(project.ID, model.HarnessPi, "e2e", piMarkerPrompt, service.LaunchChoice{})
 	if err != nil {
 		t.Fatal(err)
@@ -126,6 +144,7 @@ func TestPiRoundTrip(t *testing.T) {
 	s := &session{t: t, svc: svc, id: conv.ID}
 	s.idle()
 	s.skipUnanswered()
+	s.expectDeltas(count, "the marker turn")
 	s.expectReply("ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b")
 	if facts := s.view().Facts; facts == nil || facts.Session != conv.NativeID || facts.Model != settings.Model || facts.PermissionMode != "" {
 		t.Errorf("runtime facts = %+v, bound to %s", facts, conv.NativeID)
@@ -137,10 +156,12 @@ func TestPiRoundTrip(t *testing.T) {
 	if code := s.post(&answerBody{RequestID: question.ID, Answers: map[string]string{dialogTitle(question): "Blue"}}); code != "" {
 		t.Fatalf("the answer was refused: %s", code)
 	}
-	s.idle()
+	s.idleAfter(question)
 	s.expectReply("Blue", "GAMMA-5e6f")
 
-	// the extension's gate on a command: the turn waits on it.
+	// the extension's gate on a command: the turn waits on it, and the
+	// command it gated is recorded as a tool call and its result.
+	gated := s.seq()
 	s.prompt(piGatedPrompt)
 	gate := s.expectDialog(piGatedTitle)
 	time.Sleep(4 * time.Second)
@@ -150,8 +171,9 @@ func TestPiRoundTrip(t *testing.T) {
 	if code := s.post(&answerBody{RequestID: gate.ID, Answers: map[string]string{piGatedTitle: "Allow"}}); code != "" {
 		t.Fatalf("the answer was refused: %s", code)
 	}
-	s.idle()
+	s.idleAfter(gate)
 	s.expectReply("DELTA-7a8b")
+	s.toolCalled(gated)
 	if code := s.post(&answerBody{RequestID: gate.ID, Decision: "dismiss"}); code != service.CodeNotPending {
 		t.Errorf("late answer: %q", code)
 	}
@@ -162,13 +184,19 @@ func TestPiRoundTrip(t *testing.T) {
 	}
 	s.waitFor("the runtime to exit", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
 
-	// the exact-id resume remembers the whole conversation.
+	// the exact-id resume remembers the whole conversation, and imports
+	// nothing.
+	before := s.seq()
 	s.prompt(piReturnPrompt)
 	s.idle()
 	s.expectReply("ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b", "GAMMA-5e6f", "DELTA-7a8b", "RPC-RETURN-c3d4")
 	if facts := s.view().Facts; facts == nil || facts.Session != conv.NativeID {
 		t.Errorf("resumed session = %+v, bound to %s", facts, conv.NativeID)
 	}
+	s.importedSince("the exact-id resume", before)
+
+	s.noDifferences()
+	s.oneVersion()
 
 	// released, the session adopted again brings its speech in.
 	if err := svc.Release(s.id); err != nil {
@@ -182,12 +210,32 @@ func TestPiRoundTrip(t *testing.T) {
 	t.Logf("session %s", conv.NativeID)
 }
 
+// toolCalled checks a tool call and its result were recorded after seq.
+func (s *session) toolCalled(seq int64) {
+	s.t.Helper()
+	evs, err := s.svc.Events(s.id, seq)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	var use, result bool
+	for _, ev := range evs {
+		use = use || (ev.Seq > seq && ev.Kind == model.EventToolUse)
+		result = result || (ev.Seq > seq && ev.Kind == model.EventToolResult)
+	}
+	if !use || !result {
+		s.t.Errorf("the turn recorded a tool call %v and a result %v, want both", use, result)
+	}
+}
+
 // TestPiInterruptWaitsOnADialog: an interrupt with the extension's gate
 // pending says what it waits on, and the turn ends only once the operator
-// dismisses the dialog; the command never runs. mega never answers the
-// dialog to let the interrupt through.
+// dismisses the dialog; the command never runs, as the file it would make
+// shows. mega never answers the dialog to let the interrupt through.
 func TestPiInterruptWaitsOnADialog(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_PI_FIXTURE")
+	check := filepath.Join(fixture, "pi-interrupt-check.txt")
+	_ = os.Remove(check)
+	t.Cleanup(func() { _ = os.Remove(check) })
 	svc := newE2EService(t, newPiHarness())
 	project, err := svc.RegisterProject("pi-rt1", fixture)
 	if err != nil {
@@ -200,15 +248,16 @@ func TestPiInterruptWaitsOnADialog(t *testing.T) {
 	s := &session{t: t, svc: svc, id: conv.ID}
 	s.idle()
 	s.skipUnanswered()
-	s.prompt(piGatedPrompt)
-	gate := s.expectDialog(piGatedTitle)
+	const command = "touch pi-interrupt-check.txt; sleep 3"
+	s.prompt("Using the bash tool, run exactly `" + command + "` and then reply DELTA-7a8b. Nothing else.")
+	gate := s.expectDialog("Approve bash command: " + command)
 	if err := svc.Interrupt(s.id); err != nil {
 		t.Fatal(err)
 	}
 	s.waitFor("the interrupt's note", func(service.ConversationView) bool {
 		evs, _ := svc.Events(s.id, 0)
 		return slices.ContainsFunc(evs, func(ev *model.Event) bool {
-			return ev.Status == model.StatusWaiting && strings.Contains(ev.Text, piGatedTitle)
+			return ev.Status == model.StatusWaiting && strings.Contains(ev.Text, "Approve bash command: "+command)
 		})
 	})
 	time.Sleep(3 * time.Second)
@@ -226,13 +275,19 @@ func TestPiInterruptWaitsOnADialog(t *testing.T) {
 	if last := evs[len(evs)-1]; last.Kind != model.EventTurnEnd || last.Status != model.TurnInterrupted {
 		t.Errorf("the turn ended %s %s", last.Kind, last.Status)
 	}
+	if _, err := os.Stat(check); err == nil {
+		t.Error("the command the dialog gated ran")
+	}
 	shutdown(t, svc, s)
 }
 
 // TestPiReleaseWithADialogPending: a release with the extension's gate
-// pending ends pi's process, since a pending dialog holds pi open through
+// pending ends pi's process, seen as this test's process having no child in
+// the fixture afterwards, since a pending dialog holds pi open through
 // its input closing; the dialog is recorded as never answered, the command
-// it gated never runs, and the session resumes by its exact id.
+// it gated never runs, and the session resumes by its exact id, where the
+// extension's gate is raised again (P4): the reopened pi loaded it. that
+// dialog is not answered either, and a second release ends pi.
 func TestPiReleaseWithADialogPending(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_PI_FIXTURE")
 	check := filepath.Join(fixture, "pi-release-check.txt")
@@ -258,8 +313,8 @@ func TestPiReleaseWithADialogPending(t *testing.T) {
 	}
 	s.waitFor("pi to be ended", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
 	t.Logf("pi was ended %s after the release", time.Since(begun).Round(time.Millisecond))
-	if running := processesNaming(conv.NativeID); len(running) > 0 {
-		t.Errorf("pi is still running: pids %v", running)
+	if running := piChildren(t, fixture); len(running) > 0 {
+		t.Errorf("pi is still running: this test's process has children in the fixture, pids %v", running)
 	}
 	if _, err := os.Stat(check); err == nil {
 		t.Error("the command the dialog gated ran")
@@ -273,18 +328,28 @@ func TestPiReleaseWithADialogPending(t *testing.T) {
 	}) {
 		t.Error("the dialog is not recorded as never answered")
 	}
-	// the session resumes, by its exact id.
-	s.prompt("Reply with the project instruction marker token followed by ZETA-1b2c. Nothing else.")
-	s.idle()
-	s.expectReply("ROUNDHOUSE-MARKER-7f3a", "ZETA-1b2c")
+	// the session resumes, by its exact id, and the gate asks again: the
+	// reopened pi loaded the extension. it is never answered, and the
+	// release ends pi again.
+	s.prompt("Using the bash tool, run exactly `sleep 2` and then reply ZETA-1b2c. Nothing else.")
+	s.expectDialog("Approve bash command: sleep 2")
 	if facts := s.view().Facts; facts == nil || facts.Session != conv.NativeID {
 		t.Errorf("resumed session = %+v, bound to %s", facts, conv.NativeID)
+	}
+	if err := svc.Release(s.id); err != nil {
+		t.Fatal(err)
+	}
+	s.waitFor("pi to be ended again", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
+	if running := piChildren(t, fixture); len(running) > 0 {
+		t.Errorf("pi is still running after the second release: pids %v", running)
 	}
 	shutdown(t, svc, s)
 }
 
 // processesNaming lists the live processes whose command line holds s, such
-// as a pi started with --session-id s.
+// as a command pi runs with a file of the test's own in it. pi itself is not
+// found this way: pi 1.6.1 sets its process title, which replaces its
+// arguments in /proc (capability report, 2026-11-27); piChildren finds it.
 func processesNaming(s string) []int {
 	entries, _ := os.ReadDir("/proc")
 	var out []int
@@ -295,6 +360,47 @@ func processesNaming(s string) []int {
 		}
 		cmdline, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
 		if err == nil && strings.Contains(string(cmdline), s) {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
+// piChildren lists the live processes this test's own process started in
+// the fixture: those whose parent is this process and whose working
+// directory is the fixture. a pi this test's service runs is one of them;
+// no other program's pi can be, whatever it is called.
+func piChildren(t *testing.T, fixture string) []int {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	self := os.Getpid()
+	entries, _ := os.ReadDir("/proc")
+	var out []int
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		stat, err := os.ReadFile(filepath.Join("/proc", e.Name(), "stat"))
+		if err != nil {
+			continue
+		}
+		// after the command, which may hold spaces: state, ppid.
+		closing := strings.LastIndexByte(string(stat), ')')
+		if closing < 0 {
+			continue
+		}
+		fields := strings.Fields(string(stat[closing+1:]))
+		if len(fields) < 2 || fields[0] == "Z" {
+			continue
+		}
+		if ppid, err := strconv.Atoi(fields[1]); err != nil || ppid != self {
+			continue
+		}
+		if cwd, err := os.Readlink(filepath.Join("/proc", e.Name(), "cwd")); err == nil && cwd == dir {
 			out = append(out, pid)
 		}
 	}
@@ -328,6 +434,7 @@ func TestPiDiscoveryAndAdoption(t *testing.T) {
 		t.Fatalf("discovery did not find the planted session %s among %d", id, len(found))
 	}
 	t.Logf("%d sessions; planted %s: %.60q", len(found), id, found[i].Preview)
+	lookAt(t, svc, project.ID, model.HarnessPi, id)
 	conv, err := svc.Adopt(project.ID, model.HarnessPi, id, "adopted")
 	if err != nil {
 		t.Fatal(err)

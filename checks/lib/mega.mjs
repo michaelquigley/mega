@@ -15,13 +15,24 @@
 // default before 2026-11-18, are refused.
 import { execFileSync, spawn } from 'node:child_process'
 import { createConnection } from 'node:net'
-import { existsSync, mkdirSync, openSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
 export const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+// tested is a harness's tested range as mega says it, "2.1.318 to 2.1.326",
+// read from harness.Tested in the source the check builds from, so that a
+// range `make e2e` widens needs no change in the checks.
+export function tested(harness) {
+  const name = { claude: 'Claude', codex: 'Codex', pi: 'Pi' }[harness]
+  const source = readFileSync(join(repo, 'internal/harness/versions.go'), 'utf8')
+  const m = new RegExp(`model\\.Harness${name}:\\s*\\{Low: "([^"]+)", High: "([^"]+)"\\}`).exec(source)
+  if (!m) throw new Error(`harness.Tested names no range for ${harness}`)
+  return `${m[1]} to ${m[2]}`
+}
 
 // exit codes the runner reads: a failed step, and a check that could not run.
 export const FAILED = 1

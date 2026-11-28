@@ -17,43 +17,6 @@ import (
 	"github.com/michaelquigley/mega/internal/service"
 )
 
-// TestCodexDiscoveryAndHistory reads the fixture's stored threads without a
-// model turn: discovery through thread/list, and history through thread/read.
-func TestCodexDiscoveryAndHistory(t *testing.T) {
-	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
-	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	sessions, err := h.Discover(ctx, harness.Place{Cwd: fixture, Env: os.Environ(), Find: os.Environ()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sessions) == 0 {
-		t.Fatal("no threads discovered in the fixture")
-	}
-	for _, s := range sessions[:min(3, len(sessions))] {
-		t.Logf("thread %s updated %s: %.60q", s.NativeID, s.UpdatedAt.Format(time.RFC3339), s.Preview)
-	}
-	history, err := h.History(ctx, harness.Place{Cwd: fixture, Env: os.Environ(), Find: os.Environ()}, sessions[0].NativeID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	evs := history.Events
-	counts := map[string]int{}
-	seen := map[string]bool{}
-	for _, ev := range evs {
-		counts[ev.Kind]++
-		if ev.NativeID == "" || seen[ev.NativeID] || ev.Origin != model.OriginNative {
-			t.Errorf("history event %s has native id %q (seen %v), origin %q", ev.Kind, ev.NativeID, seen[ev.NativeID], ev.Origin)
-		}
-		seen[ev.NativeID] = true
-	}
-	t.Logf("history of %s: %v", sessions[0].NativeID, counts)
-	if counts[model.EventUser] == 0 || counts[model.EventAssistant] == 0 {
-		t.Errorf("history lacks user or assistant messages: %v", counts)
-	}
-}
-
 const (
 	codexMarkerPrompt = "Reply with the project instruction marker token from your project instructions (AGENTS.md), followed by the word ALPHA-1a2b. Nothing else."
 	// the fixture is trusted in the operator's codex config, which gives it a
@@ -61,12 +24,18 @@ const (
 	codexApprovalPrompt = "Run exactly this shell command, and no other: echo GAMMA-5e6f > ../codex-rt1-approval.txt (it writes in the parent of the working directory). Then reply with GAMMA-5e6f. Nothing else."
 	// the one command the approval round trip expects to be asked about.
 	codexApprovalCommand = "echo GAMMA-5e6f > ../codex-rt1-approval.txt"
-	codexQuestionPrompt  = "Before doing anything else, ask me a question using your user-input question mechanism: which color do I prefer, Red or Blue? Wait for my answer. Then reply with my chosen color followed by STEER-GAMMA-5e6f. Nothing else."
-	codexReturnPrompt    = "List every marker token you have seen in this conversation so far, in order, one per line, then append RESUME-SDK-c3d4 on its own line. Nothing else."
+	// the command the interrupted approval asks about, never answered.
+	codexInterruptCommand = "echo EPSILON-2b9c > ../codex-rt1-interrupt.txt"
+	codexInterruptPrompt  = "Run exactly this shell command, and no other: " + codexInterruptCommand + " (it writes in the parent of the working directory). Then reply with EPSILON-2b9c. Nothing else."
+	codexQuestionPrompt   = "Before doing anything else, ask me a question using your user-input question mechanism: which color do I prefer, Red or Blue? Wait for my answer. Then reply with my chosen color followed by STEER-GAMMA-5e6f. Nothing else."
+	codexReturnPrompt     = "List every marker token you have seen in this conversation so far, in order, one per line, then append RESUME-SDK-c3d4 on its own line. Nothing else."
 )
 
 // TestCodexRoundTrip is X1 to X4 and an X7-style resumed turn through the
-// service, without the terminal visit (X5), which the operator does by hand.
+// service, without the terminal visit (X5), which the operator does by hand,
+// with an interrupt while a second approval waits, and the thread then
+// discovered and adopted again, its history read: everything it reads is
+// the thread it made, never one another run left in the fixture.
 //
 // the approval round trip is what X2 tests: a genuine command approval
 // reaches the operator, the turn waits on it, and the command runs only after
@@ -83,32 +52,67 @@ func TestCodexRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// what the approved and the interrupted commands write, beside the
+	// checkout.
+	approvalFile := filepath.Join(filepath.Dir(fixture), "codex-rt1-approval.txt")
+	interruptFile := filepath.Join(filepath.Dir(fixture), "codex-rt1-interrupt.txt")
+	for _, f := range []string{approvalFile, interruptFile} {
+		_ = os.Remove(f)
+		t.Cleanup(func() { _ = os.Remove(f) })
+	}
+
 	// X1: a new thread; AGENTS.md loads; the operator's approval policy and
-	// sandbox are inherited.
+	// sandbox are inherited. the service holds no other conversation, so
+	// every delta is this one's.
+	count := deltas(svc, "")
 	conv, err := svc.StartConversation(project.ID, model.HarnessCodex, "e2e", codexMarkerPrompt, service.LaunchChoice{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := &session{t: t, svc: svc, id: conv.ID}
 	s.idle()
+	s.expectDeltas(count, "the marker turn")
 	s.expectReply("ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b")
 	facts := s.view().Facts
 	if facts == nil || facts.Session != conv.NativeID || !strings.Contains(facts.PermissionMode, "on-request") {
 		t.Errorf("runtime facts = %+v, bound to %s", facts, conv.NativeID)
 	}
+	s.mcpReported()
 
-	// X2: a genuine approval waits for a delayed answer.
+	// X2: a genuine approval waits for a delayed answer, and nothing is
+	// written until it comes.
 	s.prompt(codexApprovalPrompt)
 	approval := s.expectApproval(approvalWant{tool: "shell", command: codexApprovalCommand})
 	time.Sleep(4 * time.Second)
 	if !s.view().TurnActive {
 		t.Error("the turn ended while the approval was pending")
 	}
+	if _, err := os.Stat(approvalFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the command wrote before Allow: %v", err)
+	}
 	if code := s.answer(approval.ID, "allow"); code != "" {
 		t.Fatalf("the answer was refused: %s", code)
 	}
 	s.idle()
 	s.expectReply("GAMMA-5e6f")
+	if written, err := os.ReadFile(approvalFile); err != nil || !strings.Contains(string(written), "GAMMA-5e6f") {
+		t.Errorf("the approved command wrote %q (%v)", written, err)
+	}
+
+	// an interrupt with a second approval pending, never answered: the turn
+	// ends interrupted, the request aborted, and nothing is written.
+	asked := s.seq()
+	s.prompt(codexInterruptPrompt)
+	second := s.expectApproval(approvalWant{tool: "shell", command: codexInterruptCommand})
+	if err := svc.Interrupt(s.id); err != nil {
+		t.Fatal(err)
+	}
+	s.waitFor("the interrupted turn to end", func(v service.ConversationView) bool { return !v.TurnActive && len(v.Pending) == 0 })
+	s.endedInterrupted(asked, second.ID)
+	time.Sleep(2 * time.Second)
+	if _, err := os.Stat(interruptFile); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the interrupted command wrote: %v", err)
+	}
 
 	// X3: the default-mode async question is a request, answered into its turn.
 	s.prompt(codexQuestionPrompt)
@@ -154,12 +158,32 @@ func TestCodexRoundTrip(t *testing.T) {
 		}
 	}
 
-	// X7-style: the next prompt resumes the exact thread and remembers.
+	// X7-style: the next prompt resumes the exact thread and remembers, and
+	// imports nothing.
+	before := s.seq()
 	s.prompt(codexReturnPrompt)
 	s.idle()
 	s.expectReply("ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b", "GAMMA-5e6f", "RESUME-SDK-c3d4")
 	if facts := s.view().Facts; facts == nil || facts.Session != conv.NativeID {
 		t.Errorf("resumed thread = %+v, bound to %s", facts, conv.NativeID)
+	}
+	s.importedSince("the exact-id resume", before)
+	s.noDifferences()
+	s.oneVersion()
+
+	// released and removed, the thread is discovered, by its own id among
+	// every thread in the checkout, and adopted again, its history imported.
+	if err := svc.Release(s.id); err != nil {
+		t.Fatal(err)
+	}
+	s.waitFor("the runtime to exit again", func(v service.ConversationView) bool { return v.State == model.RuntimeNone })
+	messages := s.replaceConversationByAdopting(project.ID, model.HarnessCodex, conv.NativeID)
+	counts := map[string]int{}
+	for _, ev := range messages {
+		counts[ev.Kind]++
+	}
+	if counts[model.EventUser] == 0 || counts[model.EventAssistant] == 0 {
+		t.Errorf("the adoption's snapshot lacks prompts or replies: %v", counts)
 	}
 	shutdown(t, svc, s)
 	t.Logf("thread %s", conv.NativeID)
@@ -206,8 +230,10 @@ func TestCodexReleaseDuringCommand(t *testing.T) {
 // TestCodexMCPApproval calls the fixture's MCP echo tool (mcp/fixture-server.mjs,
 // named in the fixture's .codex/config.toml). codex asks through an MCP
 // elicitation; it must arrive as a permission card naming fixture/echo with
-// its parameter, the tool must not run while the card waits, and it must run
-// after Allow. the fixture server logs each call to mcp/mcp-calls.log.
+// its parameter, offering to allow it for the session, the tool must not run
+// while the card waits, and it must run once allowed for the session, which
+// takes Allow's place. the fixture server logs each call to
+// mcp/mcp-calls.log.
 //
 // the approval round trip is what it tests. the test plays the operator for
 // exactly that request (fixture/echo, server fixture, tool echo, text
@@ -241,7 +267,8 @@ func TestCodexMCPApproval(t *testing.T) {
 	if _, err := os.Stat(calls); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the tool ran before it was allowed: %v", err)
 	}
-	if code := s.answer(approval.ID, "allow"); code != "" {
+	// allowed for the session, which the request offers, in place of Allow.
+	if code := s.answer(approval.ID, harness.DecisionAllowSession); code != "" {
 		t.Fatalf("the answer was refused: %s", code)
 	}
 	s.idle()
@@ -263,6 +290,7 @@ func TestCodexModelAndEffort(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CODEX_FIXTURE")
 	chosen := env("MEGA_E2E_CODEX_MODEL", "gpt-6-luna")
 	h := codex.New(codex.Config{Binary: env("MEGA_E2E_CODEX", "codex")})
+	readsSettings(t, h, fixture)
 	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("codex-rt1", fixture)
 	if err != nil {

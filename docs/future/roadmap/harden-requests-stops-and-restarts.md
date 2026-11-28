@@ -121,3 +121,5 @@ Michael stopped the passes here: "i think the implementer should stop now, and w
 ## raised on reads-after-the-service-closes, 2026-11-24
 
 Terminus `734bc5bc263d` raised `answer-in-flight-still-listed-as-pending` (blocking, `pending-requests-distinct-from-history`) in `Service.Answer`, which that card did not touch. An answer on its way to the harness is reserved in `l.answering` but stays in the pending set, so another page still offers its card, and a second answer is refused as `conflict`; `TestAnAnswerHidesNoRequest` asserts both on purpose. Terminus suggests taking it out of the actionable set while the answer is in flight, `not_pending` for a second answer, and putting it back if the harness rejects it without settling it. It belongs to "A request's life in one place" above.
+
+Raised again, blocking, as `request-stays-pending-during-delivery` by terminus `6e2622950f83` on `the-tested-ranges-reach-the-builds-in-use` (2026-11-27), which did not touch `Service.Answer`.

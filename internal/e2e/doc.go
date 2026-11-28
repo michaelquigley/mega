@@ -2,6 +2,15 @@
 // real harnesses against disposable fixtures with the operator's logins, so
 // they sit behind the e2e build tag and never run in the ordinary gate.
 //
+// a harness build is admitted to its tested range (harness.Tested) when
+// every round trip map.go names for its harness passed on it and none was
+// skipped. map.go is the map of what admission needs: every method and
+// callback of the adapter interfaces, every decision an answer carries, every
+// step of the version drivers and every scenario of the pi probes, each with
+// the round trips that make it or why none does. map_test.go, which has no
+// build tag, is the ordinary gate's hold on it. `make e2e` ends by saying
+// where each range stands (summary_test.go).
+//
 // each test takes its fixture checkout from the environment and is skipped
 // when it is unset:
 //
@@ -30,6 +39,13 @@
 // MEGA_E2E_NODE, MEGA_E2E_CLAUDE, MEGA_E2E_CODEX, MEGA_E2E_PI and the *_MODEL variables
 // override the executables and models used. Claude Code defaults to what mega
 // runs by default, config.DefaultClaudeExecutable, found as mega finds it.
+//
+// TestClaudeBackgroundJob, for its life, writes bgprobe.sh into claude-rt1,
+// a script that sleeps ten seconds, and a .claude/settings.local.json
+// allowing exactly Bash(./bgprobe.sh), and puts back whatever those paths
+// held when it ends. it approves no harness request. the pi and Codex round
+// trips write files of their own beside or in their fixtures (the commands'
+// marker files, the held files R1 and R4 follow) and remove them.
 //
 // TestEachProjectRunsInItsOwnEnvironment needs both fixtures and devprj on
 // the interactive shell's PATH. for its life it writes a scratch .devprj, a

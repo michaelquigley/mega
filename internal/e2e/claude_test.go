@@ -13,7 +13,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,6 +51,7 @@ func workspaceOf(t testing.TB, svc *service.Service) service.Workspace {
 
 func fixture(t *testing.T, key string) string {
 	t.Helper()
+	counted(t)
 	dir := os.Getenv(key)
 	if dir == "" {
 		t.Skipf("%s is not set: the round trip needs a disposable fixture checkout (see internal/e2e/doc.go)", key)
@@ -217,11 +220,16 @@ func unwrapShell(command string) string {
 
 // expectApproval waits for the conversation's pending requests and asserts
 // they are exactly one permission request for want, before anything answers
-// it. any other request fails the test and is left unanswered: a test plays
+// it; a turn that ends without raising one fails at once, with its reply. any other request fails the test and is left unanswered: a test plays
 // the operator only for the approval it is about.
 func (s *session) expectApproval(want approvalWant) model.Request {
 	s.t.Helper()
-	view := s.waitFor("the approval", func(v service.ConversationView) bool { return len(v.Pending) > 0 })
+	view := s.waitFor("the approval", func(v service.ConversationView) bool {
+		return len(v.Pending) > 0 || (v.State == service.StateRunning && s.settled(v))
+	})
+	if len(view.Pending) == 0 {
+		s.t.Fatalf("the turn ended without raising the approval for %s %q; the reply was %q", want.tool, want.command, s.lastAssistant())
+	}
 	if len(view.Pending) != 1 {
 		s.t.Fatalf("expected exactly one pending request, got %+v; none was answered", view.Pending)
 	}
@@ -259,24 +267,28 @@ func (s *session) prompt(text string) {
 // browser uses; anything else fails the test unanswered.
 func TestClaudeRoundTrip(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
-	h := newClaudeHarness(t)
+	h := mustNewClaudeHarness(t)
 	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// C1: launch with the marker turn; project instructions load.
+	// C1: launch with the marker turn; project instructions load. the
+	// service holds no other conversation, so every delta is this one's.
+	count := deltas(svc, "")
 	conv, err := svc.StartConversation(project.ID, model.HarnessClaude, "e2e", markerPrompt, service.LaunchChoice{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := &session{t: t, svc: svc, id: conv.ID}
 	s.idle()
+	s.expectDeltas(count, "the marker turn")
 	s.expectReply("ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b")
 	if facts := s.view().Facts; facts == nil || facts.PermissionMode != "default" || facts.Session != conv.NativeID {
 		t.Errorf("runtime facts = %+v, bound to %s", facts, conv.NativeID)
 	}
+	s.mcpReported()
 
 	// C2: AskUserQuestion reaches the operator and the answer returns.
 	s.prompt(questionPrompt)
@@ -298,6 +310,9 @@ func TestClaudeRoundTrip(t *testing.T) {
 	// C3: a real permission request waits for a delayed approval.
 	s.prompt(approvalPrompt)
 	approval := s.expectApproval(approvalWant{tool: "Bash", command: "sleep 3"})
+	if payload, _ := approval.Payload.(map[string]any); payload["permission_mode"] != "default" {
+		t.Errorf("the request was raised in %v mode, want default", payload["permission_mode"])
+	}
 	time.Sleep(4 * time.Second)
 	if s.view().TurnActive == false {
 		t.Error("the turn ended while the approval was pending")
@@ -345,13 +360,18 @@ func TestClaudeRoundTrip(t *testing.T) {
 		t.Errorf("history has %d events and %d prompts, want the 3 managed prompts", len(history.Events), prompts)
 	}
 
-	// C6: the next prompt resumes the exact session and remembers everything.
+	// C6: the next prompt resumes the exact session and remembers everything,
+	// and imports nothing: mega recorded it all as it watched.
+	before := s.seq()
 	s.prompt(returnPrompt)
 	s.idle()
 	s.expectReply("ROUNDHOUSE-MARKER-7f3a", "ALPHA-1a2b", "GAMMA-5e6f", "DELTA-7a8b", "SDK-RETURN-c3d4")
 	if facts := s.view().Facts; facts == nil || facts.Session != conv.NativeID {
 		t.Errorf("resumed session = %+v, bound to %s", facts, conv.NativeID)
 	}
+	s.importedSince("the exact-id resume", before)
+	s.noDifferences()
+	s.oneVersion()
 
 	shutdown(t, svc, s)
 	t.Logf("session %s", conv.NativeID)
@@ -365,7 +385,7 @@ func TestClaudeRoundTrip(t *testing.T) {
 // replies as assistant speech, and that message as none.
 func TestClaudeInterruptedTurnStaysOutOfSpeechOnAdoption(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
-	h := newClaudeHarness(t)
+	h := mustNewClaudeHarness(t)
 	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
@@ -381,11 +401,13 @@ func TestClaudeInterruptedTurnStaysOutOfSpeechOnAdoption(t *testing.T) {
 
 	// the approval is asserted, never answered, and the turn interrupted.
 	s.prompt(approvalPrompt)
+	asked := s.seq()
 	approval := s.expectApproval(approvalWant{tool: "Bash", command: "sleep 3"})
 	if err := svc.Interrupt(s.id); err != nil {
 		t.Fatal(err)
 	}
 	s.waitFor("the turn to end", func(v service.ConversationView) bool { return !v.TurnActive && len(v.Pending) == 0 })
+	s.endedInterrupted(asked, approval.ID)
 	if code := s.answer(approval.ID, "deny"); code != service.CodeNotPending {
 		t.Errorf("an answer after the interrupt: %q", code)
 	}
@@ -425,20 +447,57 @@ func TestClaudeInterruptedTurnStaysOutOfSpeechOnAdoption(t *testing.T) {
 	shutdown(t, svc, s)
 }
 
-// newClaudeHarness runs the real shim and the claude code mega runs by
+// endedInterrupted checks the first turn to end after seq ended interrupted,
+// and that the request it waited on was settled as aborted.
+func (s *session) endedInterrupted(seq int64, requestID string) {
+	s.t.Helper()
+	evs, err := s.svc.Events(s.id, seq)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	ended, aborted := "", ""
+	for _, ev := range evs {
+		if ev.Seq <= seq {
+			continue
+		}
+		if ev.Kind == model.EventTurnEnd && ended == "" {
+			ended = ev.Status
+		}
+		if ev.Kind == model.EventRequestResolved && ev.Req != nil && ev.Req.ID == requestID {
+			aborted = ev.Req.Outcome
+		}
+	}
+	if ended != model.TurnInterrupted {
+		s.t.Errorf("the turn ended %q, want interrupted", ended)
+	}
+	if aborted != model.OutcomeAborted {
+		s.t.Errorf("the pending request was settled %q, want aborted", aborted)
+	}
+}
+
+// mustNewClaudeHarness runs the real shim and the claude code mega runs by
 // default (config.DefaultClaudeExecutable), found as mega finds it, or the
 // one MEGA_E2E_CLAUDE names.
-func newClaudeHarness(t *testing.T) *claude.Harness {
+func mustNewClaudeHarness(t *testing.T) *claude.Harness {
 	t.Helper()
-	shim, err := filepath.Abs(filepath.Join("..", "..", "shim", "claude"))
+	h, err := newClaudeHarness()
 	if err != nil {
 		t.Fatal(err)
+	}
+	return h
+}
+
+// newClaudeHarness is mustNewClaudeHarness for a caller with no test to fail.
+func newClaudeHarness() (*claude.Harness, error) {
+	shim, err := filepath.Abs(filepath.Join("..", "..", "shim", "claude"))
+	if err != nil {
+		return nil, err
 	}
 	return claude.New(claude.Config{
 		Node:       env("MEGA_E2E_NODE", "node"),
 		Shim:       shim,
 		Executable: env("MEGA_E2E_CLAUDE", config.DefaultClaudeExecutable),
-	})
+	}), nil
 }
 
 // TestClaudeAutoMode launches in the auto mode the operator chose and runs the
@@ -453,7 +512,7 @@ func newClaudeHarness(t *testing.T) *claude.Harness {
 // browser uses; anything else fails the test unanswered.
 func TestClaudeAutoMode(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
-	svc := newE2EService(t, newClaudeHarness(t))
+	svc := newE2EService(t, mustNewClaudeHarness(t))
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
 		t.Fatal(err)
@@ -490,7 +549,7 @@ func TestClaudeAutoMode(t *testing.T) {
 // normalized facts and events, never claude's own frames.
 func TestClaudeModeSwitch(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
-	svc := newE2EService(t, newClaudeHarness(t))
+	svc := newE2EService(t, mustNewClaudeHarness(t))
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
 		t.Fatal(err)
@@ -566,6 +625,14 @@ func newE2EService(t *testing.T, h harness.Harness) *service.Service {
 // own for nil.
 func newE2EServiceResolving(t *testing.T, h harness.Harness, resolver service.Resolver) *service.Service {
 	t.Helper()
+	return newE2EServiceWith(t, resolver, h)
+}
+
+// newE2EServiceWith is a service over hs with a throwaway data directory and
+// the resolver given, or mega's own for nil. as the round trip ends, the
+// builds it ran on are recorded for the summary (noteBuilds).
+func newE2EServiceWith(t *testing.T, resolver service.Resolver, hs ...harness.Harness) *service.Service {
+	t.Helper()
 	data := t.TempDir()
 	reg, err := registry.Load(filepath.Join(data, "registry.yaml"))
 	if err != nil {
@@ -574,13 +641,22 @@ func newE2EServiceResolving(t *testing.T, h harness.Harness, resolver service.Re
 	svc, err := service.New(reg, service.Options{
 		Resolver:     resolver,
 		EventLogPath: func(id string) string { return filepath.Join(data, "conversations", id, "events.jsonl") },
-		Harnesses:    []harness.Harness{h},
+		Harnesses:    hs,
 		Exit:         func(reason error) { panic(reason) }, // no write fails here
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(svc.Close)
+	// registered after Close, so they run before it, the last first: the
+	// builds are noted, then every runtime is released, so a round trip
+	// that failed before its own shutdown leaves no harness running.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		svc.Shutdown(ctx)
+	})
+	t.Cleanup(func() { noteBuilds(t, svc) })
 	return svc
 }
 
@@ -591,11 +667,16 @@ func newE2EServiceResolving(t *testing.T, h harness.Harness, resolver service.Re
 // into mega, and returns the prompts and replies of the adoption's snapshot.
 // the managed timeline goes with the removed conversation, and from here the
 // test session is the adopted conversation.
+//
+// before adopting, it reads the session's look as the adopt dialog does, and
+// requires it to hold a prompt; what the look says is never printed.
 func (s *session) replaceConversationByAdopting(projectID, harnessName, nativeID string) []*model.Event {
 	s.t.Helper()
+	noteBuilds(s.t, s.svc, s.id)
 	if err := s.svc.RemoveConversation(s.id); err != nil {
 		s.t.Fatal(err)
 	}
+	lookAt(s.t, s.svc, projectID, harnessName, nativeID)
 	adopted, err := s.svc.Adopt(projectID, harnessName, nativeID, "e2e adopted")
 	if err != nil {
 		s.t.Fatal(err)
@@ -612,6 +693,147 @@ func (s *session) replaceConversationByAdopting(projectID, harnessName, nativeID
 		}
 	}
 	return speech
+}
+
+// lookAt reads a session's look, as the adopt dialog does before adopting
+// it, and requires it to hold a first prompt. none of it is printed.
+func lookAt(t *testing.T, svc *service.Service, projectID, harnessName, nativeID string) {
+	t.Helper()
+	look, err := svc.Look(projectID, harnessName, nativeID)
+	if err != nil {
+		t.Fatalf("the look at %s: %v", nativeID, err)
+	}
+	if look.Prompts == 0 || strings.TrimSpace(look.FirstPrompt) == "" {
+		t.Errorf("the look at %s holds %d prompts and a first prompt of %d bytes", nativeID, look.Prompts, len(look.FirstPrompt))
+	}
+}
+
+// seq is the conversation's newest event's sequence number, or zero.
+func (s *session) seq() int64 {
+	s.t.Helper()
+	evs, err := s.svc.Events(s.id, 0)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	if len(evs) == 0 {
+		return 0
+	}
+	return evs[len(evs)-1].Seq
+}
+
+// importedSince fails for any event recorded after seq from native history:
+// origin native, which nothing a live runtime reports carries.
+func (s *session) importedSince(what string, seq int64) {
+	s.t.Helper()
+	evs, err := s.svc.Events(s.id, seq)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	for _, ev := range evs {
+		if ev.Seq > seq && ev.Origin == model.OriginNative {
+			s.t.Errorf("%s imported %s %q", what, ev.Kind, ev.Text)
+		}
+	}
+}
+
+// noDifferences fails for any turn whose line says what ran differs from
+// what it asked for.
+func (s *session) noDifferences() {
+	s.t.Helper()
+	evs, err := s.svc.Events(s.id, 0)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	turns := 0
+	for _, ev := range evs {
+		if ev.Kind != model.EventTurnEnd {
+			continue
+		}
+		turns++
+		if ev.Turn != nil && len(ev.Turn.Differs) > 0 {
+			s.t.Errorf("turn %d asked %+v and ran %+v: differs in %v", ev.Seq, ev.Turn.Asked, ev.Turn.Ran, ev.Turn.Differs)
+		}
+	}
+	s.t.Logf("%d turns, none differing", turns)
+}
+
+// startedVersions is every version a conversation's starts reported.
+func startedVersions(t *testing.T, svc *service.Service, id string) []string {
+	t.Helper()
+	evs, err := svc.Events(id, 0)
+	if err != nil {
+		return nil
+	}
+	var versions []string
+	for _, ev := range evs {
+		if ev.Kind == model.EventRuntime && ev.Status == model.StatusStarted && ev.Facts != nil && ev.Facts.Version != "" && !slices.Contains(versions, ev.Facts.Version) {
+			versions = append(versions, ev.Facts.Version)
+		}
+	}
+	return versions
+}
+
+// oneVersion fails unless every start of the conversation that reported a
+// version reported the same one.
+func (s *session) oneVersion() {
+	s.t.Helper()
+	if v := startedVersions(s.t, s.svc, s.id); len(v) > 1 {
+		s.t.Errorf("the starts reported more than one version: %v", v)
+	}
+}
+
+// mcpReported waits for the runtime's report of its MCP servers and that it
+// reads without error. what it holds is the operator's own configuration, so
+// it is neither checked nor printed.
+func (s *session) mcpReported() {
+	s.t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		read, err := s.svc.MCP(s.id)
+		if err != nil {
+			s.t.Fatalf("reading the MCP report: %v", err)
+		}
+		if read.Reported {
+			return
+		}
+		if time.Now().After(deadline) {
+			s.t.Fatal("the runtime reported no MCP servers in 90 s")
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// deltas counts the streaming text the service publishes for conversation
+// id, or for any conversation when id is empty, from now until the returned
+// function is called, which ends the count.
+func deltas(svc *service.Service, id string) func() int {
+	sub := svc.Subscribe()
+	var n atomic.Int64
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for u := range sub.Updates() {
+			if (id == "" || u.ConversationID == id) && u.Delta != "" {
+				n.Add(1)
+			}
+		}
+	}()
+	return func() int {
+		sub.Close()
+		<-done
+		return int(n.Load())
+	}
+}
+
+// expectDeltas reports a harness that sent no streaming text on a turn. it
+// is said, not failed: a short reply may come whole.
+func (s *session) expectDeltas(count func() int, what string) {
+	s.t.Helper()
+	if n := count(); n == 0 {
+		s.t.Logf("NOTE: no delta arrived on %s", what)
+	} else {
+		s.t.Logf("%d deltas on %s", n, what)
+	}
 }
 
 func shutdown(t *testing.T, svc *service.Service, s *session) {
@@ -631,7 +853,9 @@ func shutdown(t *testing.T, svc *service.Service, s *session) {
 func TestClaudeModelAndEffort(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
 	chosen := env("MEGA_E2E_CLAUDE_MODEL", "sonnet")
-	svc := newE2EService(t, newClaudeHarness(t))
+	h := mustNewClaudeHarness(t)
+	readsSettings(t, h, fixture)
+	svc := newE2EService(t, h)
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
 		t.Fatal(err)
@@ -666,6 +890,19 @@ func TestClaudeModelAndEffort(t *testing.T) {
 	}
 	shutdown(t, svc, s)
 	t.Logf("session %s ran %s", view.NativeID, view.Facts.Model)
+}
+
+// readsSettings requires the harness's own settings in the fixture to read
+// without error: a new conversation copies from them, and a read that fails
+// is only a warning there, which no reply would show. what they name is the
+// operator's own and is not printed.
+func readsSettings(t *testing.T, h harness.Harness, fixture string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if _, err := h.Settings(ctx, harness.Place{Cwd: fixture, Env: os.Environ(), Find: os.Environ()}); err != nil {
+		t.Errorf("%s's settings in the fixture do not read: %v", h.Name(), err)
+	}
 }
 
 // startedSession releases a conversation that has had its first turn, starts
@@ -706,6 +943,9 @@ func startedSession(t *testing.T, svc *service.Service, s *session) service.Conv
 		case model.EventUser, model.EventAssistant, model.EventToolUse, model.EventToolResult, model.EventTurnEnd:
 			t.Errorf("an idle start recorded %s %q", ev.Kind, ev.Text)
 		}
+		if ev.Origin == model.OriginNative {
+			t.Errorf("an idle start imported %s %q", ev.Kind, ev.Text)
+		}
 	}
 	if v := s.view(); v.TurnActive || v.Attention == model.AttentionRunning {
 		t.Errorf("idle after a start: turn %v, attention %q", v.TurnActive, v.Attention)
@@ -716,11 +956,11 @@ func startedSession(t *testing.T, svc *service.Service, s *session) service.Conv
 // TestClaudeStartWithoutPrompt starts a released conversation with no
 // prompt: the runtime resumes the exact session and holds idle, reporting its
 // version and model, in the mode the launch passed, which is the
-// conversation's request; a mode switch is confirmed at once; the next
-// prompt is answered in the same session.
+// conversation's request; a switch to plan and one out of it are each
+// confirmed at once; the next prompt is answered in the same session.
 func TestClaudeStartWithoutPrompt(t *testing.T) {
 	fixture := fixture(t, "MEGA_E2E_CLAUDE_FIXTURE")
-	svc := newE2EService(t, newClaudeHarness(t))
+	svc := newE2EService(t, mustNewClaudeHarness(t))
 	project, err := svc.RegisterProject("claude-rt1", fixture)
 	if err != nil {
 		t.Fatal(err)
@@ -735,12 +975,16 @@ func TestClaudeStartWithoutPrompt(t *testing.T) {
 	if view.Facts.Version == "" || view.Facts.Model == "" || view.PermissionMode == "" || view.Facts.PermissionMode != view.PermissionMode {
 		t.Errorf("idle facts = %+v", view.Facts)
 	}
-	outcome, err := svc.SetPermissionMode(s.id, "acceptEdits")
-	if err != nil || outcome.Outcome != service.ModeConfirmed {
-		t.Fatalf("idle mode switch: %+v, %v", outcome, err)
-	}
-	if f := s.view().Facts; f.PermissionMode != "acceptEdits" {
-		t.Errorf("after the switch: %+v", f)
+	// plan, and out of it again: each switch confirmed, and the live mode
+	// following it.
+	for _, mode := range []string{"plan", "acceptEdits"} {
+		outcome, err := svc.SetPermissionMode(s.id, mode)
+		if err != nil || outcome.Outcome != service.ModeConfirmed {
+			t.Fatalf("idle mode switch to %s: %+v, %v", mode, outcome, err)
+		}
+		if f := s.view().Facts; f.PermissionMode != mode {
+			t.Errorf("after the switch to %s: %+v", mode, f)
+		}
 	}
 	s.prompt("Reply with the word BETA-START-9e1f. Nothing else.")
 	s.idle()

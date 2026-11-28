@@ -1054,6 +1054,14 @@ Mega's discovery used to cut Codex and pi at the 50 newest sessions in a checkou
 
 - **Discovery is a scan of the checkout's session folder,** since the protocol lists no sessions `[docs]`. Every file in it was already read before the cut, so removing the cut reads nothing more. One pi checkout on this machine held 183 session files on 2026-11-26, as counted by the planning agent.
 
+## Observation (2026-11-27): pi 1.6.1 sets its process title
+
+Seen in the `make e2e` run for the card `the-tested-ranges-reach-the-builds-in-use`, on pi 1.6.1, against `pi-rt1`.
+
+- **pi 1.6.1 sets its process title to `pi`, which replaces its arguments in `/proc`** `[observed]`. `/proc/<pid>/cmdline` for a pi started as `node …/cli.js --mode rpc --session-id <id>` reads `pi`, padded with spaces, with no session id, mode or path. pi 1.5.2 kept its arguments there. The release round trip's check, that no process names the session once pi is released, rested on that, and passes without proving anything on 1.6.1. The R4 round trip as first written looked for pi by its session id and found no process. The process's `comm` reads `pi` too.
+- **What it changes for mega: nothing in the product.** mega's own check for what a runtime left running, `harness.GroupSurvivors`, reads each process's group from `/proc/<pid>/stat`, which the title does not touch. Nothing in mega finds a harness by its command line.
+- **What it changed in the round trips.** A round trip finds the pi its own service started as the one process whose parent is the test's own process and whose working directory is the fixture (`piChildren` in `internal/e2e`). The release round trip's check that pi has ended is made the same way.
+
 ## Recommendations
 
 - Early versions rely on Michael's operator-care decision: close the previous writer before resuming a session elsewhere. Claude interactive sessions and pi do not refuse a second writer. mega should track its own managed processes, but its registry does not prove that an independently launched native process is absent. Stronger exclusion remains deferred, not an implementation requirement.
